@@ -1,0 +1,14 @@
+nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
+nginx: configuration file /etc/nginx/nginx.conf test is successful
+# configuration file /etc/nginx/nginx.conf:
+events {}
+http {
+    include /etc/nginx/conf.d/repeated.conf;
+    include /etc/nginx/conf.d/empty.conf;
+    include /etc/nginx/conf.d/repeated.conf;
+}
+# configuration file /etc/nginx/conf.d/repeated.conf:
+server { listen 8080; }
+# configuration file /etc/nginx/conf.d/empty.conf:
+# configuration file /etc/nginx/conf.d/repeated.conf:
+server { listen 8081; }

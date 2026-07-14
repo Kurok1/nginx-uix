@@ -1,0 +1,5 @@
+nginx version: nginx/1.30.3
+built by gcc 14.2.0 (Debian 14.2.0-19)
+built with OpenSSL 3.5.0
+TLS SNI support enabled
+configure arguments: --prefix=/etc/nginx --sbin-path=/usr/sbin/nginx --pid-path=/run/nginx.pid --with-cc-opt='-g -O2 -ffile-prefix-map=/build nginx=.' '--with-ld-opt=-Wl,-z,relro -Wl,-z,now' --with-http_ssl_module
