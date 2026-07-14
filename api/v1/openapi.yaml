@@ -1,0 +1,225 @@
+# @author hanchao <hanchao@66yunlian.com>
+# @since 0.1.0
+openapi: 3.1.0
+info:
+  title: Nginx UIX API
+  version: 0.1.0
+servers:
+  - url: /
+paths:
+  /health/live:
+    get:
+      operationId: getLiveness
+      summary: Check whether the UI process can serve HTTP
+      responses:
+        "200":
+          description: UI process is live
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+  /health/ready:
+    get:
+      operationId: getReadiness
+      summary: Check aggregate management readiness
+      responses:
+        "200":
+          description: Required management components are ready
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+        "503":
+          description: At least one required component is unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+  /api/v1/auth/session:
+    post:
+      operationId: createSession
+      summary: Authenticate the administrator
+      parameters:
+        - $ref: "#/components/parameters/Origin"
+        - $ref: "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Authenticated session
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Session"
+        "400":
+          $ref: "#/components/responses/APIError"
+        "401":
+          $ref: "#/components/responses/APIError"
+        "403":
+          $ref: "#/components/responses/APIError"
+        "413":
+          $ref: "#/components/responses/APIError"
+        "415":
+          $ref: "#/components/responses/APIError"
+        "429":
+          description: Login rate limit is active
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+                minimum: 1
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    get:
+      operationId: getSession
+      summary: Restore the current authenticated session
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/RequestID"
+      responses:
+        "200":
+          description: Current session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Session"
+        "401":
+          $ref: "#/components/responses/APIError"
+    delete:
+      operationId: deleteSession
+      summary: End the current authenticated session
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/Origin"
+        - $ref: "#/components/parameters/CSRFToken"
+        - $ref: "#/components/parameters/RequestID"
+      responses:
+        "204":
+          description: Session removed and browser cookie expired
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+        "401":
+          $ref: "#/components/responses/APIError"
+        "403":
+          $ref: "#/components/responses/APIError"
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: nginx_uix_session
+  parameters:
+    Origin:
+      name: Origin
+      in: header
+      required: true
+      schema:
+        type: string
+    CSRFToken:
+      name: X-CSRF-Token
+      in: header
+      required: true
+      schema:
+        type: string
+    RequestID:
+      name: X-Request-ID
+      in: header
+      required: false
+      schema:
+        type: string
+        pattern: "^[A-Za-z0-9._-]{1,64}$"
+  responses:
+    APIError:
+      description: Stable API error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+  schemas:
+    HealthStatus:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok, unavailable]
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      required: [username, password]
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+          format: password
+    SessionUser:
+      type: object
+      additionalProperties: false
+      required: [id, username, created_at]
+      properties:
+        id:
+          type: integer
+          format: int64
+        username:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+    Session:
+      type: object
+      additionalProperties: false
+      required: [user, csrf_token, created_at, last_seen_at, idle_expires_at, absolute_expires_at]
+      properties:
+        user:
+          $ref: "#/components/schemas/SessionUser"
+        csrf_token:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        last_seen_at:
+          type: string
+          format: date-time
+        idle_expires_at:
+          type: string
+          format: date-time
+        absolute_expires_at:
+          type: string
+          format: date-time
+    ErrorEnvelope:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          $ref: "#/components/schemas/APIError"
+    APIError:
+      type: object
+      additionalProperties: false
+      required: [code, message, request_id]
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        request_id:
+          type: string
+        details:
+          type: object
+          additionalProperties: true

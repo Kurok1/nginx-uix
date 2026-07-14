@@ -276,7 +276,7 @@ func (d *DB) withImmediateTransaction(ctx context.Context, operation func(*sql.C
 	committed := false
 	defer func() {
 		if !committed {
-			rollbackContext, cancel := context.WithTimeout(context.Background(), time.Second)
+			rollbackContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
 			defer cancel()
 			_, _ = connection.ExecContext(rollbackContext, "ROLLBACK")
 		}

@@ -93,6 +93,17 @@ func TestLoadConfigRejectsInvalidNetworkSettings(t *testing.T) {
 	}
 }
 
+func TestLoadConfigAcceptsPublicOriginWithRootSlash(t *testing.T) {
+	t.Setenv("NGINX_UIX_PUBLIC_URL", "https://admin.example.test/")
+	config, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	if got, want := config.PublicURL.String(), "https://admin.example.test"; got != want {
+		t.Fatalf("PublicURL = %q, want normalized %q", got, want)
+	}
+}
+
 var documentedEnvironmentVariables = []string{
 	"NGINX_UIX_LISTEN_ADDR",
 	"NGINX_UIX_PUBLIC_URL",

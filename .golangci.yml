@@ -21,11 +21,26 @@ linters:
     - staticcheck
     - unconvert
     - unparam
+  settings:
+    revive:
+      rules:
+        - name: package-comments
+          disabled: true
+  exclusions:
+    paths:
+      - web/node_modules
+    rules:
+      - path: _test\.go
+        linters:
+          - gosec
 
 formatters:
   enable:
     - gofmt
     - goimports
+  exclusions:
+    paths:
+      - web/node_modules
 
 issues:
   max-issues-per-linter: 0

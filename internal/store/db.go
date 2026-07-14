@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 
+	// Register the CGo-free SQLite database/sql driver used by Open.
 	_ "modernc.org/sqlite"
 )
 
@@ -69,6 +70,18 @@ func (d *DB) Close() error {
 	return nil
 }
 
+// Ping verifies that the live SQLite connection can answer a bounded scalar query.
+func (d *DB) Ping(ctx context.Context) error {
+	var value int
+	if err := d.sql.QueryRowContext(ctx, "SELECT 1").Scan(&value); err != nil {
+		return fmt.Errorf("ping sqlite database: %w", err)
+	}
+	if value != 1 {
+		return fmt.Errorf("ping sqlite database: unexpected result")
+	}
+	return nil
+}
+
 func prepareDatabaseFile(path string) (bool, error) {
 	if !filepath.IsAbs(path) {
 		return false, fmt.Errorf("validate database path: absolute path required")
@@ -99,6 +112,7 @@ func prepareDatabaseFile(path string) (bool, error) {
 		return false, fmt.Errorf("inspect database file: %w", err)
 	}
 
+	// #nosec G304 -- path is trusted process configuration and validated above.
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0o600)
 	if err != nil {
 		return false, fmt.Errorf("create database file: %w", err)

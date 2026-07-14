@@ -111,7 +111,10 @@ func (d *DB) applyMigration(ctx context.Context, version int, name string, check
 	committed := false
 	defer func() {
 		if !committed {
-			_, _ = connection.ExecContext(context.Background(), "ROLLBACK")
+			rollbackContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
+			defer cancel()
+			// Rollback is best effort; the original migration error remains authoritative.
+			_, _ = connection.ExecContext(rollbackContext, "ROLLBACK")
 		}
 	}()
 

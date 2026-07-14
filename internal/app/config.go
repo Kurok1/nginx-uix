@@ -95,8 +95,9 @@ func parsePublicURL(raw string) (*url.URL, error) {
 	if (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
 		return nil, fmt.Errorf("validate public URL: absolute HTTP(S) URL required")
 	}
-	if parsed.User != nil || parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" {
+	if parsed.User != nil || (parsed.Path != "" && parsed.Path != "/") || parsed.RawQuery != "" || parsed.Fragment != "" {
 		return nil, fmt.Errorf("validate public URL: origin URL required")
 	}
+	parsed.Path = ""
 	return parsed, nil
 }

@@ -142,6 +142,7 @@ func VerifyPassword(encoded, password string) (bool, error) {
 }
 
 func openPasswordFile(path string) (*os.File, error) {
+	// #nosec G304 -- the Secret path is trusted process configuration, never HTTP input.
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("open bootstrap password file: %w", err)

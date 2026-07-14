@@ -25,7 +25,8 @@ const (
 	throttleLimit     = 5
 	throttleBlock     = 15 * time.Minute
 	csrfContext       = "nginx-uix-csrf-v1"
-	dummyPassword     = "nginx-uix-dummy-password-value"
+	// #nosec G101 -- this fixed non-secret input equalizes missing-user verification work.
+	dummyPassword = "nginx-uix-dummy-password-value"
 )
 
 // Service implements administrator bootstrap, login and session lifecycle rules.
