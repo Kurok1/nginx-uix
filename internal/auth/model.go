@@ -7,6 +7,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"net/netip"
 	"time"
 )
 
@@ -75,6 +76,7 @@ type Session struct {
 	LastSeenAt        time.Time
 	IdleExpiresAt     time.Time
 	AbsoluteExpiresAt time.Time
+	User              User
 }
 
 // NewSession contains the fields for an issued session.
@@ -85,6 +87,50 @@ type SessionTouch struct {
 	TokenDigest   [32]byte
 	LastSeenAt    time.Time
 	IdleExpiresAt time.Time
+}
+
+// Clock supplies deterministic authentication timestamps.
+type Clock interface {
+	Now() time.Time
+}
+
+// BootstrapInput contains trusted process-level first-administrator settings.
+type BootstrapInput struct {
+	Username     string
+	PasswordFile string
+	Password     string
+}
+
+// LoginInput contains one credential attempt and the direct socket peer address.
+type LoginInput struct {
+	Username string
+	Password string
+	SourceIP netip.Addr
+}
+
+// IssuedSession carries raw secrets only across the immediate service/API boundary.
+type IssuedSession struct {
+	User              User
+	Token             string
+	CSRFToken         string
+	CreatedAt         time.Time
+	LastSeenAt        time.Time
+	IdleExpiresAt     time.Time
+	AbsoluteExpiresAt time.Time
+}
+
+// RateLimitError supplies a stable retry duration without exposing credentials.
+type RateLimitError struct {
+	RetryAfter time.Duration
+}
+
+func (e *RateLimitError) Error() string {
+	return ErrRateLimited.Error()
+}
+
+// Unwrap supports errors.Is with ErrRateLimited.
+func (e *RateLimitError) Unwrap() error {
+	return ErrRateLimited
 }
 
 // Repository is the persistence contract consumed by authentication services.

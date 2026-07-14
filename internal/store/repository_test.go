@@ -100,6 +100,7 @@ func TestRepositorySessionAndThrottleSurviveReopen(t *testing.T) {
 		LastSeenAt:        createdAt,
 		IdleExpiresAt:     createdAt.Add(8 * time.Hour),
 		AbsoluteExpiresAt: createdAt.Add(24 * time.Hour),
+		User:              user,
 	}
 	if _, err := database.CreateSession(context.Background(), wantSession); err != nil {
 		t.Fatalf("CreateSession() error = %v", err)

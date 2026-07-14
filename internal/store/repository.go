@@ -201,15 +201,24 @@ func (d *DB) CreateSession(ctx context.Context, session auth.NewSession) (auth.S
 	if err != nil {
 		return auth.Session{}, fmt.Errorf("create session: %w", err)
 	}
-	return normalizeSessionTimes(session), nil
+	created, err := d.SessionByDigest(ctx, session.TokenDigest)
+	if err != nil {
+		return auth.Session{}, fmt.Errorf("read created session: %w", err)
+	}
+	return created, nil
 }
 
 // SessionByDigest finds one session without accepting a raw browser token.
 func (d *DB) SessionByDigest(ctx context.Context, digest [32]byte) (auth.Session, error) {
 	session, err := scanSession(d.sql.QueryRowContext(
 		ctx,
-		`SELECT token_digest, user_id, csrf_digest, created_at, last_seen_at, idle_expires_at, absolute_expires_at
-		 FROM sessions WHERE token_digest = ? LIMIT 1`,
+		`SELECT
+			s.token_digest, s.user_id, s.csrf_digest, s.created_at, s.last_seen_at,
+			s.idle_expires_at, s.absolute_expires_at,
+			u.id, u.username, u.normalized_name, u.password_hash, u.disabled, u.created_at
+		 FROM sessions AS s
+		 JOIN users AS u ON u.id = s.user_id
+		 WHERE s.token_digest = ? LIMIT 1`,
 		digest[:],
 	))
 	if errors.Is(err, sql.ErrNoRows) {
@@ -341,6 +350,8 @@ func scanSession(row rowScanner) (auth.Session, error) {
 	var session auth.Session
 	var tokenDigest, csrfDigest []byte
 	var createdAt, lastSeenAt, idleExpiresAt, absoluteExpiresAt string
+	var userDisabled int
+	var userCreatedAt string
 	if err := row.Scan(
 		&tokenDigest,
 		&session.UserID,
@@ -349,6 +360,12 @@ func scanSession(row rowScanner) (auth.Session, error) {
 		&lastSeenAt,
 		&idleExpiresAt,
 		&absoluteExpiresAt,
+		&session.User.ID,
+		&session.User.Username,
+		&session.User.NormalizedName,
+		&session.User.PasswordHash,
+		&userDisabled,
+		&userCreatedAt,
 	); err != nil {
 		return auth.Session{}, err
 	}
@@ -368,6 +385,12 @@ func scanSession(row rowScanner) (auth.Session, error) {
 		}
 		*parsedTimes[index] = parsed
 	}
+	parsedUserCreatedAt, err := parseTime("session user creation", userCreatedAt)
+	if err != nil {
+		return auth.Session{}, err
+	}
+	session.User.Disabled = userDisabled != 0
+	session.User.CreatedAt = parsedUserCreatedAt
 	return session, nil
 }
 
@@ -381,12 +404,4 @@ func parseTime(label, value string) (time.Time, error) {
 		return time.Time{}, fmt.Errorf("parse %s: %w", label, err)
 	}
 	return parsed.UTC(), nil
-}
-
-func normalizeSessionTimes(session auth.Session) auth.Session {
-	session.CreatedAt = session.CreatedAt.UTC()
-	session.LastSeenAt = session.LastSeenAt.UTC()
-	session.IdleExpiresAt = session.IdleExpiresAt.UTC()
-	session.AbsoluteExpiresAt = session.AbsoluteExpiresAt.UTC()
-	return session
 }
