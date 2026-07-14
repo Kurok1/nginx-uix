@@ -24,12 +24,24 @@ const (
 
 type commandExecutor func(context.Context, commandSpec) (commandResult, error)
 
+type processSource interface {
+	Snapshot(context.Context) (processSnapshot, error)
+}
+
+type pidFileReader func(context.Context, string) (int, error)
+
+type startupStateReader func(context.Context) (*StartupState, error)
+
 // Service performs the fixed read-only Nginx inspection operations.
 type Service struct {
 	executor             commandExecutor
 	buildLock            chan struct{}
 	cachedBuild          *BuildInfo
 	effectiveConfigGroup singleflight.Group
+	processSource        processSource
+	readPIDFile          pidFileReader
+	readStartupState     startupStateReader
+	now                  func() time.Time
 }
 
 // NewService creates the production fixed-command service.
@@ -38,7 +50,14 @@ func NewService() *Service {
 }
 
 func newServiceWithExecutor(executor commandExecutor) *Service {
-	return &Service{executor: executor, buildLock: make(chan struct{}, 1)}
+	return &Service{
+		executor:         executor,
+		buildLock:        make(chan struct{}, 1),
+		processSource:    newLinuxProcessSource(),
+		readPIDFile:      readPIDFile,
+		readStartupState: readStartupState,
+		now:              func() time.Time { return time.Now().UTC() },
+	}
 }
 
 // BuildInfo executes and caches only a successfully parsed nginx -V result.
