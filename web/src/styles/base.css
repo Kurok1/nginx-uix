@@ -1,0 +1,80 @@
+/**
+ * @author hanchao <hanchao@66yunlian.com>
+ * @since 0.1.0
+ */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--color-canvas-parchment);
+  color: var(--color-ink);
+  font-family: var(--font-ui);
+  font-synthesis: none;
+  text-rendering: optimizelegibility;
+}
+
+body {
+  min-width: 0;
+  min-height: 100vh;
+  margin: 0;
+  background: var(--color-canvas-parchment);
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-body);
+  letter-spacing: var(--letter-spacing-body);
+}
+
+button,
+input,
+select,
+textarea {
+  color: inherit;
+  font: inherit;
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+a {
+  color: var(--color-primary);
+  text-underline-offset: 0.2em;
+}
+
+:focus-visible {
+  outline: var(--focus-outline);
+  outline-offset: var(--focus-offset);
+}
+
+[hidden] {
+  display: none !important;
+}
+
+#app {
+  min-width: 0;
+  min-height: 100vh;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin-block-start: 0;
+}
+
+h1,
+h2,
+h3 {
+  font-weight: var(--font-weight-semibold);
+}
+
+@supports (min-height: 100dvh) {
+  body,
+  #app {
+    min-height: 100dvh;
+  }
+}

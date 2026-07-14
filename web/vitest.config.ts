@@ -9,6 +9,7 @@ export default defineConfig({
   plugins: [vue()],
   test: {
     environment: 'jsdom',
+    execArgv: ['--no-experimental-webstorage'],
     globals: true,
     restoreMocks: true,
   },

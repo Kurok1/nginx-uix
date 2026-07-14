@@ -1,0 +1,71 @@
+/**
+ * @author hanchao <hanchao@66yunlian.com>
+ * @since 0.1.0
+ */
+:root {
+  color-scheme: light;
+
+  --color-primary: #0066cc;
+  --color-primary-focus: #0071e3;
+  --color-primary-on-dark: #2997ff;
+  --color-canvas: #ffffff;
+  --color-canvas-parchment: #f5f5f7;
+  --color-canvas-parchment-frosted: rgb(245 245 247 / 80%);
+  --color-surface-black: #000000;
+  --color-ink: #1d1d1f;
+  --color-body-on-dark: #ffffff;
+  --color-body-muted: #cccccc;
+  --color-ink-muted: #7a7a7a;
+  --color-ink-muted-80: #333333;
+  --color-ink-muted-48: #7a7a7a;
+  --color-hairline: #e0e0e0;
+  --color-status-success-foreground: #1b6e3c;
+  --color-status-success-surface: #eaf7ef;
+  --color-status-warning-foreground: #8a4b00;
+  --color-status-warning-surface: #fff4e5;
+  --color-status-error-foreground: #b42318;
+  --color-status-error-surface: #fef0ef;
+  --color-status-unknown-foreground: #515154;
+  --color-status-unknown-surface: #eeeeef;
+
+  --font-ui: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-code: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
+
+  --font-size-body: 17px;
+  --font-size-caption: 14px;
+  --font-size-nav: 12px;
+  --font-size-tagline: 21px;
+  --font-weight-regular: 400;
+  --font-weight-semibold: 600;
+  --line-height-body: 1.47;
+  --letter-spacing-body: -0.374px;
+  --letter-spacing-caption: -0.224px;
+  --letter-spacing-nav: -0.12px;
+
+  --spacing-xxs: 4px;
+  --spacing-xs: 8px;
+  --spacing-sm: 12px;
+  --spacing-md: 17px;
+  --spacing-lg: 24px;
+  --spacing-xl: 32px;
+  --spacing-xxl: 48px;
+  --spacing-section: 80px;
+
+  --rounded-none: 0;
+  --rounded-sm: 8px;
+  --rounded-lg: 18px;
+  --rounded-pill: 9999px;
+
+  --component-global-nav-height: 44px;
+  --component-sub-nav-height: 52px;
+  --component-control-min-size: 44px;
+  --component-content-max-width: 1440px;
+  --component-page-gutter: 24px;
+  --component-page-gutter-compact: 16px;
+
+  --focus-outline: 2px solid var(--color-primary-focus);
+  --focus-offset: 2px;
+  --z-index-global-nav: 30;
+  --z-index-sub-nav: 20;
+}
