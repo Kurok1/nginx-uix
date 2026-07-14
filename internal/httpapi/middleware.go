@@ -48,6 +48,12 @@ func requestBoundary(next http.Handler, logger *slog.Logger, generator *requestI
 	}
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		startedAt := time.Now()
+		writer.Header().Set("Content-Security-Policy", "default-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'")
+		writer.Header().Set("X-Frame-Options", "DENY")
+		writer.Header().Set("X-Content-Type-Options", "nosniff")
+		writer.Header().Set("Referrer-Policy", "no-referrer")
+		writer.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+
 		requestID := request.Header.Get("X-Request-ID")
 		if !requestIDPattern.MatchString(requestID) {
 			generated, err := generator.Generate()
@@ -59,11 +65,6 @@ func requestBoundary(next http.Handler, logger *slog.Logger, generator *requestI
 		}
 
 		writer.Header().Set("X-Request-ID", requestID)
-		writer.Header().Set("Content-Security-Policy", "default-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'")
-		writer.Header().Set("X-Frame-Options", "DENY")
-		writer.Header().Set("X-Content-Type-Options", "nosniff")
-		writer.Header().Set("Referrer-Policy", "no-referrer")
-		writer.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
 
 		capture := &statusCapture{ResponseWriter: writer, status: http.StatusOK}
 		ctx := context.WithValue(request.Context(), requestIDContextKey{}, requestID)

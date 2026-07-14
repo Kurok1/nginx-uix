@@ -6,6 +6,7 @@ package httpapi
 
 import (
 	"bytes"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -36,6 +37,21 @@ func TestRequestBoundaryReplacesMalformedRequestIDAndAddsSecurityHeaders(t *test
 	}
 }
 
+func TestRequestBoundaryKeepsSecurityHeadersWhenRequestIDGenerationFails(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/health/live", nil)
+	NewHandler(Dependencies{RequestIDSource: failingReader{}}).ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", recorder.Code)
+	}
+	for _, header := range []string{"Content-Security-Policy", "X-Frame-Options", "X-Content-Type-Options", "Referrer-Policy", "Permissions-Policy"} {
+		if recorder.Header().Get(header) == "" {
+			t.Errorf("%s is absent on request-ID failure", header)
+		}
+	}
+}
+
 func TestRequestBoundaryPreservesValidRequestID(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/health/live", nil)
@@ -44,4 +60,10 @@ func TestRequestBoundaryPreservesValidRequestID(t *testing.T) {
 	if got, want := recorder.Header().Get("X-Request-ID"), "request_123.test-ok"; got != want {
 		t.Fatalf("X-Request-ID = %q, want %q", got, want)
 	}
+}
+
+type failingReader struct{}
+
+func (failingReader) Read([]byte) (int, error) {
+	return 0, errors.New("random source unavailable")
 }
