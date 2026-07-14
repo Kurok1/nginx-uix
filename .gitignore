@@ -62,3 +62,6 @@ npm-debug.log*
 !.codex/
 !.codex/skills/
 !.codex/skills/**
+
+# Local Git worktrees
+/.worktrees/
