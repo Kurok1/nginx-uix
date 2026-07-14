@@ -25,6 +25,14 @@ colors:
   surface-chip-translucent: "#d2d2d7"
   on-primary: "#ffffff"
   on-dark: "#ffffff"
+  status-success-foreground: "#1b6e3c"
+  status-success-surface: "#eaf7ef"
+  status-warning-foreground: "#8a4b00"
+  status-warning-surface: "#fff4e5"
+  status-error-foreground: "#b42318"
+  status-error-surface: "#fef0ef"
+  status-unknown-foreground: "#515154"
+  status-unknown-surface: "#eeeeef"
 
 typography:
   hero-display:
@@ -123,6 +131,12 @@ typography:
     fontWeight: 400
     lineHeight: 1.0
     letterSpacing: -0.12px
+  code:
+    fontFamily: "ui-monospace, SFMono-Regular, \"SF Mono\", Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace"
+    fontSize: 13px
+    fontWeight: 400
+    lineHeight: 1.54
+    letterSpacing: 0
 
 rounded:
   none: 0px
@@ -254,6 +268,82 @@ components:
     rounded: "{rounded.pill}"
     padding: 12px 20px
     height: 44px
+  form-field:
+    backgroundColor: "{colors.canvas}"
+    textColor: "{colors.ink}"
+    borderColor: "{colors.ink-muted-48}"
+    borderWidth: 1px
+    typography: "{typography.body}"
+    rounded: "{rounded.sm}"
+    minHeight: 44px
+    padding: 9px 12px
+  form-field-error:
+    backgroundColor: "{colors.canvas}"
+    textColor: "{colors.ink}"
+    borderColor: "{colors.status-error-foreground}"
+    borderWidth: 1px
+    rounded: "{rounded.sm}"
+    minHeight: 44px
+  form-field-disabled:
+    backgroundColor: "{colors.canvas-parchment}"
+    textColor: "{colors.ink-muted-80}"
+    borderColor: "{colors.ink-muted-48}"
+    borderWidth: 1px
+    rounded: "{rounded.sm}"
+    minHeight: 44px
+  form-field-loading:
+    backgroundColor: "{colors.canvas}"
+    textColor: "{colors.ink}"
+    indicatorColor: "{colors.ink-muted-48}"
+    borderColor: "{colors.ink-muted-48}"
+    borderWidth: 1px
+    rounded: "{rounded.sm}"
+    minHeight: 44px
+  form-help:
+    textColor: "{colors.ink-muted-80}"
+    typography: "{typography.caption}"
+  form-error:
+    textColor: "{colors.status-error-foreground}"
+    typography: "{typography.caption}"
+  status-badge:
+    backgroundColor: "{colors.status-unknown-surface}"
+    textColor: "{colors.status-unknown-foreground}"
+    typography: "{typography.caption-strong}"
+    rounded: "{rounded.pill}"
+    padding: 4px 10px
+  status-badge-success:
+    backgroundColor: "{colors.status-success-surface}"
+    textColor: "{colors.status-success-foreground}"
+    rounded: "{rounded.pill}"
+  status-badge-warning:
+    backgroundColor: "{colors.status-warning-surface}"
+    textColor: "{colors.status-warning-foreground}"
+    rounded: "{rounded.pill}"
+  status-badge-error:
+    backgroundColor: "{colors.status-error-surface}"
+    textColor: "{colors.status-error-foreground}"
+    rounded: "{rounded.pill}"
+  status-badge-unknown:
+    backgroundColor: "{colors.status-unknown-surface}"
+    textColor: "{colors.status-unknown-foreground}"
+    rounded: "{rounded.pill}"
+  metric-card:
+    backgroundColor: "{colors.canvas}"
+    textColor: "{colors.ink}"
+    borderColor: "{colors.hairline}"
+    borderWidth: 1px
+    typography: "{typography.body}"
+    rounded: "{rounded.lg}"
+    padding: 24px
+  read-only-code-viewer:
+    backgroundColor: "{colors.canvas}"
+    textColor: "{colors.ink}"
+    mutedTextColor: "{colors.ink-muted-80}"
+    borderColor: "{colors.hairline}"
+    borderWidth: 1px
+    typography: "{typography.code}"
+    rounded: "{rounded.lg}"
+    padding: 24px
   floating-sticky-bar:
     backgroundColor: "{colors.canvas-parchment}"
     textColor: "{colors.ink}"
@@ -291,6 +381,8 @@ Store and shop surfaces retain the same chassis but switch modes. The product co
 - Tight two-row nav: slim `{component.global-nav}` + product-specific `{component.sub-nav-frosted}` with persistent right-aligned primary CTA.
 - Section rhythm across multiple pages: light hero → dark product tile → light utility tile → dark tile → parchment footer — a predictable pulse.
 
+Operational surfaces use a denser expression of the same language rather than a separate admin theme. Forms, runtime metrics, status badges, and effective-configuration views keep the system type, hairlines, radii, spacing, and flat chrome. Semantic status colors communicate health only; they do not alter the one-accent interaction grammar.
+
 ## Colors
 
 > **Source pages analyzed:** homepage, environment, store, iPhone 17 Pro buy page, accessories index. The color system is identical across all five surfaces; only the surface-mode mix differs.
@@ -322,6 +414,17 @@ Store and shop surfaces retain the same chassis but switch modes. The product co
 - **Divider Soft** (`{colors.divider-soft}` — #f0f0f0): The "border" tone on secondary buttons — functions as a ring shadow rather than a hard line. In production, often applied as `rgba(0, 0, 0, 0.04)`.
 - **Hairline** (`{colors.hairline}` — #e0e0e0): The 1px hairline border on store utility cards and configurator chips.
 
+### Operational Status (Status Only)
+
+The following tokens are four inseparable foreground/surface pairs. They are reserved exclusively for semantic state and health: never use them for links, buttons, selected navigation, keyboard focus, chart categories, branding, or decoration. **Action Blue (`{colors.primary}`) remains the sole interaction accent.**
+
+- **Success:** `{colors.status-success-foreground}` (#1b6e3c) on `{colors.status-success-surface}` (#eaf7ef).
+- **Warning:** `{colors.status-warning-foreground}` (#8a4b00) on `{colors.status-warning-surface}` (#fff4e5).
+- **Error:** `{colors.status-error-foreground}` (#b42318) on `{colors.status-error-surface}` (#fef0ef).
+- **Unknown:** `{colors.status-unknown-foreground}` (#515154) on `{colors.status-unknown-surface}` (#eeeeef).
+
+Every status presentation combines its color pair with visible text and a distinct icon or shape. Success uses a check in a circle, warning an exclamation in a triangle, error an exclamation in an octagon, and unknown a question mark in a diamond. The icon is redundant to the adjacent status text and is hidden from assistive technology; the text supplies the accessible name.
+
 ### Brand Gradient
 **No decorative gradients.** Atmospheric depth on product photography (the iPhone 17 Pro camera plate, the Apple Watch bands, AirPods reflections) is inherent to the imagery, not a CSS gradient overlay. The environment page's hero uses photographic atmosphere (mountain vista at dawn) but no gradient tokens are defined. Apple is the rare luxury-brand site with zero gradient-based design tokens.
 
@@ -330,6 +433,7 @@ Store and shop surfaces retain the same chassis but switch modes. The product co
 ### Font Family
 - **Display**: `SF Pro Display, system-ui, -apple-system, sans-serif` — Apple's proprietary display face, optimized for sizes ≥ 19px. Defines the voice of every headline.
 - **Body / UI**: `SF Pro Text, system-ui, -apple-system, sans-serif` — the text-optimized variant used for body copy, captions, buttons, and links below 20px.
+- **Code / Configuration**: `ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace` — the system monospace stack for effective Nginx configuration and other literal machine output. UI labels and controls around code remain in the Body / UI stack.
 - **OpenType features**: `font-variant-numeric: numerator` is enabled on numeric links (pricing tables, spec sheets). Display sizes rely on tight tracking rather than contextual ligatures.
 
 ### Hierarchy
@@ -352,6 +456,7 @@ Store and shop surfaces retain the same chassis but switch modes. The product co
 | `{typography.fine-print}` | 12px | 400 | 1.0 | -0.12px | Fine-print, footer body |
 | `{typography.micro-legal}` | 10px | 400 | 1.3 | -0.08px | Micro legal disclaimers |
 | `{typography.nav-link}` | 12px | 400 | 1.0 | -0.12px | Global nav menu items |
+| `{typography.code}` | 13px | 400 | 1.54 | 0 | Read-only configuration and literal machine output |
 
 ### Principles
 
@@ -361,6 +466,7 @@ Store and shop surfaces retain the same chassis but switch modes. The product co
 - **Weight 600, not 700, for headlines.** Apple's headlines sit at weight 600. Weight 700 is used sparingly for `{typography.tagline}` (21px) when a touch more assertion is needed.
 - **Line-height is context-specific.** Display sizes use 1.07–1.19 (tight). Body uses 1.47. Utility link stacks in the footer/store use an unusually relaxed 2.41 (`{typography.dense-link}`). The 2.41 is not a bug — it's how the footer's dense link columns breathe.
 - **Weight 500 is deliberately absent.** The ladder is 300 / 400 / 600 / 700. Mid-weight readings always use 600.
+- **Monospace is content, not chrome.** Only literal configuration and machine output use `{typography.code}`. File selectors, line-wrap controls, labels, badges, and helper text stay on the system sans-serif UI stack.
 
 ### Note on Font Substitutes
 SF Pro is Apple's proprietary system font. When building off-system:
@@ -384,6 +490,12 @@ SF Pro is Apple's proprietary system font. When building off-system:
 - **Max content width:** ~980px on text-heavy sections (environment), ~1440px on product grids (store, accessories), full-bleed for product tiles (homepage).
 - **Column patterns:** 3 to 5 column utility card grid on store/accessories; 2-column side-by-side tiles on homepage occasional sections; single-column centered stack on product tile heroes.
 - **Gutters:** 20–24px between cards in a utility grid.
+
+### Operational Layout
+
+- Dashboard metrics use a three-column baseline grid with `{spacing.lg}` (24px) gutters. Each child has `min-width: 0` so long runtime values wrap inside the card rather than widening the page.
+- The effective-configuration surface is two-column above 734px: a bounded file/order navigator beside one `{component.read-only-code-viewer}`. The navigator never competes with the code area for horizontal page scroll.
+- Operational cards and code containers use `{rounded.lg}` (18px), `{spacing.lg}` (24px) internal padding, and a 1px `{colors.hairline}` border. They never use the product shadow or a decorative gradient.
 
 ### Whitespace Philosophy
 Apple's whitespace is the product's pedestal. Every tile begins with at least 64px of air above its headline and 48–64px below. Product renders are never crowded; the nearest content to a product image is at least 40px away. The footer is the only area that breaks this — there, Apple goes deliberately dense to make the full information architecture visible at a glance.
@@ -467,6 +579,10 @@ Apple's whitespace is the product's pedestal. Every tile begins with at least 64
 
 **`store-utility-card`** — Used in store grid and accessories grid. Background `{colors.canvas}` (white), 1px solid `{colors.hairline}` border, rounded `{rounded.lg}` (18px), padding `{spacing.lg}` (24px). Top: product image (1:1 crop with `{rounded.sm}` (8px) inner image radius). Below: product name in `{typography.body-strong}` (17px / 600), price in `{typography.body}` (17px / 400), and a `{component.text-link}` ("Buy" or "Learn more"). No shadow by default; product render itself carries the system product-shadow.
 
+**`metric-card`** — The dashboard's compact readout container. Background `{colors.canvas}`, 1px `{colors.hairline}` border, rounded `{rounded.lg}` (18px), padding `{spacing.lg}` (24px), and no chrome shadow or gradient. A short heading identifies the metric, the primary value remains `{colors.ink}`, and optional supporting copy uses `{typography.caption}`. Represent label/value data as a semantic `<dl>` or a labelled `<article>`; do not make the whole card look clickable. An optional `{component.status-badge}` carries health, while any real action is a separate labelled control with a minimum 44 × 44px target.
+
+During refresh, set `aria-busy="true"` on only the affected card or metric group and preserve its dimensions. Announce a concise result in the nearest `aria-live="polite"` region only after a user-requested refresh or a meaningful state change; do not make the entire grid live or repeatedly announce timers. Loading, error, and unknown values always show a short text phrase plus their progress/status icon.
+
 **`configurator-option-chip`** — Pill-shaped tappable cell used in the iPhone 17 Pro buy page. Background `{colors.canvas}`, text `{colors.ink}` in `{typography.caption}`, rounded `{rounded.pill}`, padding 12px × 16px. Contains a small product thumbnail + label + price delta. Arranged in a grid of 4–5 options per row.
 
 **`configurator-option-chip-selected`** — Selected state. Border upgrades to 2px solid `{colors.primary-focus}`. Same shape, same content.
@@ -479,7 +595,31 @@ Apple's whitespace is the product's pedestal. Every tile begins with at least 64
 
 **`search-input`** — The accessories search input. Background `{colors.canvas}`, text `{colors.ink}` in `{typography.body}` (17px), 1px solid `rgba(0, 0, 0, 0.08)` border, rounded `{rounded.pill}` (full pill — search is also pill-shaped, matching the CTA grammar), padding 12px × 20px, height 44px. Leading icon: search glyph at 14px, muted tint.
 
-Error and validation states were not surfaced in the analyzed pages.
+**`form-field`** — The neutral operational input, select, or textarea. Background `{colors.canvas}`, text `{colors.ink}` in `{typography.body}`, 1px `{colors.ink-muted-48}` border, rounded `{rounded.sm}` (8px), horizontal padding 12px, and minimum height 44px. The stronger neutral border gives the control boundary at least 3:1 contrast; `{colors.hairline}` remains the non-essential grouping border for cards and code containers. Every field has a persistent visible `<label>`; placeholders are examples, never labels. Focus uses a 2px `{colors.primary-focus}` outline with offset, so Action Blue remains the only interactive focus signal.
+
+**`form-help`** — Optional supporting text immediately after a field, in `{typography.caption}` and `{colors.ink-muted-80}`. Give it a stable ID and include that ID in the field's `aria-describedby` token list.
+
+**`form-error`** — A specific error message in `{typography.caption}` and `{colors.status-error-foreground}`, preceded by the error octagon icon. `{component.form-field-error}` changes the resting border to `{colors.status-error-foreground}`, but focus still uses Action Blue and the icon/text remain visible; color is never the only error cue. Set `aria-invalid="true"` and append the error message ID to `aria-describedby` without dropping the help ID. New submit-time errors may be announced once through the nearest restrained `aria-live="polite"` region; reserve `role="alert"` for a blocking safety failure, never every keystroke.
+
+**Disabled behavior** — `{component.form-field-disabled}` uses `{colors.canvas-parchment}`, `{colors.ink-muted-80}`, and the neutral `{colors.ink-muted-48}` boundary while keeping its content legible. Use native `disabled` for native controls; custom controls require `aria-disabled="true"` plus actual event suppression. Show a nearby reason when the cause is not obvious. Do not communicate disabled state through reduced opacity or color alone, and do not leave a disabled-looking control operable.
+
+**Loading behavior** — `{component.form-field-loading}` preserves the control's size and current value, adds a progress indicator plus a visible verb phrase such as “Loading…” or “Saving…”, and sets `aria-busy="true"` on the smallest affected group. A submitting button may use native `disabled` to prevent repeats, but its visible label must change to the in-progress phrase and the result is announced once by a nearby `aria-live="polite"` status. Under `prefers-reduced-motion: reduce`, use a static progress glyph with the same text instead of continuous spin.
+
+### Status & Feedback
+
+**`status-badge`** — A compact, non-interactive status label in `{typography.caption-strong}`, rounded `{rounded.pill}`, with 4px × 10px padding. The base and `{component.status-badge-unknown}` use the Unknown pair; `{component.status-badge-success}`, `{component.status-badge-warning}`, and `{component.status-badge-error}` use their matching foreground/surface pairs. Every badge includes the visible state word plus its prescribed shape/icon. The redundant icon is `aria-hidden="true"`; never publish an unlabeled colored dot. If a status needs an action, place a separate 44 × 44px minimum button or link beside it rather than making the badge interactive.
+
+Static badges need no live-region role. For asynchronous status changes, put one concise text node in the closest owner region with `aria-live="polite"` and `aria-atomic="true"`; do not attach `aria-live` to the page shell, metric grid, or rapidly updating log. A blocking error may use a one-time alert at the task boundary, but subsequent detail remains ordinary readable content.
+
+### Read-only Configuration
+
+**`read-only-code-viewer`** — A labelled, read-only region for effective Nginx configuration and bounded machine output. Background `{colors.canvas}`, 1px `{colors.hairline}` border, rounded `{rounded.lg}` (18px), padding `{spacing.lg}` (24px), no chrome shadow, and no gradient. The header, filename, source-order metadata, and controls use the system sans-serif stack; selectable `<pre><code>` content uses `{typography.code}`. Do not use `contenteditable`, an editor role, or canvas-rendered text for this read-only surface.
+
+- Associate the region with a visible heading through `aria-labelledby`; give the scroll container an additional concise label describing the selected file.
+- Keep configuration text selectable. Render visual line numbers in a separate `aria-hidden="true"` gutter so they are not announced or copied with the configuration.
+- Provide a labelled “Wrap lines” button with `aria-pressed`, a minimum 44 × 44px target, and a visible Action Blue focus outline. Wrapping is a viewing preference, not a content mutation.
+- Make the scroll container keyboard-focusable and preserve native Arrow, Page Up/Down, Home/End, and horizontal scrolling behavior. Its focus ring must remain visible when content is scrolled.
+- With wrapping off, long code lines scroll horizontally inside the viewer. The viewer may also scroll vertically within a bounded height; neither axis may create horizontal page overflow.
 
 ### Footer
 
@@ -489,6 +629,9 @@ Error and validation states were not surfaced in the analyzed pages.
 
 ### Do
 - Use `{colors.primary}` (Action Blue #0066cc) for every interactive element — links, pill CTAs, focus signals — and nothing else. The single accent is non-negotiable.
+- Use semantic status foreground/surface pairs only for health and outcomes, always with visible status text plus the prescribed icon/shape.
+- Bind each help and error message through `aria-describedby`, localize `aria-live` to the smallest asynchronous region, and keep every operational control at least 44 × 44px.
+- Keep code text selectable and keyboard-scrollable inside `{component.read-only-code-viewer}`; constrain overflow to the viewer rather than the page.
 - Set headlines in `{typography.hero-display}` or `{typography.display-lg}` with negative letter-spacing (`-0.28 → -0.374px`) to get the signature "Apple tight" cadence.
 - Run body copy at `{typography.body}` (17px / 400 / 1.47 / -0.374px) — not 16px. The extra pixel defines the brand's reading pace.
 - Alternate `{component.product-tile-light}` (or parchment) and `{component.product-tile-dark}` for full-bleed section rhythm. The color change IS the divider.
@@ -499,6 +642,10 @@ Error and validation states were not surfaced in the analyzed pages.
 
 ### Don't
 - Don't introduce a second accent color; every "click me" signal is `{colors.primary}` (Action Blue).
+- Don't use Success, Warning, Error, or Unknown colors for actions, selected navigation, focus, categories, or decoration.
+- Don't communicate status, validation, disabled, or loading state through color or opacity alone.
+- Don't make the page shell a live region, and don't announce polling noise or every metric tick.
+- Don't turn the read-only code viewer into an editor-shaped widget or let long code create horizontal page scrolling.
 - Don't add shadows to cards, buttons, or text — shadow is reserved for product imagery.
 - Don't use gradients as decorative backgrounds; atmosphere comes from photography.
 - Don't set body copy at weight 500 — Apple's ladder is 300 / 400 / 600 / 700, with 500 deliberately absent. Body is always 400; strong inline is 600; display is 600.
@@ -515,8 +662,8 @@ Error and validation states were not surfaced in the analyzed pages.
 |---|---|---|
 | Small phone | ≤ 419px | Single-column tiles; sub-nav collapses to category name + primary CTA only; hero typography drops to 28px |
 | Phone | 420–640px | Single-column stack; product renders scale to 80% of tile width; hero h1 drops to 34px |
-| Large phone | 641–735px | Tiles transition to tighter padding (48px vertical vs 80px); fine-print wraps |
-| Tablet portrait | 736–833px | Global nav collapses to hamburger; sub-nav hides category chips, keeps primary CTA |
+| Large phone | 641–734px | Tiles transition to tighter padding (48px vertical vs 80px); fine-print wraps |
+| Tablet portrait | 735–833px | Global nav collapses to hamburger; sub-nav hides category chips, keeps primary CTA |
 | Tablet landscape | 834–1023px | Global nav returns fully expanded; 3-column utility grids become 2-column |
 | Small desktop | 1024–1068px | Product tiles use 2/3 width with margin gutters; hero h1 stays at 40px |
 | Desktop | 1069–1440px | Full layout; 4–5 column store grids; 1440px content max |
@@ -527,20 +674,44 @@ The structural breakpoints that matter for agents: 1440px (content lock), 1068px
 ### Touch Targets
 - Minimum 44 × 44px. `{component.button-primary}` lands at ~44 × 100px (with the full-pill radius making the visible hit area more generous than the label suggests).
 - `{component.button-icon-circular}` is exactly 44 × 44px.
-- Global nav utility links are smaller (~32 × 80px) — they deliberately sit at a tighter target because they're precision desktop actions, and the mobile hamburger replaces them at ≤ 833px.
+- Compact utility buttons and global-nav links may keep their smaller visible glyph or capsule, but their interactive hit area must expand to at least 44 × 44px. The mobile hamburger replaces the full link row at ≤ 833px.
 
 ### Collapsing Strategy
-- **Global nav**: full horizontal link row on desktop → collapses to Apple logo + hamburger + bag icon at 834px and below.
+- **Global nav**: full horizontal link row on desktop → collapses to Apple logo + hamburger + bag icon at ≤ 833px.
 - **Sub-nav**: category name + inline links + primary CTA → category name + primary CTA only at mobile; inline links move into a hamburger tray.
 - **Product tiles**: stack from 2-column to 1-column at 834px; vertical padding tightens from 80px → 48px at small-phone.
 - **Utility grids** (store, accessories): 5-col → 4-col (1440px) → 3-col (1068px) → 2-col (834px) → 1-col (640px).
 - **Hero typography**: `{typography.hero-display}` (56px) → `{typography.display-lg}` (40px) at 1068px → 34px at 640px → 28px at 419px.
+
+### Operational Surfaces
+
+The following rules use inclusive `max-width` thresholds. At every width, page-shell and main-content children use `min-width: 0`; wrapping and component-level scrolling solve overflow. Do not hide page overflow to mask an oversized child.
+
+| Threshold | Metric grid | Navigation | Effective configuration |
+|---|---|---|---|
+| > 833px | Three-column dashboard baseline; cards may expand evenly within the content max | Full global and operational section links remain visible | Two columns: bounded file/order navigator + one code viewer |
+| ≤ 833px | Collapse to two equal columns | Global nav uses logo + hamburger + utility icon; operational section links move into one labelled menu button | Keep two columns only while each can retain its minimum readable width; both children set `min-width: 0` |
+| ≤ 734px | Remain two columns | The section menu stays available from the 44 × 44px minimum menu button; no navigation action is hidden without an equivalent menu item | Replace the persistent navigator column with a full-width labelled file selector; render one selected viewer below it |
+| ≤ 640px | Collapse to one column | Page title and the menu button remain in the nav row; secondary actions wrap into a toolbar below | Selector and viewer fill one column; viewer header actions wrap without reducing any target below 44 × 44px |
+| ≤ 480px | Stay one column with tighter outer gutters; card padding remains 24px | Keep only the page title, menu, and essential session action in the top row; other actions live in the labelled menu | Stack filename metadata and wrap control; wrapped code reflows, while unwrapped code scrolls horizontally inside the viewer only |
+
+There must be no horizontal page overflow at 833, 734, 640, or 480px. Code is the bounded exception: when line wrapping is off, its own focusable container may scroll horizontally without moving the page.
 
 ### Image Behavior
 - All product imagery uses responsive `srcset` with breakpoint-matched crops.
 - Hero photography may switch art direction at mobile (e.g., the environment page's vista crops to a taller aspect ratio on mobile, framing the subject differently).
 - Product renders maintain their 1:1 or 4:3 aspect ratios across breakpoints; only scale changes.
 - Lazy-loading is default; the above-fold hero loads eagerly.
+
+## Accessibility Acceptance
+
+Operational primitives must meet **WCAG 2.2 AA** before implementation is accepted:
+
+- Normal text and its surface meet at least 4.5:1 contrast; large text meets 3:1; focus indicators and essential component boundaries meet 3:1 against adjacent colors. Verify each documented status foreground/surface pair as used, not as isolated swatches.
+- Every status, validation error, disabled state, and loading state has a non-color cue and an accessible text equivalent. Keyboard focus is visible, ordered, and never trapped.
+- All interactive controls have at least a 44 × 44px target, including navigation menus and the code-viewer wrap control.
+- At 200% zoom and at 400% reflow (320 CSS px equivalent), content remains operable without two-dimensional page scrolling. Bounded configuration content may scroll inside the labelled code viewer when wrapping is off.
+- Acceptance combines automated contrast/semantics checks with keyboard-only, screen-reader, zoom, and 833/734/640/480px viewport checks. A screenshot comparison alone is insufficient.
 
 ## Iteration Guide
 
@@ -554,7 +725,7 @@ The structural breakpoints that matter for agents: 1440px (content lock), 1068px
 
 ## Known Gaps
 
-- Form validation and error states were not surfaced on the analyzed pages; only the neutral search input is documented.
+- Editable configuration, syntax highlighting, diff, tree, table, modal, and toast semantics are outside this v0.1 read-only extension. Each still requires a compatible token/component contract before implementation.
 - The homepage's embedded video/player frame uses `{colors.surface-black}`; interior player controls are not documented (they're a platform widget, not a web-design token).
 - Some component imagery is dynamic (rotating product hero) and its specific copy varies per surface — component specs name the structure, not the rotating content.
 - Dark-mode counterparts for store and accessories utility cards were not surfaced on the analyzed pages; the system documented is the daytime/light-dominant variant Apple ships by default.
