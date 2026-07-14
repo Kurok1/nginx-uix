@@ -1,0 +1,64 @@
+# Operating system files
+.DS_Store
+Thumbs.db
+
+# Editors and local IDE settings
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+!**/.env.example
+/secrets/
+
+# Go build and test artifacts
+/bin/
+/nginx-uix
+/nginx-uix-agent
+/coverage/
+coverage.out
+*.test
+*.prof
+go.work
+go.work.sum
+
+# Frontend dependencies, builds, and caches
+/web/node_modules/
+/web/dist/
+/web/coverage/
+/web/.vite/
+/web/.eslintcache
+/web/*.tsbuildinfo
+npm-debug.log*
+
+# Playwright artifacts
+/.playwright-cli/
+/web/playwright-report/
+/web/test-results/
+/web/blob-report/
+/web/.playwright/
+/web/playwright/.auth/
+
+# Local runtime data
+/.data/
+/.local/
+/.tmp/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.pid
+*.sock
+*.log
+
+# Repository-scoped Codex skills are intentional source files
+!.codex/
+!.codex/skills/
+!.codex/skills/**
