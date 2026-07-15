@@ -18,6 +18,7 @@ import (
 )
 
 const (
+	nginxContainerPIDPath  = "/run/nginx-uix/nginx.pid"
 	nginxSupervisorPIDPath = "/run/service/nginx/supervise/pid"
 	pidFileLimit           = 64
 	recoveryWindow         = 5 * time.Minute
@@ -33,7 +34,7 @@ const (
 	statusIssueStartupUnreadable  = "NGINX_STARTUP_STATE_UNREADABLE"
 )
 
-// Status reads a fresh bounded process snapshot and cross-checks both fixed PID sources.
+// Status reads a fresh bounded process snapshot and cross-checks fixed PID sources.
 func (s *Service) Status(ctx context.Context) (Status, error) {
 	status := Status{
 		SampledAt: s.currentTime(),
@@ -84,8 +85,8 @@ func (s *Service) Status(ctx context.Context) (Status, error) {
 		return finishStatus(status), nil
 	}
 
-	candidates := make(map[int]struct{}, 2)
-	for _, path := range []string{build.PIDPath, nginxSupervisorPIDPath} {
+	candidates := make(map[int]struct{}, 3)
+	for _, path := range []string{build.PIDPath, nginxContainerPIDPath, nginxSupervisorPIDPath} {
 		if err := ctx.Err(); err != nil {
 			return status, fmt.Errorf("inspect nginx status: %w", err)
 		}
@@ -161,12 +162,12 @@ func (s *Service) Status(ctx context.Context) (Status, error) {
 		if err := ctx.Err(); err != nil {
 			return status, fmt.Errorf("inspect nginx status: %w", err)
 		}
-		if child.ExecutableError != nil || child.CmdlineError != nil {
+		if child.CmdlineError != nil || child.Name != "nginx" || isTerminatedProcess(child.State) {
 			degraded = true
 			status.Issues = append(status.Issues, statusIssueWorkerInvalid)
 			continue
 		}
-		if child.Executable != nginxExecutable {
+		if !workerExecutableMatches(child) {
 			degraded = true
 			status.Issues = append(status.Issues, statusIssueWorkerInvalid)
 			continue
@@ -244,6 +245,16 @@ func classifyMasterCandidate(process processRecord) masterCandidateClassificatio
 		return masterCandidateVerified
 	}
 	return masterCandidateContradictory
+}
+
+func workerExecutableMatches(process processRecord) bool {
+	if process.ExecutableError == nil {
+		return process.Executable == nginxExecutable
+	}
+	// Nginx workers are direct forks of the already verified master. Linux can
+	// deny /proc/<pid>/exe after the worker drops credentials unless the Agent
+	// receives CAP_SYS_PTRACE, which the all-in-one image intentionally omits.
+	return process.Executable == "" && errors.Is(process.ExecutableError, fs.ErrPermission)
 }
 
 func isTerminatedProcess(state byte) bool {

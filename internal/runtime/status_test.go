@@ -20,9 +20,9 @@ func TestStatusClassifiesVerifiedNginxProcessStates(t *testing.T) {
 	now := time.Date(2026, 7, 14, 12, 0, 0, 0, time.UTC)
 	master := statusProcess(100, 1, "nginx: master process nginx", now.Add(-time.Hour))
 	worker := statusProcess(101, 100, "nginx: worker process", now.Add(-59*time.Minute))
-	unreadableWorker := statusProcess(102, 100, "nginx: worker process", now.Add(-58*time.Minute))
-	unreadableWorker.Executable = ""
-	unreadableWorker.ExecutableError = fs.ErrPermission
+	permissionDeniedWorker := statusProcess(102, 100, "nginx: worker process", now.Add(-58*time.Minute))
+	permissionDeniedWorker.Executable = ""
+	permissionDeniedWorker.ExecutableError = fs.ErrPermission
 	secondMaster := statusProcess(200, 1, "nginx: master process nginx", now.Add(-30*time.Minute))
 	foreignReuse := statusProcess(100, 1, "unrelated", now.Add(-time.Minute))
 	foreignReuse.Executable = "/usr/bin/unrelated"
@@ -47,6 +47,14 @@ func TestStatusClassifiesVerifiedNginxProcessStates(t *testing.T) {
 			wantWorkers: []int{101},
 		},
 		{
+			name:        "fixed container pid verifies master when compiled and supervisor sources are absent",
+			processes:   processMap(master, worker),
+			pidFiles:    withContainerPID(statusPIDFiles(0, 0), 100),
+			wantState:   StateRunning,
+			wantMaster:  intPointer(100),
+			wantWorkers: []int{101},
+		},
+		{
 			name:       "verified master without worker is degraded",
 			processes:  processMap(master),
 			pidFiles:   statusPIDFiles(100, 100),
@@ -54,12 +62,12 @@ func TestStatusClassifiesVerifiedNginxProcessStates(t *testing.T) {
 			wantMaster: intPointer(100),
 		},
 		{
-			name:        "one unreadable direct worker is degraded",
-			processes:   processMap(master, worker, unreadableWorker),
+			name:        "permission denied worker executable is verified through its master relationship",
+			processes:   processMap(master, worker, permissionDeniedWorker),
 			pidFiles:    statusPIDFiles(100, 100),
-			wantState:   StateDegraded,
+			wantState:   StateRunning,
 			wantMaster:  intPointer(100),
-			wantWorkers: []int{101},
+			wantWorkers: []int{101, 102},
 		},
 		{
 			name:      "completed checks without candidates are stopped",
@@ -150,9 +158,23 @@ func TestStatusSortsWorkersAndRejectsInvalidWorkerIdentity(t *testing.T) {
 	foreignChild.Executable = "/usr/bin/not-nginx"
 	olderChild := statusProcess(105, 100, "nginx: worker process", now.Add(-2*time.Hour))
 	indirectWorker := statusProcess(106, 999, "nginx: worker process", now.Add(-30*time.Minute))
+	unreadableChild := statusProcess(107, 100, "nginx: worker process", now.Add(-30*time.Minute))
+	unreadableChild.Executable = ""
+	unreadableChild.ExecutableError = errors.New("read executable: invalid target length")
+	wrongNameChild := statusProcess(108, 100, "nginx: worker process", now.Add(-30*time.Minute))
+	wrongNameChild.Name = "not-nginx"
 
 	service := statusService(t, now, processSnapshot{
-		Processes: processMap(master, worker103, worker101, foreignChild, olderChild, indirectWorker),
+		Processes: processMap(
+			master,
+			worker103,
+			worker101,
+			foreignChild,
+			olderChild,
+			indirectWorker,
+			unreadableChild,
+			wrongNameChild,
+		),
 	}, nil, statusPIDFiles(100, 100), nil)
 
 	status, err := service.Status(context.Background())
@@ -295,9 +317,9 @@ func TestStatusPropagatesCallerCancellation(t *testing.T) {
 	}
 }
 
-func TestStatusReadsOnlyBuildAndSupervisorPIDCandidates(t *testing.T) {
+func TestStatusReadsOnlyFixedPIDCandidates(t *testing.T) {
 	now := time.Date(2026, 7, 14, 12, 0, 0, 0, time.UTC)
-	paths := make([]string, 0, 2)
+	paths := make([]string, 0, 3)
 	service := statusService(t, now, processSnapshot{}, nil, statusPIDFiles(0, 0), nil)
 	service.readPIDFile = func(_ context.Context, path string) (int, error) {
 		paths = append(paths, path)
@@ -307,7 +329,7 @@ func TestStatusReadsOnlyBuildAndSupervisorPIDCandidates(t *testing.T) {
 	if _, err := service.Status(context.Background()); err != nil {
 		t.Fatalf("Status() error = %v", err)
 	}
-	want := []string{"/run/nginx.pid", nginxSupervisorPIDPath}
+	want := []string{"/run/nginx.pid", nginxContainerPIDPath, nginxSupervisorPIDPath}
 	if !slices.Equal(paths, want) {
 		t.Fatalf("PID paths = %#v, want only %#v", paths, want)
 	}
@@ -400,6 +422,7 @@ func statusService(
 func statusPIDFiles(buildPID, supervisorPID int) map[string]pidResult {
 	results := map[string]pidResult{
 		"/run/nginx.pid":       {pid: buildPID},
+		nginxContainerPIDPath:  {err: fs.ErrNotExist},
 		nginxSupervisorPIDPath: {pid: supervisorPID},
 	}
 	if buildPID == 0 {
@@ -408,6 +431,11 @@ func statusPIDFiles(buildPID, supervisorPID int) map[string]pidResult {
 	if supervisorPID == 0 {
 		results[nginxSupervisorPIDPath] = pidResult{err: fs.ErrNotExist}
 	}
+	return results
+}
+
+func withContainerPID(results map[string]pidResult, pid int) map[string]pidResult {
+	results[nginxContainerPIDPath] = pidResult{pid: pid}
 	return results
 }
 
