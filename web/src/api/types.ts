@@ -27,3 +27,51 @@ export interface APIError {
 export interface APIErrorEnvelope {
   error: APIError
 }
+
+export type NginxRuntimeState = 'running' | 'degraded' | 'stopped' | 'unknown'
+export type AgentHealthState = 'healthy' | 'unavailable'
+export type ProcessRole = 'master' | 'worker'
+export type RecoveryResult = 'restarting' | 'invalid_config' | 'permanent_failure'
+
+export interface SystemComponents {
+  ui: 'healthy'
+  agent: AgentHealthState
+  nginx: NginxRuntimeState
+}
+
+export interface NginxProcess {
+  pid: number
+  role: ProcessRole
+  started_at: string
+}
+
+export interface NginxBuild {
+  version: string
+  configure_arguments: string[]
+  pid_path: string
+  sbin_path: string
+}
+
+export interface StartupValidation {
+  valid: boolean
+  checked_at: string
+  exit_code: number | null
+  diagnostic: string
+}
+
+export interface RecoveryStatus {
+  count: number
+  last_result: RecoveryResult
+  permanent: boolean
+}
+
+export interface SystemStatusResponse {
+  sampled_at: string
+  components: SystemComponents
+  master: NginxProcess | null
+  workers: NginxProcess[]
+  build: NginxBuild | null
+  startup_validation: StartupValidation | null
+  recovery: RecoveryStatus | null
+  issues: string[]
+}

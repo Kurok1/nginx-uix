@@ -9,11 +9,11 @@ import {
   type Router,
   type RouterHistory,
   type RouteRecordRaw,
-  useRoute,
 } from 'vue-router'
 
 import { apiClient, type APIClient } from './api/client'
 import { sessionStore, type SessionStore } from './session'
+import DashboardView from './views/DashboardView.vue'
 import LoginView from './views/LoginView.vue'
 
 declare module 'vue-router' {
@@ -24,22 +24,17 @@ declare module 'vue-router' {
 
 const PendingAuthenticatedView = defineComponent({
   name: 'PendingAuthenticatedView',
-  setup: () => {
-    const route = useRoute()
-    return () => {
-      const configuration = route.name === 'configuration'
-      const id = configuration ? 'configuration-title' : 'dashboard-title'
-      const title = configuration ? 'Effective configuration' : 'Dashboard'
-      return h('section', { 'aria-labelledby': id }, [h('h1', { id }, title)])
-    }
-  },
+  setup: () => () =>
+    h('section', { 'aria-labelledby': 'configuration-title' }, [
+      h('h1', { id: 'configuration-title' }, 'Effective configuration'),
+    ]),
 })
 
 const routes: RouteRecordRaw[] = [
   {
     path: '/',
     name: 'dashboard',
-    component: PendingAuthenticatedView,
+    component: DashboardView,
     meta: { requiresAuth: true },
   },
   {

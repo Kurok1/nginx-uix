@@ -2,9 +2,20 @@
  * @author hanchao <hanchao@66yunlian.com>
  * @since 0.1.0
  */
-import type { APIError, APIErrorEnvelope, LoginRequest, SessionResponse } from './types'
+import type {
+  APIError,
+  APIErrorEnvelope,
+  LoginRequest,
+  NginxBuild,
+  NginxProcess,
+  RecoveryStatus,
+  SessionResponse,
+  StartupValidation,
+  SystemStatusResponse,
+} from './types'
 
 const sessionPath = '/api/v1/auth/session'
+const systemStatusPath = '/api/v1/system/status'
 
 export type APIRequestErrorKind = 'api' | 'malformed_response' | 'network'
 export type APIErrorListener = (error: APIRequestError) => void
@@ -53,6 +64,11 @@ export class APIClient {
   async getSession(): Promise<SessionResponse> {
     const response = await this.send(sessionPath, { method: 'GET' })
     return parseSessionResponse(await readJSON(response), response.status)
+  }
+
+  async getSystemStatus(signal?: AbortSignal): Promise<SystemStatusResponse> {
+    const response = await this.send(systemStatusPath, { method: 'GET', signal })
+    return parseSystemStatusResponse(await readJSON(response), response.status)
   }
 
   async logout(csrfToken: string): Promise<void> {
@@ -134,6 +150,113 @@ function parseSessionResponse(value: unknown, status: number): SessionResponse {
   }
 }
 
+function parseSystemStatusResponse(value: unknown, status: number): SystemStatusResponse {
+  if (
+    !isRecord(value) ||
+    !isRFC3339(value.sampled_at) ||
+    !isRecord(value.components) ||
+    value.components.ui !== 'healthy' ||
+    !isOneOf(value.components.agent, ['healthy', 'unavailable']) ||
+    !isOneOf(value.components.nginx, ['running', 'degraded', 'stopped', 'unknown']) ||
+    !Array.isArray(value.workers) ||
+    !Array.isArray(value.issues) ||
+    !value.issues.every((issue) => typeof issue === 'string')
+  ) {
+    throw malformedResponse(status)
+  }
+
+  const master = value.master === null ? null : parseProcess(value.master, 'master', status)
+  const workers = value.workers.map((worker) => parseProcess(worker, 'worker', status))
+  const build = value.build === null ? null : parseBuild(value.build, status)
+  const startupValidation =
+    value.startup_validation === null
+      ? null
+      : parseStartupValidation(value.startup_validation, status)
+  const recovery = value.recovery === null ? null : parseRecovery(value.recovery, status)
+
+  return {
+    sampled_at: value.sampled_at,
+    components: {
+      ui: value.components.ui,
+      agent: value.components.agent,
+      nginx: value.components.nginx,
+    },
+    master,
+    workers,
+    build,
+    startup_validation: startupValidation,
+    recovery,
+    issues: [...value.issues],
+  }
+}
+
+function parseProcess(value: unknown, role: NginxProcess['role'], status: number): NginxProcess {
+  if (
+    !isRecord(value) ||
+    !Number.isSafeInteger(value.pid) ||
+    (value.pid as number) <= 0 ||
+    value.role !== role ||
+    !isRFC3339(value.started_at)
+  ) {
+    throw malformedResponse(status)
+  }
+  return { pid: value.pid as number, role, started_at: value.started_at }
+}
+
+function parseBuild(value: unknown, status: number): NginxBuild {
+  if (
+    !isRecord(value) ||
+    typeof value.version !== 'string' ||
+    !Array.isArray(value.configure_arguments) ||
+    !value.configure_arguments.every((argument) => typeof argument === 'string') ||
+    typeof value.pid_path !== 'string' ||
+    typeof value.sbin_path !== 'string'
+  ) {
+    throw malformedResponse(status)
+  }
+  return {
+    version: value.version,
+    configure_arguments: [...value.configure_arguments],
+    pid_path: value.pid_path,
+    sbin_path: value.sbin_path,
+  }
+}
+
+function parseStartupValidation(value: unknown, status: number): StartupValidation {
+  if (
+    !isRecord(value) ||
+    typeof value.valid !== 'boolean' ||
+    !isRFC3339(value.checked_at) ||
+    !isNullableNonNegativeInteger(value.exit_code) ||
+    typeof value.diagnostic !== 'string'
+  ) {
+    throw malformedResponse(status)
+  }
+  return {
+    valid: value.valid,
+    checked_at: value.checked_at,
+    exit_code: value.exit_code,
+    diagnostic: value.diagnostic,
+  }
+}
+
+function parseRecovery(value: unknown, status: number): RecoveryStatus {
+  if (
+    !isRecord(value) ||
+    !Number.isSafeInteger(value.count) ||
+    (value.count as number) < 0 ||
+    !isOneOf(value.last_result, ['restarting', 'invalid_config', 'permanent_failure']) ||
+    typeof value.permanent !== 'boolean'
+  ) {
+    throw malformedResponse(status)
+  }
+  return {
+    count: value.count as number,
+    last_result: value.last_result,
+    permanent: value.permanent,
+  }
+}
+
 function parseAPIErrorEnvelope(value: unknown, status: number): APIErrorEnvelope {
   if (!isRecord(value) || !isRecord(value.error)) {
     throw malformedResponse(status)
@@ -175,6 +298,17 @@ function parseRetryAfter(value: string | null): number | undefined {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function isOneOf<const Value extends string>(
+  value: unknown,
+  allowed: readonly Value[],
+): value is Value {
+  return typeof value === 'string' && allowed.some((candidate) => candidate === value)
+}
+
+function isNullableNonNegativeInteger(value: unknown): value is number | null {
+  return value === null || (Number.isSafeInteger(value) && (value as number) >= 0)
 }
 
 function isRFC3339(value: unknown): value is string {

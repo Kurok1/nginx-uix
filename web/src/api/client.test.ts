@@ -11,6 +11,45 @@ const sessionPayload = {
   absolute_expires_at: '2026-07-15T12:00:00Z',
 }
 
+const systemStatusPayload = {
+  sampled_at: '2026-07-15T08:30:00Z',
+  components: {
+    ui: 'healthy',
+    agent: 'healthy',
+    nginx: 'degraded',
+  },
+  master: {
+    pid: 42,
+    role: 'master',
+    started_at: '2026-07-15T08:00:00Z',
+  },
+  workers: [
+    {
+      pid: 43,
+      role: 'worker',
+      started_at: '2026-07-15T08:00:01Z',
+    },
+  ],
+  build: {
+    version: '1.30.3',
+    configure_arguments: ['--with-http_ssl_module', '--with-http_v2_module'],
+    pid_path: '/run/nginx.pid',
+    sbin_path: '/usr/sbin/nginx',
+  },
+  startup_validation: {
+    valid: true,
+    checked_at: '2026-07-15T07:59:58Z',
+    exit_code: 0,
+    diagnostic: 'syntax is ok',
+  },
+  recovery: {
+    count: 1,
+    last_result: 'restarting',
+    permanent: false,
+  },
+  issues: ['NGINX_RECOVERING'],
+}
+
 function jsonResponse(body: unknown, status = 200, headers?: HeadersInit): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -59,6 +98,64 @@ describe('APIClient', () => {
     expect(headers.has('Content-Type')).toBe(false)
     expect(headers.has('X-CSRF-Token')).toBe(false)
     expect(init.body).toBeUndefined()
+  })
+
+  it('gets and strictly parses runtime status with the caller AbortSignal', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse(systemStatusPayload))
+    const client = new APIClient(fetchMock)
+    const controller = new AbortController()
+
+    await expect(client.getSystemStatus(controller.signal)).resolves.toEqual(systemStatusPayload)
+
+    const [url, init] = requestAt(fetchMock)
+    const headers = new Headers(init.headers)
+    expect(url).toBe('/api/v1/system/status')
+    expect(init.method).toBe('GET')
+    expect(init.signal).toBe(controller.signal)
+    expect(init.credentials).toBe('same-origin')
+    expect(init.cache).toBe('no-store')
+    expect(headers.has('Content-Type')).toBe(false)
+    expect(headers.has('X-CSRF-Token')).toBe(false)
+    expect(init.body).toBeUndefined()
+  })
+
+  it.each([
+    ['invalid sample time', { ...systemStatusPayload, sampled_at: 'not-a-time' }],
+    [
+      'invalid component state',
+      { ...systemStatusPayload, components: { ...systemStatusPayload.components, nginx: 'paused' } },
+    ],
+    [
+      'invalid process role',
+      { ...systemStatusPayload, master: { ...systemStatusPayload.master, role: 'worker' } },
+    ],
+    [
+      'invalid build arguments',
+      {
+        ...systemStatusPayload,
+        build: { ...systemStatusPayload.build, configure_arguments: ['--valid', 7] },
+      },
+    ],
+    [
+      'invalid validation exit code',
+      {
+        ...systemStatusPayload,
+        startup_validation: { ...systemStatusPayload.startup_validation, exit_code: 1.5 },
+      },
+    ],
+    [
+      'invalid recovery result',
+      { ...systemStatusPayload, recovery: { ...systemStatusPayload.recovery, last_result: 'retried' } },
+    ],
+    ['invalid issues', { ...systemStatusPayload, issues: ['AGENT_UNAVAILABLE', 9] }],
+  ])('rejects runtime status with %s', async (_name, payload) => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse(payload))
+    const client = new APIClient(fetchMock)
+
+    await expect(client.getSystemStatus()).rejects.toMatchObject({
+      kind: 'malformed_response',
+      status: 200,
+    })
   })
 
   it('uses the current CSRF token only for authenticated logout and accepts 204', async () => {
