@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -68,9 +69,18 @@ func (s *Service) inspectEffectiveConfig() (any, error) {
 		return EffectiveConfig{}, fmt.Errorf("inspect effective nginx configuration: %w", err)
 	}
 
-	configuration, err := parseEffectiveConfig(result.stdout)
+	configuration, err := parseEffectiveConfig(internalContext, result.stdout, s.readConfigFile)
 	if err != nil {
-		return EffectiveConfig{}, err
+		switch {
+		case errors.Is(err, context.Canceled),
+			errors.Is(err, context.DeadlineExceeded),
+			errors.Is(err, ErrOutputTooLarge):
+			return EffectiveConfig{}, err
+		case errors.Is(err, ErrConfigPathOutsideAllowedRoots):
+			return rawEffectiveConfig(result.stdout, EffectiveConfigWarningPathOutsideAllowedRoots), nil
+		default:
+			return rawEffectiveConfig(result.stdout, EffectiveConfigWarningStructureUnverified), nil
+		}
 	}
 	return configuration, nil
 }
@@ -103,56 +113,135 @@ func (s *Service) ValidateStartup(ctx context.Context) (StartupValidation, error
 	}, nil
 }
 
-func parseEffectiveConfig(output []byte) (EffectiveConfig, error) {
+func parseEffectiveConfig(
+	ctx context.Context,
+	output []byte,
+	readConfigFile configFileReader,
+) (EffectiveConfig, error) {
+	if readConfigFile == nil {
+		return EffectiveConfig{}, fmt.Errorf("parse effective nginx configuration: file reader is required")
+	}
 	normalized := bytes.ReplaceAll(output, []byte("\r\n"), []byte("\n"))
-	configuration := EffectiveConfig{Occurrences: make([]ConfigOccurrence, 0, 8)}
-	bodyStart := -1
+	configuration := EffectiveConfig{
+		DisplayMode: EffectiveConfigDisplayModeStructured,
+		Occurrences: make([]ConfigOccurrence, 0, 8),
+		Warnings:    make([]EffectiveConfigWarning, 0),
+	}
+	markerStart, err := findEntryConfigurationMarker(normalized)
+	if err != nil {
+		return EffectiveConfig{}, err
+	}
 
-	for lineStart := 0; lineStart < len(normalized); {
-		lineEnd := bytes.IndexByte(normalized[lineStart:], '\n')
-		nextLine := len(normalized)
+	contentsByPath := make(map[string][]byte)
+	for {
+		if err := ctx.Err(); err != nil {
+			return EffectiveConfig{}, fmt.Errorf("parse effective nginx configuration: %w", err)
+		}
+		markerPath, bodyStart, err := parseConfigurationMarker(normalized, markerStart)
+		if err != nil {
+			return EffectiveConfig{}, err
+		}
+
+		contents, found := contentsByPath[markerPath]
+		if !found {
+			contents, err = readConfigFile(ctx, markerPath)
+			if err != nil {
+				return EffectiveConfig{}, fmt.Errorf(
+					"parse effective nginx configuration: read occurrence %q: %w",
+					markerPath,
+					err,
+				)
+			}
+			contents = bytes.ReplaceAll(contents, []byte("\r\n"), []byte("\n"))
+			contentsByPath[markerPath] = contents
+		}
+
+		if len(contents) > len(normalized)-bodyStart {
+			return EffectiveConfig{}, fmt.Errorf("parse effective nginx configuration: occurrence %q is truncated", markerPath)
+		}
+		bodyEnd := bodyStart + len(contents)
+		if !bytes.Equal(normalized[bodyStart:bodyEnd], contents) {
+			return EffectiveConfig{}, fmt.Errorf("parse effective nginx configuration: occurrence %q differs from its file", markerPath)
+		}
+		if bodyEnd >= len(normalized) || normalized[bodyEnd] != '\n' {
+			return EffectiveConfig{}, fmt.Errorf("parse effective nginx configuration: occurrence %q has no dump separator", markerPath)
+		}
+
+		loadOrder := len(configuration.Occurrences) + 1
+		configuration.Occurrences = append(configuration.Occurrences, ConfigOccurrence{
+			ID:        fmt.Sprintf("occurrence-%06d", loadOrder),
+			LoadOrder: loadOrder,
+			Path:      markerPath,
+			Content:   string(contents),
+		})
+
+		markerStart = bodyEnd + 1
+		if markerStart == len(normalized) {
+			return configuration, nil
+		}
+		if !bytes.HasPrefix(normalized[markerStart:], []byte(configurationMarkerPrefix)) {
+			return EffectiveConfig{}, fmt.Errorf("parse effective nginx configuration: unexpected data after occurrence %q", markerPath)
+		}
+	}
+}
+
+func findEntryConfigurationMarker(output []byte) (int, error) {
+	want := configurationMarkerPrefix + nginxConfigPath + ":"
+	for lineStart := 0; lineStart < len(output); {
+		lineEnd := bytes.IndexByte(output[lineStart:], '\n')
+		nextLine := len(output)
 		if lineEnd >= 0 {
 			lineEnd += lineStart
 			nextLine = lineEnd + 1
 		} else {
-			lineEnd = len(normalized)
+			lineEnd = len(output)
 		}
-		line := string(normalized[lineStart:lineEnd])
-
+		line := string(output[lineStart:lineEnd])
 		if strings.HasPrefix(line, configurationMarkerPrefix) {
-			pathWithColon := strings.TrimPrefix(line, configurationMarkerPrefix)
-			if !strings.HasSuffix(pathWithColon, ":") {
-				return EffectiveConfig{}, fmt.Errorf("parse effective nginx configuration: malformed marker")
+			if line != want {
+				return 0, fmt.Errorf("parse effective nginx configuration: fixed entry marker is required first")
 			}
-			path := strings.TrimSuffix(pathWithColon, ":")
-			if path == "" || strings.IndexFunc(path, unicode.IsControl) >= 0 {
-				return EffectiveConfig{}, fmt.Errorf("parse effective nginx configuration: malformed marker path")
-			}
-
-			if bodyStart >= 0 {
-				last := len(configuration.Occurrences) - 1
-				configuration.Occurrences[last].Content = string(normalized[bodyStart:lineStart])
-			}
-			loadOrder := len(configuration.Occurrences) + 1
-			configuration.Occurrences = append(configuration.Occurrences, ConfigOccurrence{
-				ID:        fmt.Sprintf("occurrence-%06d", loadOrder),
-				LoadOrder: loadOrder,
-				Path:      path,
-			})
-			bodyStart = nextLine
+			return lineStart, nil
 		}
 		lineStart = nextLine
 	}
+	return 0, fmt.Errorf("parse effective nginx configuration: fixed entry marker is required")
+}
 
-	if bodyStart < 0 {
-		return EffectiveConfig{}, fmt.Errorf("parse effective nginx configuration: marker is required")
+func parseConfigurationMarker(output []byte, markerStart int) (string, int, error) {
+	if markerStart < 0 || markerStart >= len(output) {
+		return "", 0, fmt.Errorf("parse effective nginx configuration: marker position is invalid")
 	}
-	last := len(configuration.Occurrences) - 1
-	configuration.Occurrences[last].Content = string(normalized[bodyStart:])
-	return configuration, nil
+	lineEnd := bytes.IndexByte(output[markerStart:], '\n')
+	if lineEnd < 0 {
+		return "", 0, fmt.Errorf("parse effective nginx configuration: marker has no line ending")
+	}
+	lineEnd += markerStart
+	line := string(output[markerStart:lineEnd])
+	if !strings.HasPrefix(line, configurationMarkerPrefix) || !strings.HasSuffix(line, ":") {
+		return "", 0, fmt.Errorf("parse effective nginx configuration: malformed marker")
+	}
+	markerPath := strings.TrimSuffix(strings.TrimPrefix(line, configurationMarkerPrefix), ":")
+	if markerPath == "" || strings.IndexFunc(markerPath, unicode.IsControl) >= 0 {
+		return "", 0, fmt.Errorf("parse effective nginx configuration: malformed marker path")
+	}
+	if !filepath.IsAbs(markerPath) {
+		return "", 0, fmt.Errorf("parse effective nginx configuration: marker path must be absolute")
+	}
+	return filepath.Clean(markerPath), lineEnd + 1, nil
 }
 
 func cloneEffectiveConfig(configuration EffectiveConfig) EffectiveConfig {
 	configuration.Occurrences = slices.Clone(configuration.Occurrences)
+	configuration.Warnings = slices.Clone(configuration.Warnings)
 	return configuration
+}
+
+func rawEffectiveConfig(output []byte, warning EffectiveConfigWarning) EffectiveConfig {
+	return EffectiveConfig{
+		DisplayMode: EffectiveConfigDisplayModeRaw,
+		Occurrences: make([]ConfigOccurrence, 0),
+		RawContent:  string(output),
+		Warnings:    []EffectiveConfigWarning{warning},
+	}
 }

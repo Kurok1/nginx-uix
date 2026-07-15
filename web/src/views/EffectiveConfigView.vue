@@ -68,6 +68,25 @@
       </div>
 
       <template v-if="snapshot !== null">
+        <div
+          v-if="snapshot.display_mode === 'raw'"
+          class="effective-config__warning"
+          role="status"
+        >
+          <StatusBadge
+            tone="warning"
+            label="结构未验证"
+          />
+          <p v-if="snapshot.warnings.includes('NGINX_CONFIG_PATH_OUTSIDE_ALLOWED_ROOTS')">
+            部分配置位于允许读取目录之外，当前显示未经文件拆分的原始输出。若需结构化查看，请通过
+            <code>NGINX_UIX_EFFECTIVE_CONFIG_ROOTS</code>
+            配置只读目录。
+          </p>
+          <p v-else>
+            当前无法逐文件验证配置边界，正在显示未经文件拆分的原始输出。
+          </p>
+        </div>
+
         <dl class="effective-config__summary">
           <div>
             <dt>Nginx 版本：</dt>
@@ -78,13 +97,18 @@
             <dd>{{ snapshot.entry_config_path }}</dd>
           </div>
           <div>
-            <dt>加载项：</dt>
-            <dd>{{ snapshot.occurrence_count }}</dd>
+            <dt>{{ snapshot.display_mode === 'raw' ? '展示模式：' : '加载项：' }}</dt>
+            <dd>{{ snapshot.display_mode === 'raw' ? '原始输出' : snapshot.occurrence_count }}</dd>
           </div>
         </dl>
 
+        <ReadOnlyCodeViewer
+          v-if="snapshot.display_mode === 'raw'"
+          mode="raw"
+          :raw-content="snapshot.raw_content"
+        />
         <div
-          v-if="snapshot.occurrences.length > 0 && selectedOccurrence !== null"
+          v-else-if="snapshot.occurrences.length > 0 && selectedOccurrence !== null"
           class="effective-config__layout"
         >
           <ConfigFileList
@@ -244,6 +268,7 @@ onBeforeUnmount(() => {
 .effective-config__snapshot,
 .effective-config__state,
 .effective-config__error,
+.effective-config__warning,
 .effective-config__summary,
 .effective-config__summary > div,
 .effective-config__layout,
@@ -268,6 +293,7 @@ onBeforeUnmount(() => {
 .effective-config__header p,
 .effective-config__state p,
 .effective-config__error p,
+.effective-config__warning p,
 .effective-config__empty p {
   margin: 0;
 }
@@ -313,6 +339,7 @@ onBeforeUnmount(() => {
 }
 
 .effective-config__error,
+.effective-config__warning,
 .effective-config__empty {
   display: flex;
   align-items: center;
@@ -321,6 +348,11 @@ onBeforeUnmount(() => {
   border: 1px solid var(--color-hairline);
   border-radius: var(--rounded-lg);
   background: var(--color-canvas);
+}
+
+.effective-config__warning code {
+	font-family: var(--font-code);
+	overflow-wrap: anywhere;
 }
 
 .effective-config__summary {

@@ -101,6 +101,35 @@ func TestAgentProtocolRejectsRequestsOutsideTheFixedSurfaceBeforeRuntimeCall(t *
 	}
 }
 
+func TestAgentProtocolPreservesRawEffectiveConfigFallback(t *testing.T) {
+	operations := &recordingAgentOperations{effective: EffectiveConfig{
+		DisplayMode: EffectiveConfigDisplayModeRaw,
+		Occurrences: []ConfigOccurrence{},
+		RawContent:  "# configuration file /etc/nginx/nginx.conf:\nevents {}\n",
+		Warnings:    []EffectiveConfigWarning{EffectiveConfigWarningPathOutsideAllowedRoots},
+	}}
+	response := httptest.NewRecorder()
+
+	newAgentProtocolHandler(operations, nil).ServeHTTP(
+		response,
+		httptest.NewRequest(http.MethodGet, agentProtocolEffectiveConfigPath, nil),
+	)
+
+	if got, want := response.Code, http.StatusOK; got != want {
+		t.Fatalf("status = %d, want %d; body = %s", got, want, response.Body.String())
+	}
+	body := response.Body.String()
+	for _, want := range []string{
+		`"display_mode":"raw"`,
+		`"raw_content":"# configuration file /etc/nginx/nginx.conf:\nevents {}\n"`,
+		`"warnings":["NGINX_CONFIG_PATH_OUTSIDE_ALLOWED_ROOTS"]`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("body = %q, want %q", body, want)
+		}
+	}
+}
+
 func TestAgentProtocolRejectsEncodedResponseOverLimit(t *testing.T) {
 	operations := &recordingAgentOperations{effective: EffectiveConfig{Occurrences: []ConfigOccurrence{{
 		ID: "occurrence-000001", LoadOrder: 1, Path: nginxConfigPath,

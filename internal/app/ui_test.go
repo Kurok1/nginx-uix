@@ -6,12 +6,16 @@ package app
 
 import (
 	"context"
+	"errors"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/kuroky/nginx-uix/internal/auth"
 )
 
 func TestRunUIFailsBootstrapBeforeBinding(t *testing.T) {
@@ -103,4 +107,90 @@ func TestRunUIServesAfterBootstrapAndShutsDown(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("RunUI() did not stop before deadline")
 	}
+}
+
+func TestAuthCleanupWorkerBacksOffAndResetsAfterSuccess(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	failure := errors.New("database temporarily unavailable")
+	outcomes := []error{failure, failure, failure, failure, nil, nil}
+	calls := 0
+	allCallsBounded := true
+	cleaner := authCleanupFunc(func(callContext context.Context) (auth.CleanupResult, error) {
+		deadline, ok := callContext.Deadline()
+		if !ok || time.Until(deadline) <= 0 || time.Until(deadline) > 10*time.Second {
+			allCallsBounded = false
+		}
+		calls++
+		if calls == len(outcomes) {
+			cancel()
+		}
+		return auth.CleanupResult{}, outcomes[calls-1]
+	})
+
+	waits := make([]time.Duration, 0, len(outcomes)-1)
+	schedule := authCleanupSchedule{
+		interval:     30 * time.Second,
+		initialRetry: time.Second,
+		maxRetry:     4 * time.Second,
+		timeout:      10 * time.Second,
+		wait: func(waitContext context.Context, delay time.Duration) bool {
+			waits = append(waits, delay)
+			return waitContext.Err() == nil
+		},
+	}
+	runAuthCleanupWorker(ctx, cleaner, slog.New(slog.DiscardHandler), schedule)
+
+	if got, want := calls, len(outcomes); got != want {
+		t.Fatalf("cleanup calls = %d, want %d", got, want)
+	}
+	if !allCallsBounded {
+		t.Fatal("at least one cleanup call had no valid timeout")
+	}
+	wantWaits := []time.Duration{time.Second, 2 * time.Second, 4 * time.Second, 4 * time.Second, 30 * time.Second}
+	if len(waits) != len(wantWaits) {
+		t.Fatalf("waits = %v, want %v", waits, wantWaits)
+	}
+	for index := range wantWaits {
+		if waits[index] != wantWaits[index] {
+			t.Errorf("waits[%d] = %s, want %s", index, waits[index], wantWaits[index])
+		}
+	}
+}
+
+func TestAuthCleanupWorkerCancelsInFlightCleanup(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	started := make(chan struct{})
+	cleaner := authCleanupFunc(func(callContext context.Context) (auth.CleanupResult, error) {
+		close(started)
+		<-callContext.Done()
+		return auth.CleanupResult{}, callContext.Err()
+	})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		runAuthCleanupWorker(ctx, cleaner, slog.New(slog.DiscardHandler), authCleanupSchedule{
+			interval: time.Hour, initialRetry: time.Second, maxRetry: time.Minute,
+			timeout: time.Hour, wait: waitForAuthCleanup,
+		})
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("cleanup did not start")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("cleanup worker did not stop after cancellation")
+	}
+}
+
+type authCleanupFunc func(context.Context) (auth.CleanupResult, error)
+
+func (function authCleanupFunc) CleanupExpired(ctx context.Context) (auth.CleanupResult, error) {
+	return function(ctx)
 }

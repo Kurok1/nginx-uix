@@ -17,8 +17,11 @@ type effectiveConfigResponse struct {
 	GeneratedAt     time.Time                   `json:"generated_at"`
 	NginxVersion    string                      `json:"nginx_version"`
 	EntryConfigPath string                      `json:"entry_config_path"`
+	DisplayMode     string                      `json:"display_mode"`
 	OccurrenceCount int                         `json:"occurrence_count"`
 	Occurrences     []effectiveConfigOccurrence `json:"occurrences"`
+	RawContent      *string                     `json:"raw_content"`
+	Warnings        []string                    `json:"warnings"`
 }
 
 type effectiveConfigOccurrence struct {
@@ -60,13 +63,21 @@ func newEffectiveConfigResponse(
 ) effectiveConfigResponse {
 	response := effectiveConfigResponse{
 		GeneratedAt: generatedAt, NginxVersion: build.Version, EntryConfigPath: effectiveConfigEntryPath,
+		DisplayMode:     string(configuration.DisplayMode),
 		OccurrenceCount: len(configuration.Occurrences),
 		Occurrences:     make([]effectiveConfigOccurrence, 0, len(configuration.Occurrences)),
+		Warnings:        make([]string, 0, len(configuration.Warnings)),
 	}
 	for _, occurrence := range configuration.Occurrences {
 		response.Occurrences = append(response.Occurrences, effectiveConfigOccurrence{
 			ID: occurrence.ID, LoadOrder: occurrence.LoadOrder, Path: occurrence.Path, Content: occurrence.Content,
 		})
+	}
+	for _, warning := range configuration.Warnings {
+		response.Warnings = append(response.Warnings, string(warning))
+	}
+	if configuration.DisplayMode == nginxruntime.EffectiveConfigDisplayModeRaw {
+		response.RawContent = &configuration.RawContent
 	}
 	return response
 }

@@ -108,7 +108,11 @@ func (c *AgentClient) EffectiveConfig(ctx context.Context) (EffectiveConfig, err
 	if err := c.get(ctx, agentProtocolEffectiveConfigPath, &response); err != nil {
 		return EffectiveConfig{}, fmt.Errorf("get agent effective configuration: %w", err)
 	}
-	return effectiveConfigFromAgentResponse(response), nil
+	configuration, err := effectiveConfigFromAgentResponse(response)
+	if err != nil {
+		return EffectiveConfig{}, newAgentClientProtocolError(agentErrorCodeInternal)
+	}
+	return configuration, nil
 }
 
 func (c *AgentClient) get(ctx context.Context, path string, target any) error {
@@ -277,10 +281,52 @@ func statusFromAgentResponse(response agentStatusResponse) Status {
 	return status
 }
 
-func effectiveConfigFromAgentResponse(response agentEffectiveConfigResponse) EffectiveConfig {
-	configuration := EffectiveConfig{Occurrences: make([]ConfigOccurrence, len(response.Occurrences))}
+func effectiveConfigFromAgentResponse(response agentEffectiveConfigResponse) (EffectiveConfig, error) {
+	if response.Occurrences == nil || response.Warnings == nil {
+		return EffectiveConfig{}, errAgentInvalidResponse
+	}
+	switch response.DisplayMode {
+	case EffectiveConfigDisplayModeStructured:
+		if response.RawContent != nil || len(response.Warnings) != 0 {
+			return EffectiveConfig{}, errAgentInvalidResponse
+		}
+	case EffectiveConfigDisplayModeRaw:
+		if len(response.Occurrences) != 0 || response.RawContent == nil || *response.RawContent == "" || len(response.Warnings) == 0 {
+			return EffectiveConfig{}, errAgentInvalidResponse
+		}
+	default:
+		return EffectiveConfig{}, errAgentInvalidResponse
+	}
+
+	warnings := make(map[EffectiveConfigWarning]struct{}, len(response.Warnings))
+	for _, warning := range response.Warnings {
+		if warning != EffectiveConfigWarningPathOutsideAllowedRoots && warning != EffectiveConfigWarningStructureUnverified {
+			return EffectiveConfig{}, errAgentInvalidResponse
+		}
+		if _, found := warnings[warning]; found {
+			return EffectiveConfig{}, errAgentInvalidResponse
+		}
+		warnings[warning] = struct{}{}
+	}
+
+	configuration := EffectiveConfig{
+		DisplayMode: response.DisplayMode,
+		Occurrences: make([]ConfigOccurrence, len(response.Occurrences)),
+		Warnings:    slices.Clone(response.Warnings),
+	}
+	identifiers := make(map[string]struct{}, len(response.Occurrences))
 	for index, occurrence := range response.Occurrences {
+		if occurrence.ID == "" || occurrence.Path == "" || occurrence.LoadOrder != index+1 {
+			return EffectiveConfig{}, errAgentInvalidResponse
+		}
+		if _, found := identifiers[occurrence.ID]; found {
+			return EffectiveConfig{}, errAgentInvalidResponse
+		}
+		identifiers[occurrence.ID] = struct{}{}
 		configuration.Occurrences[index] = ConfigOccurrence(occurrence)
 	}
-	return configuration
+	if response.RawContent != nil {
+		configuration.RawContent = *response.RawContent
+	}
+	return configuration, nil
 }

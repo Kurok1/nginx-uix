@@ -183,6 +183,58 @@ func (d *DB) ClearLoginFailures(ctx context.Context, key auth.ThrottleKey) error
 	return nil
 }
 
+// CleanupExpiredAuthState atomically removes expired sessions and throttles
+// whose failure window and any active block have both ended.
+func (d *DB) CleanupExpiredAuthState(
+	ctx context.Context,
+	now time.Time,
+	throttleWindow time.Duration,
+) (auth.CleanupResult, error) {
+	if now.IsZero() || throttleWindow <= 0 {
+		return auth.CleanupResult{}, fmt.Errorf("cleanup expired authentication state: current time and throttle window are required")
+	}
+
+	var cleaned auth.CleanupResult
+	err := d.withImmediateTransaction(ctx, func(connection *sql.Conn) error {
+		sessions, err := connection.ExecContext(
+			ctx,
+			`DELETE FROM sessions
+			 WHERE julianday(idle_expires_at) <= julianday(?)
+			    OR julianday(absolute_expires_at) <= julianday(?)`,
+			formatTime(now),
+			formatTime(now),
+		)
+		if err != nil {
+			return fmt.Errorf("delete expired sessions: %w", err)
+		}
+		cleaned.SessionsDeleted, err = sessions.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("read expired session count: %w", err)
+		}
+
+		throttles, err := connection.ExecContext(
+			ctx,
+			`DELETE FROM login_throttles
+			 WHERE julianday(window_started_at) <= julianday(?)
+			   AND (blocked_until IS NULL OR julianday(blocked_until) <= julianday(?))`,
+			formatTime(now.Add(-throttleWindow)),
+			formatTime(now),
+		)
+		if err != nil {
+			return fmt.Errorf("delete expired login throttles: %w", err)
+		}
+		cleaned.ThrottlesDeleted, err = throttles.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("read expired login throttle count: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return auth.CleanupResult{}, fmt.Errorf("cleanup expired authentication state: %w", err)
+	}
+	return cleaned, nil
+}
+
 // CreateSession persists only token and CSRF digests.
 func (d *DB) CreateSession(ctx context.Context, session auth.NewSession) (auth.Session, error) {
 	_, err := d.sql.ExecContext(

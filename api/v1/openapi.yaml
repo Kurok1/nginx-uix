@@ -150,7 +150,7 @@ paths:
         - $ref: "#/components/parameters/RequestID"
       responses:
         "200":
-          description: Complete ordered effective Nginx configuration
+          description: Byte-verified ordered configuration or a bounded raw nginx -T fallback
           headers:
             Cache-Control:
               schema:
@@ -372,7 +372,17 @@ components:
     EffectiveConfig:
       type: object
       additionalProperties: false
-      required: [generated_at, nginx_version, entry_config_path, occurrence_count, occurrences]
+      required:
+        [
+          generated_at,
+          nginx_version,
+          entry_config_path,
+          display_mode,
+          occurrence_count,
+          occurrences,
+          raw_content,
+          warnings,
+        ]
       properties:
         generated_at:
           type: string
@@ -382,6 +392,9 @@ components:
         entry_config_path:
           type: string
           const: /etc/nginx/nginx.conf
+        display_mode:
+          type: string
+          enum: [structured, raw]
         occurrence_count:
           type: integer
           minimum: 0
@@ -389,6 +402,41 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ConfigOccurrence"
+        raw_content:
+          type: [string, "null"]
+          maxLength: 16777216
+        warnings:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: "#/components/schemas/EffectiveConfigWarning"
+      oneOf:
+        - title: Byte-verified file occurrences
+          properties:
+            display_mode:
+              const: structured
+            raw_content:
+              type: "null"
+            warnings:
+              maxItems: 0
+        - title: Unstructured bounded nginx output
+          properties:
+            display_mode:
+              const: raw
+            occurrence_count:
+              const: 0
+            occurrences:
+              maxItems: 0
+            raw_content:
+              type: string
+              minLength: 1
+            warnings:
+              minItems: 1
+    EffectiveConfigWarning:
+      type: string
+      enum:
+        - NGINX_CONFIG_PATH_OUTSIDE_ALLOWED_ROOTS
+        - NGINX_CONFIG_STRUCTURE_UNVERIFIED
     ConfigOccurrence:
       type: object
       additionalProperties: false

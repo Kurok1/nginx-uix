@@ -52,6 +52,7 @@ const effectiveConfigPayload = {
   generated_at: '2026-07-15T08:31:00Z',
   nginx_version: '1.30.3',
   entry_config_path: '/etc/nginx/nginx.conf',
+  display_mode: 'structured',
   occurrence_count: 3,
   occurrences: [
     {
@@ -73,6 +74,19 @@ const effectiveConfigPayload = {
       content: 'server { listen 8080; }\n',
     },
   ],
+  raw_content: null,
+  warnings: [],
+}
+
+const rawEffectiveConfigPayload = {
+  generated_at: '2026-07-15T08:32:00Z',
+  nginx_version: '1.30.3',
+  entry_config_path: '/etc/nginx/nginx.conf',
+  display_mode: 'raw',
+  occurrence_count: 0,
+  occurrences: [],
+  raw_content: '# configuration file /etc/nginx/nginx.conf:\nevents {}\n',
+  warnings: ['NGINX_CONFIG_PATH_OUTSIDE_ALLOWED_ROOTS'],
 }
 
 function jsonResponse(body: unknown, status = 200, headers?: HeadersInit): Response {
@@ -165,6 +179,13 @@ describe('APIClient', () => {
     expect(init.body).toBeUndefined()
   })
 
+  it('accepts a raw effective-config fallback without inventing file occurrences', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse(rawEffectiveConfigPayload))
+    const client = new APIClient(fetchMock)
+
+    await expect(client.getEffectiveConfig()).resolves.toEqual(rawEffectiveConfigPayload)
+  })
+
   it.each([
     ['invalid generation time', { ...effectiveConfigPayload, generated_at: 'not-a-time' }],
     ['invalid occurrence count', { ...effectiveConfigPayload, occurrence_count: 2 }],
@@ -195,6 +216,22 @@ describe('APIClient', () => {
         ),
       },
     ],
+    ['structured mode with raw content', { ...effectiveConfigPayload, raw_content: 'events {}' }],
+    [
+      'structured mode with warning',
+      { ...effectiveConfigPayload, warnings: ['NGINX_CONFIG_STRUCTURE_UNVERIFIED'] },
+    ],
+    [
+      'raw mode with occurrences',
+      {
+        ...rawEffectiveConfigPayload,
+        occurrence_count: 1,
+        occurrences: [effectiveConfigPayload.occurrences[0]],
+      },
+    ],
+    ['raw mode without content', { ...rawEffectiveConfigPayload, raw_content: null }],
+    ['raw mode without warning', { ...rawEffectiveConfigPayload, warnings: [] }],
+    ['raw mode with unknown warning', { ...rawEffectiveConfigPayload, warnings: ['UNKNOWN'] }],
   ])('rejects effective configuration with %s', async (_name, payload) => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse(payload))
     const client = new APIClient(fetchMock)

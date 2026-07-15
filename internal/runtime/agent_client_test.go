@@ -69,9 +69,12 @@ func TestAgentClientCallsFiveFixedGETEndpoints(t *testing.T) {
 		Recovery:          wantStartup.Recovery,
 		Issues:            []string{},
 	}
-	wantConfig := EffectiveConfig{Occurrences: []ConfigOccurrence{{
-		ID: "occurrence-000001", LoadOrder: 1, Path: nginxConfigPath, Content: "events {}\n",
-	}}}
+	wantConfig := EffectiveConfig{
+		DisplayMode: EffectiveConfigDisplayModeRaw,
+		Occurrences: []ConfigOccurrence{},
+		RawContent:  "# configuration file /etc/nginx/nginx.conf:\nevents {}\n",
+		Warnings:    []EffectiveConfigWarning{EffectiveConfigWarningPathOutsideAllowedRoots},
+	}
 
 	requests := make(chan agentClientRequest, 5)
 	responses := map[string]any{
@@ -295,6 +298,29 @@ func TestAgentClientRejectsMalformedJSONWithoutPartialData(t *testing.T) {
 		if strings.Contains(err.Error(), sensitive) {
 			t.Fatalf("BuildInfo() error = %q, want no %q", err, sensitive)
 		}
+	}
+}
+
+func TestAgentClientRejectsInconsistentEffectiveConfigModesWithoutPartialData(t *testing.T) {
+	tests := []string{
+		`{"display_mode":"structured","occurrences":[],"raw_content":"events {}","warnings":[]}`,
+		`{"display_mode":"structured","occurrences":[],"raw_content":null,"warnings":["NGINX_CONFIG_STRUCTURE_UNVERIFIED"]}`,
+		`{"display_mode":"raw","occurrences":[{"id":"occurrence-000001","load_order":1,"path":"/etc/nginx/nginx.conf","content":"events {}"}],"raw_content":"events {}","warnings":["NGINX_CONFIG_STRUCTURE_UNVERIFIED"]}`,
+		`{"display_mode":"raw","occurrences":[],"raw_content":null,"warnings":["NGINX_CONFIG_STRUCTURE_UNVERIFIED"]}`,
+		`{"display_mode":"raw","occurrences":[],"raw_content":"events {}","warnings":[]}`,
+		`{"display_mode":"raw","occurrences":[],"raw_content":"events {}","warnings":["UNKNOWN"]}`,
+	}
+	for _, payload := range tests {
+		path := startAgentClientUnixServer(t, http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+			writer.Header().Set("Content-Type", agentProtocolContentType)
+			_, _ = io.WriteString(writer, payload)
+		}))
+
+		configuration, err := newAgentClient(path).EffectiveConfig(context.Background())
+		if !reflect.DeepEqual(configuration, EffectiveConfig{}) {
+			t.Fatalf("EffectiveConfig() = %#v, want zero value for payload %s", configuration, payload)
+		}
+		assertAgentClientError(t, err, agentErrorCodeInternal, nil)
 	}
 }
 

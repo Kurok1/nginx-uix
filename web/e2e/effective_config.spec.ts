@@ -12,6 +12,7 @@ import {
   authenticatedSession,
   expectSameOriginCookie,
   installAPIMocks,
+	rawEffectiveConfig,
   repeatedEffectiveConfig,
   setAuthenticatedCookie,
 } from './support/api'
@@ -109,4 +110,25 @@ test('failed config refresh keeps selected content and labels it stale', async (
   await assertNoApplicationStorage(page)
   await assertNoAxeViolations(page)
   api.assertContract()
+})
+
+test('raw fallback remains usable without presenting unverified file boundaries', async ({ page }) => {
+	const api = await installAPIMocks(page, {
+		session: { status: 200, body: authenticatedSession },
+		effectiveConfig: { status: 200, body: rawEffectiveConfig },
+	})
+
+	await page.goto('/configuration')
+
+	await expect(page.getByText('结构未验证', { exact: true })).toBeVisible()
+	await expect(page.getByText('NGINX_UIX_EFFECTIVE_CONFIG_ROOTS', { exact: true })).toBeVisible()
+	await expect(page.getByText('展示模式：原始输出', { exact: true })).toBeVisible()
+	const viewer = page.getByRole('region', {
+		name: '原始 Nginx 输出 nginx -T 标准输出',
+	})
+	await expect(viewer).toContainText('configuration file /etc/nginx/nginx.conf')
+	await expect(page.getByRole('navigation', { name: '生效配置加载顺序' })).toHaveCount(0)
+	await assertNoApplicationStorage(page)
+	await assertNoAxeViolations(page)
+	api.assertContract()
 })

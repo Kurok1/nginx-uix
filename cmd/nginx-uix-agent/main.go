@@ -15,6 +15,8 @@ import (
 	nginxruntime "github.com/kuroky/nginx-uix/internal/runtime"
 )
 
+const agentStartupFailureExitCode = 101
+
 func main() {
 	os.Exit(run(os.Args[1:]))
 }
@@ -28,7 +30,14 @@ func run(arguments []string) int {
 	}
 
 	logger := app.NewLogger(os.Stdout, slog.LevelInfo)
-	agent := app.NewAgent(nginxruntime.NewService(), logger, app.ProductionInitializeOptions())
+	service, err := nginxruntime.NewServiceWithEffectiveConfigRoots(
+		app.AdditionalEffectiveConfigRoots(os.Getenv(app.EffectiveConfigRootsEnvironment)),
+	)
+	if err != nil {
+		logger.Error("initialize agent configuration", "result", "invalid_effective_config_roots")
+		return agentStartupFailureExitCode
+	}
+	agent := app.NewAgent(service, logger, app.ProductionInitializeOptions())
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 

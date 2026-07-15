@@ -14,6 +14,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"slices"
 	"time"
 )
 
@@ -370,7 +371,10 @@ type agentConfigOccurrenceResponse struct {
 }
 
 type agentEffectiveConfigResponse struct {
+	DisplayMode EffectiveConfigDisplayMode      `json:"display_mode"`
 	Occurrences []agentConfigOccurrenceResponse `json:"occurrences"`
+	RawContent  *string                         `json:"raw_content"`
+	Warnings    []EffectiveConfigWarning        `json:"warnings"`
 }
 
 func newAgentEffectiveConfigResponse(configuration EffectiveConfig) agentEffectiveConfigResponse {
@@ -378,5 +382,13 @@ func newAgentEffectiveConfigResponse(configuration EffectiveConfig) agentEffecti
 	for _, occurrence := range configuration.Occurrences {
 		occurrences = append(occurrences, agentConfigOccurrenceResponse(occurrence))
 	}
-	return agentEffectiveConfigResponse{Occurrences: occurrences}
+	response := agentEffectiveConfigResponse{
+		DisplayMode: configuration.DisplayMode,
+		Occurrences: occurrences,
+		Warnings:    slices.Clone(configuration.Warnings),
+	}
+	if configuration.DisplayMode == EffectiveConfigDisplayModeRaw {
+		response.RawContent = &configuration.RawContent
+	}
+	return response
 }

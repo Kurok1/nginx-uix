@@ -53,7 +53,7 @@ Docker 会为首次使用的两个具名卷创建持久存储。管理界面位�
 
 ## 首次管理员和环境变量
 
-应用只读取下面五个环境变量。Nginx 可执行文件、入口配置和 Agent 套接字路径固定在镜像内，不能通过环境变量改写。
+应用和本地 Agent 只读取下面六个环境变量。Nginx 可执行文件、入口配置和 Agent 套接字路径固定在镜像内，不能通过环境变量改写。
 
 | 变量 | 行为 |
 | --- | --- |
@@ -62,12 +62,24 @@ Docker 会为首次使用的两个具名卷创建持久存储。管理界面位�
 | `NGINX_UIX_ADMIN_USERNAME` | 用户表为空时必填；3–64 个可打印 ASCII 字符，首尾不能是空白。 |
 | `NGINX_UIX_ADMIN_PASSWORD_FILE` | 用户表为空时首选密码来源；非空时必须成功读取该文件。 |
 | `NGINX_UIX_ADMIN_PASSWORD` | 仅在密码文件变量为空时使用的明文回退。 |
+| `NGINX_UIX_EFFECTIVE_CONFIG_ROOTS` | 可选；Agent 可以只读验证的额外配置目录，使用 Linux path-list（冒号）分隔。 |
 
 密码文件优先级是 fail closed：只要设置了 `NGINX_UIX_ADMIN_PASSWORD_FILE`，文件不存在、不可读或内容无效都会阻止 UI 绑定 9000；程序不会改用 `NGINX_UIX_ADMIN_PASSWORD`。Task 17 也同时传入了文件密码和不同的明文回退，并验证只有文件密码可以登录。
 
 不要在生产部署中使用明文回退。明文环境变量会成为容器配置的一部分，可能被有宿主机管理权限的工具读取。它只适合受控的本地兼容场景；正式部署应使用只读挂载的 Secret 文件。
 
 引导变量只在 `/var/lib/nginx-uix` 的用户表为空时读取。管理员一旦创建，后续容器创建时即使改变这些变量，也不会创建第二个管理员或重置原凭据。保留数据卷是保留管理员访问权的必要条件。
+
+Agent 默认只按文件验证 `/etc/nginx` 和 `/var/lib/nginx-uix/certs` 内的配置。如果 `nginx -T` 显示 Nginx 还加载了其他目录中的文件，配置页会保持可用，但只显示带警告的原始 `nginx -T` 输出，不会把未经验证的文本解释为文件边界。
+
+要对额外目录启用结构化展示，必须把宿主机目录以只读方式挂载到容器，并把容器内的绝对目录加入 `NGINX_UIX_EFFECTIVE_CONFIG_ROOTS`。例如：
+
+```sh
+--mount type=bind,src=/srv/nginx-snippets,dst=/srv/nginx-snippets,readonly \
+--env NGINX_UIX_EFFECTIVE_CONFIG_ROOTS=/srv/nginx-snippets:/opt/app/nginx
+```
+
+每个额外目录必须在 Agent 启动时已经存在、必须是目录，不能是相对路径或文件系统根 `/`。无效配置会阻止 Agent 启动。Agent 会同时校验声明路径和符号链接解析后的真实路径；符号链接只有在目标仍位于某个允许目录中时才可读取。
 
 ## Public URL、Origin 和 Cookie
 

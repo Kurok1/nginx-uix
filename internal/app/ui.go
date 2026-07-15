@@ -20,6 +20,13 @@ import (
 	"github.com/kuroky/nginx-uix/internal/store"
 )
 
+const (
+	authCleanupInterval     = time.Minute
+	authCleanupInitialRetry = time.Second
+	authCleanupMaxRetry     = time.Minute
+	authCleanupTimeout      = 10 * time.Second
+)
+
 // RunUI owns the HTTP server lifecycle until cancellation or a serving error.
 func RunUI(ctx context.Context, config Config) error {
 	logger := config.Logger
@@ -58,7 +65,22 @@ func RunUI(ctx context.Context, config Config) error {
 		IdleTimeout:       60 * time.Second,
 	}
 
+	cleanupContext, cancelCleanup := context.WithCancel(ctx)
+	cleanupDone := make(chan struct{})
+	go func() {
+		defer close(cleanupDone)
+		runAuthCleanupWorker(cleanupContext, sessions, logger, authCleanupSchedule{
+			interval:     authCleanupInterval,
+			initialRetry: authCleanupInitialRetry,
+			maxRetry:     authCleanupMaxRetry,
+			timeout:      authCleanupTimeout,
+			wait:         waitForAuthCleanup,
+		})
+	}()
+
 	runErr := runHTTPServer(ctx, server, logger, config.ShutdownTimeout)
+	cancelCleanup()
+	<-cleanupDone
 	closeErr := database.Close()
 	if runErr != nil && closeErr != nil {
 		return errors.Join(runErr, closeErr)
@@ -70,6 +92,86 @@ func RunUI(ctx context.Context, config Config) error {
 		return closeErr
 	}
 	return nil
+}
+
+type authStateCleaner interface {
+	CleanupExpired(context.Context) (auth.CleanupResult, error)
+}
+
+type authCleanupWaiter func(context.Context, time.Duration) bool
+
+type authCleanupSchedule struct {
+	interval     time.Duration
+	initialRetry time.Duration
+	maxRetry     time.Duration
+	timeout      time.Duration
+	wait         authCleanupWaiter
+}
+
+func runAuthCleanupWorker(
+	ctx context.Context,
+	cleaner authStateCleaner,
+	logger *slog.Logger,
+	schedule authCleanupSchedule,
+) {
+	retryDelay := schedule.initialRetry
+	nextDelay := time.Duration(0)
+	for {
+		if nextDelay > 0 && !schedule.wait(ctx, nextDelay) {
+			return
+		}
+		if ctx.Err() != nil {
+			return
+		}
+
+		startedAt := time.Now()
+		cleanupContext, cancelCleanup := context.WithTimeout(ctx, schedule.timeout)
+		result, err := cleaner.CleanupExpired(cleanupContext)
+		cancelCleanup()
+		if ctx.Err() != nil {
+			return
+		}
+		if err != nil {
+			logger.WarnContext(
+				ctx,
+				"authentication state cleanup failed",
+				"component", "auth_cleanup",
+				"action", "delete_expired_state",
+				"result", "failed",
+				"duration_ms", time.Since(startedAt).Milliseconds(),
+				"error", err,
+			)
+			nextDelay = retryDelay
+			retryDelay = min(retryDelay*2, schedule.maxRetry)
+			continue
+		}
+
+		if result.SessionsDeleted > 0 || result.ThrottlesDeleted > 0 {
+			logger.InfoContext(
+				ctx,
+				"expired authentication state deleted",
+				"component", "auth_cleanup",
+				"action", "delete_expired_state",
+				"result", "succeeded",
+				"duration_ms", time.Since(startedAt).Milliseconds(),
+				"sessions_deleted", result.SessionsDeleted,
+				"throttles_deleted", result.ThrottlesDeleted,
+			)
+		}
+		retryDelay = schedule.initialRetry
+		nextDelay = schedule.interval
+	}
+}
+
+func waitForAuthCleanup(ctx context.Context, delay time.Duration) bool {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return true
+	case <-ctx.Done():
+		return false
+	}
 }
 
 func runHTTPServer(ctx context.Context, server *http.Server, logger *slog.Logger, shutdownTimeout time.Duration) error {

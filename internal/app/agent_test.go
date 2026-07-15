@@ -11,7 +11,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -410,6 +412,17 @@ func TestProductionInitializeOptionsUseOnlyFixedContainerValues(t *testing.T) {
 	}
 	if got := ProductionInitializeOptions(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("ProductionInitializeOptions() = %#v, want %#v", got, want)
+	}
+}
+
+func TestAdditionalEffectiveConfigRootsUseOSPathList(t *testing.T) {
+	value := strings.Join([]string{"/opt/app/nginx", "/srv/nginx/snippets"}, string(os.PathListSeparator))
+	want := []string{"/opt/app/nginx", "/srv/nginx/snippets"}
+	if got := AdditionalEffectiveConfigRoots(value); !slices.Equal(got, want) {
+		t.Fatalf("AdditionalEffectiveConfigRoots() = %#v, want %#v", got, want)
+	}
+	if got := AdditionalEffectiveConfigRoots(""); len(got) != 0 {
+		t.Fatalf("AdditionalEffectiveConfigRoots(empty) = %#v, want empty", got)
 	}
 }
 

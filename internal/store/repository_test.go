@@ -210,3 +210,99 @@ func TestRepositoryDeletesOnlyTheRequestedSessionAndThrottle(t *testing.T) {
 		t.Errorf("unrelated Throttle() error = %v", err)
 	}
 }
+
+func TestCleanupExpiredAuthStateDeletesOnlyExpiredRows(t *testing.T) {
+	database := openTestDatabase(t)
+	now := time.Date(2026, time.July, 15, 12, 0, 0, 0, time.UTC)
+	user, err := database.CreateInitialUser(context.Background(), auth.NewUser{
+		Username: "operator", NormalizedName: "operator", PasswordHash: "hash", CreatedAt: now.Add(-24 * time.Hour),
+	})
+	if err != nil {
+		t.Fatalf("CreateInitialUser() error = %v", err)
+	}
+
+	sessions := []struct {
+		digest            [32]byte
+		idleExpiresAt     time.Time
+		absoluteExpiresAt time.Time
+		wantDeleted       bool
+	}{
+		{digest: [32]byte{0x11}, idleExpiresAt: now, absoluteExpiresAt: now.Add(time.Hour), wantDeleted: true},
+		{digest: [32]byte{0x12}, idleExpiresAt: now.Add(time.Hour), absoluteExpiresAt: now.Add(-time.Nanosecond), wantDeleted: true},
+		{digest: [32]byte{0x13}, idleExpiresAt: now.Add(time.Hour), absoluteExpiresAt: now.Add(2 * time.Hour)},
+	}
+	for _, session := range sessions {
+		if _, err := database.CreateSession(context.Background(), auth.NewSession{
+			TokenDigest: session.digest, UserID: user.ID, CSRFDigest: [32]byte{session.digest[0]},
+			CreatedAt: now.Add(-time.Hour), LastSeenAt: now.Add(-time.Minute),
+			IdleExpiresAt: session.idleExpiresAt, AbsoluteExpiresAt: session.absoluteExpiresAt,
+		}); err != nil {
+			t.Fatalf("CreateSession(%x) error = %v", session.digest[0], err)
+		}
+	}
+
+	type throttleCase struct {
+		key         auth.ThrottleKey
+		startedAt   time.Time
+		attempts    int
+		wantDeleted bool
+	}
+	throttles := []throttleCase{
+		{
+			key:       auth.ThrottleKey{NormalizedName: "stale", SourceIP: "192.0.2.1"},
+			startedAt: now.Add(-6 * time.Minute), attempts: 1, wantDeleted: true,
+		},
+		{
+			key:       auth.ThrottleKey{NormalizedName: "ended-block", SourceIP: "192.0.2.2"},
+			startedAt: now.Add(-21 * time.Minute), attempts: 5, wantDeleted: true,
+		},
+		{
+			key:       auth.ThrottleKey{NormalizedName: "active-block", SourceIP: "192.0.2.3"},
+			startedAt: now.Add(-10 * time.Minute), attempts: 5,
+		},
+		{
+			key:       auth.ThrottleKey{NormalizedName: "active-window", SourceIP: "192.0.2.4"},
+			startedAt: now.Add(-4 * time.Minute), attempts: 1,
+		},
+	}
+	for _, throttle := range throttles {
+		for range throttle.attempts {
+			if _, err := database.RecordLoginFailure(context.Background(), auth.LoginFailure{
+				Key: throttle.key, At: throttle.startedAt, Window: 5 * time.Minute,
+				Limit: 5, BlockDuration: 15 * time.Minute,
+			}); err != nil {
+				t.Fatalf("RecordLoginFailure(%s) error = %v", throttle.key.NormalizedName, err)
+			}
+		}
+	}
+
+	result, err := database.CleanupExpiredAuthState(context.Background(), now, 5*time.Minute)
+	if err != nil {
+		t.Fatalf("CleanupExpiredAuthState() error = %v", err)
+	}
+	if got, want := result.SessionsDeleted, int64(2); got != want {
+		t.Errorf("SessionsDeleted = %d, want %d", got, want)
+	}
+	if got, want := result.ThrottlesDeleted, int64(2); got != want {
+		t.Errorf("ThrottlesDeleted = %d, want %d", got, want)
+	}
+
+	for _, session := range sessions {
+		_, err := database.SessionByDigest(context.Background(), session.digest)
+		if session.wantDeleted && !errors.Is(err, auth.ErrNotFound) {
+			t.Errorf("SessionByDigest(%x) error = %v, want ErrNotFound", session.digest[0], err)
+		}
+		if !session.wantDeleted && err != nil {
+			t.Errorf("SessionByDigest(%x) error = %v, want retained", session.digest[0], err)
+		}
+	}
+	for _, throttle := range throttles {
+		_, err := database.Throttle(context.Background(), throttle.key)
+		if throttle.wantDeleted && !errors.Is(err, auth.ErrNotFound) {
+			t.Errorf("Throttle(%s) error = %v, want ErrNotFound", throttle.key.NormalizedName, err)
+		}
+		if !throttle.wantDeleted && err != nil {
+			t.Errorf("Throttle(%s) error = %v, want retained", throttle.key.NormalizedName, err)
+		}
+	}
+}

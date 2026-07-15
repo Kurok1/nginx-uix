@@ -67,6 +67,12 @@ type LoginFailure struct {
 	BlockDuration time.Duration
 }
 
+// CleanupResult reports bounded authentication state removed in one pass.
+type CleanupResult struct {
+	SessionsDeleted  int64
+	ThrottlesDeleted int64
+}
+
 // Session stores only digests and bounded timestamps, never raw browser secrets.
 type Session struct {
 	TokenDigest       [32]byte
@@ -141,6 +147,7 @@ type Repository interface {
 	Throttle(ctx context.Context, key ThrottleKey) (Throttle, error)
 	RecordLoginFailure(ctx context.Context, failure LoginFailure) (Throttle, error)
 	ClearLoginFailures(ctx context.Context, key ThrottleKey) error
+	CleanupExpiredAuthState(ctx context.Context, now time.Time, throttleWindow time.Duration) (CleanupResult, error)
 	CreateSession(ctx context.Context, session NewSession) (Session, error)
 	SessionByDigest(ctx context.Context, digest [32]byte) (Session, error)
 	TouchSession(ctx context.Context, touch SessionTouch) error

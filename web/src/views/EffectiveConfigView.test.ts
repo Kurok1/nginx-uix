@@ -11,8 +11,9 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import { APIClient, APIRequestError } from '../api/client'
 import type {
   EffectiveConfigResponse,
-  LoginRequest,
-  SessionResponse,
+	LoginRequest,
+	SessionResponse,
+	StructuredEffectiveConfigResponse,
 } from '../api/types'
 import { installSessionExpiryRedirect } from '../router'
 import { createSessionStore, type SessionClient } from '../session'
@@ -28,10 +29,11 @@ const currentSession: SessionResponse = {
   absolute_expires_at: '2026-07-16T12:00:00Z',
 }
 
-const repeatedConfig: EffectiveConfigResponse = {
+const repeatedConfig: StructuredEffectiveConfigResponse = {
   generated_at: '2026-07-15T08:31:00Z',
   nginx_version: '1.30.3',
   entry_config_path: '/etc/nginx/nginx.conf',
+	display_mode: 'structured',
   occurrence_count: 3,
   occurrences: [
     {
@@ -53,12 +55,25 @@ const repeatedConfig: EffectiveConfigResponse = {
       content: 'server { listen 8080; }\n',
     },
   ],
+	raw_content: null,
+	warnings: [],
 }
 
-const emptyConfig: EffectiveConfigResponse = {
+const emptyConfig: StructuredEffectiveConfigResponse = {
   ...repeatedConfig,
   occurrence_count: 0,
   occurrences: [],
+}
+
+const rawConfig: EffectiveConfigResponse = {
+	generated_at: '2026-07-15T08:32:00Z',
+	nginx_version: '1.30.3',
+	entry_config_path: '/etc/nginx/nginx.conf',
+	display_mode: 'raw',
+	occurrence_count: 0,
+	occurrences: [],
+	raw_content: '# configuration file /etc/nginx/nginx.conf:\nevents {}\n',
+	warnings: ['NGINX_CONFIG_PATH_OUTSIDE_ALLOWED_ROOTS'],
 }
 
 function createConfigClient(
@@ -180,6 +195,24 @@ describe('EffectiveConfigView', () => {
     expect(wrapper.find('.read-only-code-viewer').exists()).toBe(false)
   })
 
+	it('renders raw fallback with an actionable warning and no invented file list', async () => {
+		const wrapper = mount(EffectiveConfigView, {
+			props: { client: createConfigClient(vi.fn().mockResolvedValue(rawConfig)) },
+		})
+		await flushPromises()
+
+		expect(wrapper.text()).toContain('结构未验证')
+		expect(wrapper.text()).toContain('NGINX_UIX_EFFECTIVE_CONFIG_ROOTS')
+		expect(wrapper.text()).toContain('展示模式：原始输出')
+		expect(wrapper.text()).toContain('原始 Nginx 输出')
+		expect(wrapper.text()).toContain('nginx -T 标准输出')
+		expect(wrapper.get('.read-only-code-viewer__content code').element.textContent).toBe(
+			rawConfig.raw_content,
+		)
+		expect(wrapper.find('.config-file-list').exists()).toBe(false)
+		expect(wrapper.text()).not.toContain('当前没有加载到配置文件')
+	})
+
   it.each([
     ['NGINX_CONFIG_INVALID', 422, 'Nginx 配置当前无效，无法读取生效配置。'],
     ['NGINX_COMMAND_TIMEOUT', 504, '读取生效配置超时，请稍后重试。'],
@@ -213,7 +246,7 @@ describe('EffectiveConfigView', () => {
   })
 
   it('refreshes on demand with a new AbortSignal and replaces the snapshot', async () => {
-    const refreshed: EffectiveConfigResponse = {
+    const refreshed: StructuredEffectiveConfigResponse = {
       ...repeatedConfig,
       generated_at: '2026-07-15T08:35:00Z',
       occurrence_count: 1,

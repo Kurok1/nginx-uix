@@ -60,6 +60,7 @@ interface PublicEffectiveConfigDTO {
   generated_at: string
   nginx_version: string
   entry_config_path: '/etc/nginx/nginx.conf'
+	display_mode: 'structured' | 'raw'
   occurrence_count: number
   occurrences: Array<{
     id: string
@@ -67,6 +68,11 @@ interface PublicEffectiveConfigDTO {
     path: string
     content: string
   }>
+	raw_content: string | null
+	warnings: Array<
+		| 'NGINX_CONFIG_PATH_OUTSIDE_ALLOWED_ROOTS'
+		| 'NGINX_CONFIG_STRUCTURE_UNVERIFIED'
+	>
 }
 
 interface PublicErrorEnvelope {
@@ -131,6 +137,7 @@ export const repeatedEffectiveConfig = {
   generated_at: '2026-07-14T08:03:00Z',
   nginx_version: 'nginx/1.30.3',
   entry_config_path: '/etc/nginx/nginx.conf',
+	display_mode: 'structured',
   occurrence_count: 3,
   occurrences: [
     {
@@ -152,6 +159,19 @@ export const repeatedEffectiveConfig = {
       content: 'server {\n  listen 8080;\n  server_name second.example.test;\n}\n',
     },
   ],
+	raw_content: null,
+	warnings: [],
+} satisfies PublicEffectiveConfigDTO
+
+export const rawEffectiveConfig = {
+	generated_at: '2026-07-14T08:04:00Z',
+	nginx_version: 'nginx/1.30.3',
+	entry_config_path: '/etc/nginx/nginx.conf',
+	display_mode: 'raw',
+	occurrence_count: 0,
+	occurrences: [],
+	raw_content: '# configuration file /etc/nginx/nginx.conf:\nevents {}\n',
+	warnings: ['NGINX_CONFIG_PATH_OUTSIDE_ALLOWED_ROOTS'],
 } satisfies PublicEffectiveConfigDTO
 
 export function apiError(

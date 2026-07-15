@@ -10,16 +10,16 @@
     <header class="read-only-code-viewer__header">
       <div class="read-only-code-viewer__metadata">
         <h2 :id="headingId">
-          配置内容
+          {{ heading }}
         </h2>
         <p
-          :id="fileId"
+          :id="sourceId"
           class="read-only-code-viewer__path"
         >
-          {{ occurrence.path }}
+          {{ sourceLabel }}
         </p>
         <p class="read-only-code-viewer__order">
-          第 {{ occurrence.load_order }} 项
+          {{ metadata }}
         </p>
       </div>
       <button
@@ -36,13 +36,13 @@
       :class="{ 'read-only-code-viewer__scroll--wrap': wrapLines }"
       role="region"
       tabindex="0"
-      :aria-labelledby="`${headingId} ${fileId}`"
+      :aria-labelledby="`${headingId} ${sourceId}`"
     >
       <pre
         class="read-only-code-viewer__line-numbers"
         aria-hidden="true"
       >{{ lineNumbers }}</pre>
-      <pre class="read-only-code-viewer__content"><code>{{ occurrence.content }}</code></pre>
+      <pre class="read-only-code-viewer__content"><code>{{ content }}</code></pre>
     </div>
   </section>
 </template>
@@ -52,17 +52,39 @@ import { computed, ref, useId } from 'vue'
 
 import type { EffectiveConfigOccurrence } from '../api/types'
 
-const props = defineProps<{
-  occurrence: EffectiveConfigOccurrence
-}>()
+type ViewerProps =
+	| {
+			mode?: 'occurrence'
+			occurrence: EffectiveConfigOccurrence
+			rawContent?: never
+	  }
+	| {
+			mode: 'raw'
+			occurrence?: never
+			rawContent: string
+	  }
+
+const props = defineProps<ViewerProps>()
 
 const wrapLines = ref(false)
 const headingId = useId()
-const fileId = useId()
+const sourceId = useId()
+
+const rawMode = computed(() => props.mode === 'raw')
+const heading = computed(() => (rawMode.value ? '原始 Nginx 输出' : '配置内容'))
+const sourceLabel = computed(() =>
+	rawMode.value ? 'nginx -T 标准输出' : props.occurrence?.path ?? '',
+)
+const metadata = computed(() =>
+	rawMode.value ? '未按文件拆分' : `第 ${props.occurrence?.load_order ?? 0} 项`,
+)
+const content = computed(() =>
+	rawMode.value ? props.rawContent ?? '' : props.occurrence?.content ?? '',
+)
 
 const lineNumbers = computed(() =>
   Array.from(
-    { length: props.occurrence.content.split('\n').length },
+		{ length: content.value.split('\n').length },
     (_line, index) => index + 1,
   ).join('\n'),
 )

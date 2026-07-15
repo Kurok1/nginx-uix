@@ -9,11 +9,15 @@ import (
 	"errors"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 
 	nginxruntime "github.com/kuroky/nginx-uix/internal/runtime"
 )
+
+// EffectiveConfigRootsEnvironment names the OS path-list of additional read-only Nginx configuration roots.
+const EffectiveConfigRootsEnvironment = "NGINX_UIX_EFFECTIVE_CONFIG_ROOTS"
 
 const (
 	agentExitSuccess  = 0
@@ -67,6 +71,11 @@ func ProductionInitializeOptions() nginxruntime.InitializeOptions {
 		DataUID:      defaultDataUID,
 		DataGID:      defaultDataGID,
 	}
+}
+
+// AdditionalEffectiveConfigRoots parses the configured OS path-list without widening the built-in roots.
+func AdditionalEffectiveConfigRoots(value string) []string {
+	return filepath.SplitList(value)
 }
 
 // NewAgent assembles the fixed production Agent dependencies.

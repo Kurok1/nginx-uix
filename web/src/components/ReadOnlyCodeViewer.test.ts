@@ -32,6 +32,19 @@ describe('ReadOnlyCodeViewer', () => {
     expect(wrapper.html()).toContain('&lt;script&gt;&amp;')
   })
 
+	it('renders raw nginx output without presenting a verified file occurrence', () => {
+		const rawContent = '# configuration file /etc/nginx/nginx.conf:\nevents {}\n'
+		const wrapper = mount(ReadOnlyCodeViewer, {
+			props: { mode: 'raw', rawContent },
+		})
+
+		expect(wrapper.get('h2').text()).toBe('原始 Nginx 输出')
+		expect(wrapper.text()).toContain('nginx -T 标准输出')
+		expect(wrapper.text()).toContain('未按文件拆分')
+		expect(wrapper.get('code').element.textContent).toBe(rawContent)
+		expect(wrapper.text()).not.toContain('第 0 项')
+	})
+
   it('is one keyboard-focusable scroll region with visible file and order metadata', () => {
     const wrapper = mount(ReadOnlyCodeViewer, {
       props: { occurrence },

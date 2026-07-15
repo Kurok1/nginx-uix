@@ -47,7 +47,7 @@ func TestEffectiveConfigWithRealIsolatedNginx(t *testing.T) {
 		if err != nil {
 			t.Fatalf("nginx -T error = %v, stderr = %q", err, dump.stderr)
 		}
-		paths, err := configurationPaths(dump.stdout)
+		paths, err := configurationPaths(dump.stdout, harness.configPath)
 		if err != nil {
 			t.Fatalf("configurationPaths() error = %v", err)
 		}
@@ -535,27 +535,68 @@ func (h *nginxHarness) runtimeArtifactPaths() []string {
 	return []string{filepath.Join(h.prefix, "logs"), filepath.Join(h.prefix, "runtime")}
 }
 
-func configurationPaths(output string) ([]string, error) {
+func configurationPaths(output, entryPath string) ([]string, error) {
 	const markerPrefix = "# configuration file "
+	normalized := []byte(strings.ReplaceAll(output, "\r\n", "\n"))
+	entryMarker := []byte(markerPrefix + entryPath + ":\n")
+	markerStart := bytes.Index(normalized, entryMarker)
+	if markerStart < 0 || (markerStart > 0 && normalized[markerStart-1] != '\n') {
+		return nil, fmt.Errorf("fixed Nginx entry marker is missing")
+	}
+
 	paths := make([]string, 0, 4)
-	for _, line := range strings.Split(strings.ReplaceAll(output, "\r\n", "\n"), "\n") {
-		if !strings.HasPrefix(line, markerPrefix) {
-			continue
+	contentsByPath := make(map[string][]byte)
+	rootPath := filepath.Dir(entryPath)
+	for {
+		lineEnd := bytes.IndexByte(normalized[markerStart:], '\n')
+		if lineEnd < 0 {
+			return nil, fmt.Errorf("Nginx configuration marker has no line ending")
 		}
-		pathWithColon := strings.TrimPrefix(line, markerPrefix)
-		if !strings.HasSuffix(pathWithColon, ":") {
+		lineEnd += markerStart
+		line := string(normalized[markerStart:lineEnd])
+		if !strings.HasPrefix(line, markerPrefix) || !strings.HasSuffix(line, ":") {
 			return nil, fmt.Errorf("malformed Nginx configuration marker %q", line)
 		}
-		path := strings.TrimSuffix(pathWithColon, ":")
-		if path == "" {
-			return nil, fmt.Errorf("empty Nginx configuration marker path")
+		pathWithColon := strings.TrimPrefix(line, markerPrefix)
+		configPath := strings.TrimSuffix(pathWithColon, ":")
+		if !filepath.IsAbs(configPath) {
+			return nil, fmt.Errorf("invalid Nginx configuration marker path %q", configPath)
 		}
-		paths = append(paths, filepath.Clean(path))
+		configPath = filepath.Clean(configPath)
+		relativePath, err := filepath.Rel(rootPath, configPath)
+		if err != nil || relativePath == "." || relativePath == ".." || strings.HasPrefix(relativePath, ".."+string(filepath.Separator)) {
+			return nil, fmt.Errorf("Nginx configuration marker escapes fixture root: %q", configPath)
+		}
+
+		contents, found := contentsByPath[configPath]
+		if !found {
+			contents, err = os.ReadFile(configPath)
+			if err != nil {
+				return nil, fmt.Errorf("read dumped Nginx configuration %q: %w", configPath, err)
+			}
+			contents = bytes.ReplaceAll(contents, []byte("\r\n"), []byte("\n"))
+			contentsByPath[configPath] = contents
+		}
+		bodyStart := lineEnd + 1
+		if len(contents) > len(normalized)-bodyStart {
+			return nil, fmt.Errorf("dumped Nginx configuration %q is truncated", configPath)
+		}
+		bodyEnd := bodyStart + len(contents)
+		if !bytes.Equal(normalized[bodyStart:bodyEnd], contents) {
+			return nil, fmt.Errorf("dumped Nginx configuration %q differs from fixture", configPath)
+		}
+		if bodyEnd >= len(normalized) || normalized[bodyEnd] != '\n' {
+			return nil, fmt.Errorf("dumped Nginx configuration %q has no separator", configPath)
+		}
+		paths = append(paths, configPath)
+		markerStart = bodyEnd + 1
+		if markerStart == len(normalized) {
+			return paths, nil
+		}
+		if !bytes.HasPrefix(normalized[markerStart:], []byte(markerPrefix)) {
+			return nil, fmt.Errorf("unexpected data after dumped Nginx configuration %q", configPath)
+		}
 	}
-	if len(paths) == 0 {
-		return nil, fmt.Errorf("Nginx configuration markers are missing")
-	}
-	return paths, nil
 }
 
 func assertProcessIDsGone(t *testing.T, processIDs []int) {

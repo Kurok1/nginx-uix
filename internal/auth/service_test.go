@@ -299,6 +299,29 @@ func TestLogoutIsIdempotentAndInvalidatesSession(t *testing.T) {
 	}
 }
 
+func TestServiceCleanupExpiredAuthStateUsesClockAndThrottleWindow(t *testing.T) {
+	now := time.Date(2026, time.July, 15, 13, 0, 0, 0, time.UTC)
+	repository := &cleanupCapturingRepository{
+		Repository: openAuthDatabase(t),
+		result:     auth.CleanupResult{SessionsDeleted: 2, ThrottlesDeleted: 3},
+	}
+	service := newAuthService(t, repository, &mutableClock{now: now}, 0x73)
+
+	result, err := service.CleanupExpired(context.Background())
+	if err != nil {
+		t.Fatalf("CleanupExpired() error = %v", err)
+	}
+	if result != repository.result {
+		t.Fatalf("CleanupExpired() = %+v, want %+v", result, repository.result)
+	}
+	if !repository.now.Equal(now) {
+		t.Errorf("cleanup time = %s, want %s", repository.now, now)
+	}
+	if got, want := repository.throttleWindow, 5*time.Minute; got != want {
+		t.Errorf("throttle window = %s, want %s", got, want)
+	}
+}
+
 func bootstrappedService(t *testing.T) (*auth.Service, *store.DB, *mutableClock) {
 	t.Helper()
 	database := openAuthDatabase(t)
@@ -347,6 +370,23 @@ type mutableClock struct {
 type disabledUserRepository struct {
 	auth.Repository
 	user auth.User
+}
+
+type cleanupCapturingRepository struct {
+	auth.Repository
+	result         auth.CleanupResult
+	now            time.Time
+	throttleWindow time.Duration
+}
+
+func (r *cleanupCapturingRepository) CleanupExpiredAuthState(
+	_ context.Context,
+	now time.Time,
+	throttleWindow time.Duration,
+) (auth.CleanupResult, error) {
+	r.now = now
+	r.throttleWindow = throttleWindow
+	return r.result, nil
 }
 
 func (r disabledUserRepository) UserByNormalizedName(context.Context, string) (auth.User, error) {

@@ -16,6 +16,8 @@ var (
 	ErrOutputTooLarge = errors.New("nginx command output too large")
 	// ErrConfigInvalid indicates that Nginx rejected the fixed entry configuration.
 	ErrConfigInvalid = errors.New("nginx configuration invalid")
+	// ErrConfigPathOutsideAllowedRoots indicates that an effective configuration file is outside the read-only allowlist.
+	ErrConfigPathOutsideAllowedRoots = errors.New("nginx configuration path outside allowed roots")
 )
 
 // BuildInfo is the parsed output of the fixed nginx -V operation.
@@ -34,9 +36,32 @@ type ConfigOccurrence struct {
 	Content   string
 }
 
+// EffectiveConfigDisplayMode describes whether the snapshot has verified file boundaries.
+type EffectiveConfigDisplayMode string
+
+const (
+	// EffectiveConfigDisplayModeStructured exposes only byte-verified file occurrences.
+	EffectiveConfigDisplayModeStructured EffectiveConfigDisplayMode = "structured"
+	// EffectiveConfigDisplayModeRaw exposes the bounded nginx -T stdout without inferred boundaries.
+	EffectiveConfigDisplayModeRaw EffectiveConfigDisplayMode = "raw"
+)
+
+// EffectiveConfigWarning is a stable reason why a snapshot cannot be displayed structurally.
+type EffectiveConfigWarning string
+
+const (
+	// EffectiveConfigWarningPathOutsideAllowedRoots indicates that nginx loaded a file outside the read-only allowlist.
+	EffectiveConfigWarningPathOutsideAllowedRoots EffectiveConfigWarning = "NGINX_CONFIG_PATH_OUTSIDE_ALLOWED_ROOTS"
+	// EffectiveConfigWarningStructureUnverified indicates that file boundaries could not be byte-verified.
+	EffectiveConfigWarningStructureUnverified EffectiveConfigWarning = "NGINX_CONFIG_STRUCTURE_UNVERIFIED"
+)
+
 // EffectiveConfig contains one response-scoped ordered nginx -T snapshot.
 type EffectiveConfig struct {
+	DisplayMode EffectiveConfigDisplayMode
 	Occurrences []ConfigOccurrence
+	RawContent  string
+	Warnings    []EffectiveConfigWarning
 }
 
 // StartupValidation is the bounded result of nginx -t.

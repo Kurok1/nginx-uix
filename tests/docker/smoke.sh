@@ -444,40 +444,65 @@ PY
 assert_effective_config_matches_nginx() {
     docker exec "$MAIN_CONTAINER" /usr/sbin/nginx -T -c /etc/nginx/nginx.conf \
         >"$WORK_DIR/nginx-t.stdout" 2>"$WORK_DIR/nginx-t.stderr"
-    python3 - "$WORK_DIR/effective-config.json" "$WORK_DIR/nginx-t.stdout" <<'PY'
+    mkdir "$WORK_DIR/effective-config-files"
+    docker cp "$MAIN_CONTAINER:/etc/nginx/." "$WORK_DIR/effective-config-files/" >/dev/null
+    python3 - "$WORK_DIR/effective-config.json" "$WORK_DIR/nginx-t.stdout" \
+        "$WORK_DIR/effective-config-files" <<'PY'
 import json
+import os
+import posixpath
 import sys
 
 with open(sys.argv[1], encoding="utf-8") as source:
     payload = json.load(source)
 raw = open(sys.argv[2], "rb").read().replace(b"\r\n", b"\n")
+snapshot_root = sys.argv[3]
 prefix = b"# configuration file "
+entry_path = "/etc/nginx/nginx.conf"
+entry_marker = prefix + entry_path.encode() + b":\n"
+position = raw.find(entry_marker)
+assert position >= 0 and (position == 0 or raw[position - 1] == 10), "nginx -T entry marker is missing"
 occurrences = []
-body_start = None
-position = 0
-while position < len(raw):
+contents_by_path = {}
+while True:
     newline = raw.find(b"\n", position)
-    line_end = len(raw) if newline < 0 else newline
-    next_line = len(raw) if newline < 0 else newline + 1
+    assert newline >= 0, "nginx -T marker has no line ending"
+    line_end = newline
     line = raw[position:line_end]
-    if line.startswith(prefix):
-        assert line.endswith(b":"), "malformed nginx -T marker"
-        if body_start is not None:
-            occurrences[-1]["content"] = raw[body_start:position].decode("utf-8")
-        order = len(occurrences) + 1
-        occurrences.append({
-            "id": f"occurrence-{order:06d}",
-            "load_order": order,
-            "path": line[len(prefix):-1].decode("utf-8"),
-            "content": "",
-        })
-        body_start = next_line
-    position = next_line
-assert body_start is not None, "nginx -T emitted no configuration marker"
-occurrences[-1]["content"] = raw[body_start:].decode("utf-8")
+    assert line.startswith(prefix) and line.endswith(b":"), "malformed nginx -T marker"
+    marker_path = line[len(prefix):-1].decode("utf-8")
+    assert marker_path.startswith("/"), "nginx -T marker path is not absolute"
+    config_path = posixpath.normpath(marker_path)
+    relative_path = posixpath.relpath(config_path, "/etc/nginx")
+    assert relative_path != "." and relative_path != ".." and not relative_path.startswith("../"), \
+        "nginx -T marker escapes /etc/nginx"
+    if config_path not in contents_by_path:
+        snapshot_path = os.path.join(snapshot_root, *relative_path.split("/"))
+        contents_by_path[config_path] = open(snapshot_path, "rb").read().replace(b"\r\n", b"\n")
+    contents = contents_by_path[config_path]
+    body_start = line_end + 1
+    body_end = body_start + len(contents)
+    assert raw[body_start:body_end] == contents, "nginx -T body differs from the opened configuration file"
+    assert body_end < len(raw) and raw[body_end] == 10, "nginx -T body has no separator"
+    order = len(occurrences) + 1
+    occurrences.append({
+        "id": f"occurrence-{order:06d}",
+        "load_order": order,
+        "path": config_path,
+        "content": contents.decode("utf-8"),
+    })
+    position = body_end + 1
+    if position == len(raw):
+        break
+    assert raw.startswith(prefix, position), "unexpected data after nginx -T body"
 assert payload["entry_config_path"] == "/etc/nginx/nginx.conf", "wrong public entry path"
+assert payload["display_mode"] == "structured", "default configuration is not byte-verified"
 assert payload["occurrence_count"] == len(occurrences), "wrong occurrence count"
 assert payload["occurrences"] == occurrences, "API occurrences differ from the same effective nginx configuration"
+assert payload["raw_content"] is None, "structured response unexpectedly exposes raw output"
+assert payload["warnings"] == [], "structured response unexpectedly contains warnings"
+assert all(item["path"] != "/etc/passwd" for item in occurrences), "forged absolute marker became an occurrence"
+assert all(item["path"] != "for the api" for item in occurrences), "prose marker became an occurrence"
 PY
 }
 
@@ -778,6 +803,22 @@ PORT_LIST=$(docker port "$MAIN_CONTAINER")
 [ "$(printf '%s\n' "$PORT_LIST" | awk 'NF {count++} END {print count+0}')" -eq 1 ] || fail 'deployment published more than the UI port'
 printf '%s\n' "$PORT_LIST" | grep -Eq '^9000/tcp -> 127\.0\.0\.1:[0-9]+$' || fail 'UI was not published only on a dynamic 127.0.0.1 port'
 pass 'management UI is dynamically mapped only on 127.0.0.1'
+
+request_get "$BASE_URL/" '' "$WORK_DIR/root.html" "$WORK_DIR/root.headers"
+[ "$HTTP_CODE" = 200 ] || fail 'Go UI server did not serve the SPA at the root path'
+grep -Fq '<div id="app"></div>' "$WORK_DIR/root.html" ||
+    fail 'root path did not return the production SPA index'
+grep -Eiq '^Cache-Control: no-store' "$WORK_DIR/root.headers" ||
+    fail 'root SPA index response is cacheable'
+request_get "$BASE_URL/configuration" '' "$WORK_DIR/configuration-deep-link.html" "$WORK_DIR/configuration-deep-link.headers"
+[ "$HTTP_CODE" = 200 ] || fail 'Go UI server did not serve the SPA for a configuration deep link'
+grep -Fq '<div id="app"></div>' "$WORK_DIR/configuration-deep-link.html" ||
+    fail 'configuration deep link did not return the production SPA index'
+grep -Eiq '^Cache-Control: no-store' "$WORK_DIR/configuration-deep-link.headers" ||
+    fail 'SPA index response is cacheable'
+request_get "$BASE_URL/api/v1/unknown" '' "$WORK_DIR/unknown-api" "$WORK_DIR/unknown-api.headers"
+[ "$HTTP_CODE" = 404 ] || fail 'SPA fallback swallowed an unknown API route'
+pass 'real Go UI server supports SPA root/deep links without swallowing API routes'
 
 request_get "$BASE_URL/api/v1/system/status" '' "$WORK_DIR/anonymous-status" "$WORK_DIR/anonymous-status.headers"
 [ "$HTTP_CODE" = 401 ] || fail 'anonymous status request was not rejected'

@@ -217,6 +217,8 @@ v1.0 只承诺 HTTP-01。DNS-01 和通配符证书在 v1.0 之后单独设计。
 
 **验收证据：** [v0.1.0 验收记录](docs/release/v0.1.0-verification.md)
 
+**代码审核修复（2026-07-15）：** 本次单一修复提交已关闭 [H-1、M-1、M-2](docs/review/2026-07-15-v0.1-review-findings.md)，其中 H-1 已完成生产 `fs.Sub` 形态的根路径二次验收；RED/GREEN 过程、真实 Nginx、固定 Node/npm 前端门禁和完整一体化 Docker smoke 见[补充验收](docs/release/v0.1.0-verification.md#2026-07-15-代码审核修复补充验收)与[实施计划](docs/superpowers/plans/2026-07-15-v0.1-review-fixes.md)。
+
 **交付物：**
 
 - [x] 初始化 Go、Vue 3、TypeScript、SQLite 和 `VERSION`。

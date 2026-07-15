@@ -81,10 +81,32 @@ export interface EffectiveConfigOccurrence {
   content: string
 }
 
-export interface EffectiveConfigResponse {
+export type EffectiveConfigWarning =
+  | 'NGINX_CONFIG_PATH_OUTSIDE_ALLOWED_ROOTS'
+  | 'NGINX_CONFIG_STRUCTURE_UNVERIFIED'
+
+interface EffectiveConfigResponseBase {
   generated_at: string
   nginx_version: string
   entry_config_path: string
+}
+
+export interface StructuredEffectiveConfigResponse extends EffectiveConfigResponseBase {
+  display_mode: 'structured'
   occurrence_count: number
   occurrences: EffectiveConfigOccurrence[]
+  raw_content: null
+  warnings: EffectiveConfigWarning[]
 }
+
+export interface RawEffectiveConfigResponse extends EffectiveConfigResponseBase {
+  display_mode: 'raw'
+  occurrence_count: 0
+  occurrences: []
+  raw_content: string
+  warnings: EffectiveConfigWarning[]
+}
+
+export type EffectiveConfigResponse =
+  | StructuredEffectiveConfigResponse
+  | RawEffectiveConfigResponse

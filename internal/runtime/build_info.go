@@ -8,6 +8,8 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -17,12 +19,16 @@ import (
 )
 
 const (
-	nginxExecutable  = "/usr/sbin/nginx"
-	nginxConfigPath  = "/etc/nginx/nginx.conf"
-	buildOutputLimit = 256 * 1024
+	nginxExecutable         = "/usr/sbin/nginx"
+	nginxConfigPath         = "/etc/nginx/nginx.conf"
+	nginxConfigRoot         = "/etc/nginx"
+	nginxUIXCertificateRoot = "/var/lib/nginx-uix/certs"
+	buildOutputLimit        = 256 * 1024
 )
 
 type commandExecutor func(context.Context, commandSpec) (commandResult, error)
+
+type configFileReader func(context.Context, string) ([]byte, error)
 
 type processSource interface {
 	Snapshot(context.Context) (processSnapshot, error)
@@ -35,6 +41,7 @@ type startupStateReader func(context.Context) (*StartupState, error)
 // Service performs the fixed read-only Nginx inspection operations.
 type Service struct {
 	executor             commandExecutor
+	readConfigFile       configFileReader
 	buildLock            chan struct{}
 	cachedBuild          *BuildInfo
 	effectiveConfigGroup singleflight.Group
@@ -49,9 +56,43 @@ func NewService() *Service {
 	return newServiceWithExecutor(executeCommand)
 }
 
+// NewServiceWithEffectiveConfigRoots creates the production service with additional read-only configuration roots.
+func NewServiceWithEffectiveConfigRoots(additionalRoots []string) (*Service, error) {
+	for _, root := range additionalRoots {
+		if !filepath.IsAbs(root) || filepath.Clean(root) == string(filepath.Separator) {
+			return nil, fmt.Errorf("validate additional effective configuration root %q: absolute non-root path required", root)
+		}
+		info, err := os.Stat(root)
+		if err != nil {
+			return nil, fmt.Errorf("inspect additional effective configuration root %q: %w", root, err)
+		}
+		if !info.IsDir() {
+			return nil, fmt.Errorf("validate additional effective configuration root %q: directory required", root)
+		}
+	}
+	rootPaths := append([]string{nginxConfigRoot, nginxUIXCertificateRoot}, additionalRoots...)
+	allowedRoots, err := normalizeEffectiveConfigRoots(rootPaths)
+	if err != nil {
+		return nil, err
+	}
+	return newService(executeCommand, newNginxConfigFileReader(allowedRoots)), nil
+}
+
 func newServiceWithExecutor(executor commandExecutor) *Service {
+	allowedRoots, err := normalizeEffectiveConfigRoots([]string{nginxConfigRoot, nginxUIXCertificateRoot})
+	reader := configFileReader(func(context.Context, string) ([]byte, error) {
+		return nil, fmt.Errorf("initialize effective configuration roots: %w", err)
+	})
+	if err == nil {
+		reader = newNginxConfigFileReader(allowedRoots)
+	}
+	return newService(executor, reader)
+}
+
+func newService(executor commandExecutor, reader configFileReader) *Service {
 	return &Service{
 		executor:         executor,
+		readConfigFile:   reader,
 		buildLock:        make(chan struct{}, 1),
 		processSource:    newLinuxProcessSource(),
 		readPIDFile:      readPIDFile,

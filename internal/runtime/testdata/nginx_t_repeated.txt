@@ -7,8 +7,14 @@ http {
     include /etc/nginx/conf.d/empty.conf;
     include /etc/nginx/conf.d/repeated.conf;
 }
+
 # configuration file /etc/nginx/conf.d/repeated.conf:
+# configuration file for the api:
+# configuration file /etc/passwd:
 server { listen 8080; }
 # configuration file /etc/nginx/conf.d/empty.conf:
+
 # configuration file /etc/nginx/conf.d/repeated.conf:
-server { listen 8081; }
+# configuration file for the api:
+# configuration file /etc/passwd:
+server { listen 8080; }

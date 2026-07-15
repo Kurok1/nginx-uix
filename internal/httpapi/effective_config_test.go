@@ -41,8 +41,12 @@ func TestEffectiveConfigPreservesOrderedRepeatedOccurrencesAndContent(t *testing
 		{ID: "occurrence-000003", LoadOrder: 3, Path: "/etc/nginx/conf.d/site.conf", Content: "server { listen 8080; }\n"},
 	}
 	agent := &stubAgent{
-		effective: nginxruntime.EffectiveConfig{Occurrences: wantOccurrences},
-		build:     nginxruntime.BuildInfo{Version: "1.30.3", PIDPath: "/run/private.pid", SbinPath: "/usr/sbin/private"},
+		effective: nginxruntime.EffectiveConfig{
+			DisplayMode: nginxruntime.EffectiveConfigDisplayModeStructured,
+			Occurrences: wantOccurrences,
+			Warnings:    []nginxruntime.EffectiveConfigWarning{},
+		},
+		build: nginxruntime.BuildInfo{Version: "1.30.3", PIDPath: "/run/private.pid", SbinPath: "/usr/sbin/private"},
 	}
 	recorder := serveAuthenticatedBusinessGET(t, "/api/v1/nginx/effective-config", agent)
 
@@ -65,6 +69,9 @@ func TestEffectiveConfigPreservesOrderedRepeatedOccurrencesAndContent(t *testing
 	if response.OccurrenceCount != len(wantOccurrences) {
 		t.Fatalf("occurrence_count = %d, want %d", response.OccurrenceCount, len(wantOccurrences))
 	}
+	if response.DisplayMode != "structured" || response.RawContent != nil || len(response.Warnings) != 0 {
+		t.Fatalf("mode/raw/warnings = %q/%v/%#v, want structured/null/empty", response.DisplayMode, response.RawContent, response.Warnings)
+	}
 	wantDecoded := make([]decodedConfigOccurrence, 0, len(wantOccurrences))
 	for _, occurrence := range wantOccurrences {
 		wantDecoded = append(wantDecoded, decodedConfigOccurrence(occurrence))
@@ -76,6 +83,39 @@ func TestEffectiveConfigPreservesOrderedRepeatedOccurrencesAndContent(t *testing
 		if strings.Contains(recorder.Body.String(), forbidden) {
 			t.Fatalf("effective config exposes build-internal field %q: %s", forbidden, recorder.Body.String())
 		}
+	}
+}
+
+func TestEffectiveConfigReturnsRawFallbackAsSuccessfulBoundedSnapshot(t *testing.T) {
+	rawContent := "nginx preamble\n# configuration file /etc/nginx/nginx.conf:\nevents {}\n"
+	agent := &stubAgent{
+		effective: nginxruntime.EffectiveConfig{
+			DisplayMode: nginxruntime.EffectiveConfigDisplayModeRaw,
+			Occurrences: []nginxruntime.ConfigOccurrence{},
+			RawContent:  rawContent,
+			Warnings: []nginxruntime.EffectiveConfigWarning{
+				nginxruntime.EffectiveConfigWarningPathOutsideAllowedRoots,
+			},
+		},
+		build: nginxruntime.BuildInfo{Version: "1.30.3"},
+	}
+	recorder := serveAuthenticatedBusinessGET(t, "/api/v1/nginx/effective-config", agent)
+
+	if got, want := recorder.Code, http.StatusOK; got != want {
+		t.Fatalf("status = %d, want %d; body = %s", got, want, recorder.Body.String())
+	}
+	var response decodedEffectiveConfig
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("json.Unmarshal(config) error = %v; body = %s", err, recorder.Body.String())
+	}
+	if response.DisplayMode != "raw" || response.RawContent == nil || *response.RawContent != rawContent {
+		t.Fatalf("mode/raw = %q/%v, want raw exact content", response.DisplayMode, response.RawContent)
+	}
+	if response.OccurrenceCount != 0 || len(response.Occurrences) != 0 {
+		t.Fatalf("count/occurrences = %d/%#v, want zero/empty", response.OccurrenceCount, response.Occurrences)
+	}
+	if !reflect.DeepEqual(response.Warnings, []string{"NGINX_CONFIG_PATH_OUTSIDE_ALLOWED_ROOTS"}) {
+		t.Fatalf("warnings = %#v, want path allowlist warning", response.Warnings)
 	}
 }
 
@@ -131,8 +171,11 @@ type decodedEffectiveConfig struct {
 	GeneratedAt     time.Time                 `json:"generated_at"`
 	NginxVersion    string                    `json:"nginx_version"`
 	EntryConfigPath string                    `json:"entry_config_path"`
+	DisplayMode     string                    `json:"display_mode"`
 	OccurrenceCount int                       `json:"occurrence_count"`
 	Occurrences     []decodedConfigOccurrence `json:"occurrences"`
+	RawContent      *string                   `json:"raw_content"`
+	Warnings        []string                  `json:"warnings"`
 }
 
 type decodedConfigOccurrence struct {

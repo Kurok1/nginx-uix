@@ -7,6 +7,7 @@ import type {
   APIErrorEnvelope,
   EffectiveConfigOccurrence,
   EffectiveConfigResponse,
+  EffectiveConfigWarning,
   LoginRequest,
   NginxBuild,
   NginxProcess,
@@ -204,13 +205,51 @@ function parseEffectiveConfigResponse(value: unknown, status: number): Effective
     !isRFC3339(value.generated_at) ||
     typeof value.nginx_version !== 'string' ||
     typeof value.entry_config_path !== 'string' ||
+    !isOneOf(value.display_mode, ['structured', 'raw']) ||
     !Number.isSafeInteger(value.occurrence_count) ||
     (value.occurrence_count as number) < 0 ||
     !Array.isArray(value.occurrences) ||
-    value.occurrences.length !== value.occurrence_count
+    value.occurrences.length !== value.occurrence_count ||
+    !Array.isArray(value.warnings) ||
+    !value.warnings.every((warning) =>
+      isOneOf(warning, [
+        'NGINX_CONFIG_PATH_OUTSIDE_ALLOWED_ROOTS',
+        'NGINX_CONFIG_STRUCTURE_UNVERIFIED',
+      ]),
+    )
   ) {
     throw malformedResponse(status)
   }
+
+	const base = {
+		generated_at: value.generated_at,
+		nginx_version: value.nginx_version,
+		entry_config_path: value.entry_config_path,
+	}
+	const warnings = [...value.warnings] as EffectiveConfigWarning[]
+	if (value.display_mode === 'raw') {
+		if (
+			value.occurrence_count !== 0 ||
+			value.occurrences.length !== 0 ||
+			typeof value.raw_content !== 'string' ||
+			value.raw_content === '' ||
+			warnings.length === 0 ||
+			new Set(warnings).size !== warnings.length
+		) {
+			throw malformedResponse(status)
+		}
+		return {
+			...base,
+			display_mode: 'raw',
+			occurrence_count: 0,
+			occurrences: [],
+			raw_content: value.raw_content,
+			warnings,
+		}
+	}
+	if (value.raw_content !== null || warnings.length !== 0) {
+		throw malformedResponse(status)
+	}
 
   const ids = new Set<string>()
   const occurrences = value.occurrences.map((occurrence, index) => {
@@ -223,11 +262,12 @@ function parseEffectiveConfigResponse(value: unknown, status: number): Effective
   })
 
   return {
-    generated_at: value.generated_at,
-    nginx_version: value.nginx_version,
-    entry_config_path: value.entry_config_path,
+		...base,
+		display_mode: 'structured',
     occurrence_count: value.occurrence_count as number,
     occurrences,
+		raw_content: null,
+		warnings,
   }
 }
 

@@ -86,6 +86,16 @@ func (s *Service) Bootstrap(ctx context.Context, input BootstrapInput) error {
 	return nil
 }
 
+// CleanupExpired removes authentication state that can no longer affect a
+// login or represent a valid session.
+func (s *Service) CleanupExpired(ctx context.Context) (CleanupResult, error) {
+	result, err := s.repository.CleanupExpiredAuthState(ctx, s.clock.Now().UTC(), throttleWindow)
+	if err != nil {
+		return CleanupResult{}, fmt.Errorf("cleanup expired authentication state: %w", err)
+	}
+	return result, nil
+}
+
 // Login validates one credential attempt and creates a digest-only session.
 func (s *Service) Login(ctx context.Context, input LoginInput) (IssuedSession, error) {
 	if !input.SourceIP.IsValid() {
