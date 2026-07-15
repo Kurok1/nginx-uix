@@ -52,10 +52,21 @@
         </li>
       </ul>
 
-      <span
-        class="global-nav__mobile-spacer"
-        aria-hidden="true"
-      />
+      <button
+        class="global-nav__logout"
+        type="button"
+        :disabled="logoutPending"
+        @click="logout"
+      >
+        <svg
+          aria-hidden="true"
+          focusable="false"
+          viewBox="0 0 24 24"
+        >
+          <path d="M10 4H5v16h5M14 8l4 4-4 4M9 12h9" />
+        </svg>
+        <span>{{ logoutPending ? '正在退出…' : '退出登录' }}</span>
+      </button>
 
       <div
         id="global-nav-menu"
@@ -87,12 +98,29 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
-import { RouterLink } from 'vue-router'
+import { RouterLink, useRouter } from 'vue-router'
+
+import { sessionStore } from '../session'
 
 const menuOpen = ref(false)
+const logoutPending = ref(false)
+const router = useRouter()
 
 function closeMenu(): void {
   menuOpen.value = false
+}
+
+async function logout(): Promise<void> {
+  if (logoutPending.value) {
+    return
+  }
+  logoutPending.value = true
+  try {
+    await sessionStore.logout()
+    await router.replace({ name: 'login' })
+  } finally {
+    logoutPending.value = false
+  }
 }
 </script>
 
@@ -120,7 +148,8 @@ function closeMenu(): void {
 
 .global-nav__brand,
 .global-nav__links a,
-.global-nav__mobile-menu a {
+.global-nav__mobile-menu a,
+.global-nav__logout {
   display: inline-flex;
   min-height: var(--component-control-min-size);
   align-items: center;
@@ -130,6 +159,33 @@ function closeMenu(): void {
   line-height: 1;
   letter-spacing: var(--letter-spacing-nav);
   text-decoration: none;
+}
+
+.global-nav__logout {
+  flex: 0 0 auto;
+  gap: var(--spacing-xs);
+  padding-inline: var(--spacing-sm);
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.global-nav__logout:active:not(:disabled) {
+  transform: scale(0.95);
+}
+
+.global-nav__logout:disabled {
+  cursor: default;
+}
+
+.global-nav__logout svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentcolor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
 }
 
 .global-nav__brand {
@@ -162,7 +218,6 @@ function closeMenu(): void {
 }
 
 .global-nav__menu-toggle,
-.global-nav__mobile-spacer,
 .global-nav__mobile-menu {
   display: none;
 }
@@ -209,6 +264,26 @@ function closeMenu(): void {
     place-items: center;
   }
 
+  .global-nav__logout {
+    width: var(--component-control-min-size);
+    height: var(--component-control-min-size);
+    padding: 0;
+    justify-content: center;
+    justify-self: end;
+  }
+
+  .global-nav__logout span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
   .global-nav__menu-icon {
     display: grid;
     width: 18px;
@@ -219,12 +294,6 @@ function closeMenu(): void {
     display: block;
     height: 1px;
     background: currentcolor;
-  }
-
-  .global-nav__mobile-spacer {
-    display: block;
-    width: var(--component-control-min-size);
-    height: var(--component-control-min-size);
   }
 
   .global-nav__mobile-menu {

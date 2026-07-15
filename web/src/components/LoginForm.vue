@@ -107,10 +107,10 @@ async function handleSubmit(): Promise<void> {
       v-model="username"
       autocomplete="username"
       :described-by="describedBy"
-      :disabled="submitting"
       :invalid="credentialsInvalid"
       label="用户名"
       name="username"
+      :read-only="submitting"
       type="text"
     />
     <FormField
@@ -118,10 +118,10 @@ async function handleSubmit(): Promise<void> {
       v-model="password"
       autocomplete="current-password"
       :described-by="describedBy"
-      :disabled="submitting"
       :invalid="credentialsInvalid"
       label="密码"
       name="password"
+      :read-only="submitting"
       type="password"
     />
     <p

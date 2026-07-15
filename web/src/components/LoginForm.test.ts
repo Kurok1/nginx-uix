@@ -88,7 +88,7 @@ describe('LoginForm', () => {
     expect(wrapper.find('a').exists()).toBe(false)
   })
 
-  it('submits through the native form and exposes a disabled loading state', async () => {
+  it('submits through the native form without disabling the focused fields', async () => {
     const deferred = createDeferred<SessionResponse>()
     const login = vi.fn<(input: LoginRequest) => Promise<SessionResponse>>().mockReturnValue(deferred.promise)
     const store = createSessionStore(createClient({ login }))
@@ -100,8 +100,10 @@ describe('LoginForm', () => {
 
     expect(login).toHaveBeenCalledWith({ username: 'operator', password: 'secret' })
     expect(wrapper.get('form').attributes('aria-busy')).toBe('true')
-    expect(wrapper.get('input[name="username"]').attributes('disabled')).toBeDefined()
-    expect(wrapper.get('input[name="password"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('input[name="username"]').attributes('disabled')).toBeUndefined()
+    expect(wrapper.get('input[name="password"]').attributes('disabled')).toBeUndefined()
+    expect(wrapper.get('input[name="username"]').attributes('readonly')).toBeDefined()
+    expect(wrapper.get('input[name="password"]').attributes('readonly')).toBeDefined()
     expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeDefined()
     expect(wrapper.get('button[type="submit"]').text()).toBe('正在登录…')
 

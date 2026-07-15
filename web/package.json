@@ -13,7 +13,9 @@
     "typecheck": "vue-tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json",
     "test": "vitest run",
     "build": "vite build",
-    "test:e2e": "playwright test"
+    "pretest:e2e": "vite build",
+    "test:e2e": "playwright test",
+    "preview:e2e": "vite preview --host 127.0.0.1 --port 4173 --strictPort"
   },
   "dependencies": {
     "vue": "3.5.39",

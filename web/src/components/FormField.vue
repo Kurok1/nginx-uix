@@ -12,6 +12,7 @@ interface Props {
   modelValue: string
   name: string
   invalid?: boolean
+  readOnly?: boolean
   type: 'password' | 'text'
 }
 
@@ -43,6 +44,7 @@ function handleInput(event: Event): void {
       :aria-describedby="describedBy"
       :aria-invalid="invalid || undefined"
       :disabled="disabled"
+      :readonly="readOnly"
       :value="modelValue"
       @input="handleInput"
     >
