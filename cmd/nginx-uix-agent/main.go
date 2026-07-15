@@ -28,7 +28,7 @@ func run(arguments []string) int {
 	}
 
 	logger := app.NewLogger(os.Stdout, slog.LevelInfo)
-	agent := app.NewAgent(nginxruntime.NewService(), logger)
+	agent := app.NewAgent(nginxruntime.NewService(), logger, app.ProductionInitializeOptions())
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 

@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"os"
 	"strconv"
 	"time"
 
@@ -23,12 +24,21 @@ const (
 	maxS6ExitCode      = 256
 	maxS6Signal        = 255
 	maxS6DecimalDigits = 3
+
+	defaultNginxSourceRoot = "/usr/share/nginx-uix/default-nginx"
+	defaultNginxRoot       = "/etc/nginx"
+	defaultDataRoot        = "/var/lib/nginx-uix"
+	defaultRunRoot         = "/run/nginx-uix"
+	defaultDataUID         = 10001
+	defaultDataGID         = 10001
 )
 
 type agentServerRunner func(context.Context, *nginxruntime.Service, *slog.Logger) error
 type startupValidator func(context.Context) (nginxruntime.StartupValidation, error)
 type startupStateWriter func(context.Context, nginxruntime.StartupState) error
 type nginxExitRecorder func(context.Context, nginxruntime.ExitEvent) (nginxruntime.RecoveryState, error)
+type containerInitializer func(context.Context, nginxruntime.InitializeOptions) error
+type effectiveUIDReader func() int
 
 // Agent owns the fixed privileged process modes.
 type Agent struct {
@@ -39,20 +49,43 @@ type Agent struct {
 	validateStartup   startupValidator
 	writeStartupState startupStateWriter
 	recordNginxExit   nginxExitRecorder
+
+	initializeOptions   nginxruntime.InitializeOptions
+	initializeContainer containerInitializer
+	effectiveUID        effectiveUIDReader
+}
+
+// ProductionInitializeOptions returns the fixed trusted container paths and UI owner.
+func ProductionInitializeOptions() nginxruntime.InitializeOptions {
+	return nginxruntime.InitializeOptions{
+		DefaultsRoot: defaultNginxSourceRoot,
+		NginxRoot:    defaultNginxRoot,
+		DataRoot:     defaultDataRoot,
+		RunRoot:      defaultRunRoot,
+		DataUID:      defaultDataUID,
+		DataGID:      defaultDataGID,
+	}
 }
 
 // NewAgent assembles the fixed production Agent dependencies.
-func NewAgent(service *nginxruntime.Service, logger *slog.Logger) *Agent {
+func NewAgent(
+	service *nginxruntime.Service,
+	logger *slog.Logger,
+	initializeOptions nginxruntime.InitializeOptions,
+) *Agent {
 	if logger == nil {
 		logger = slog.New(slog.DiscardHandler)
 	}
 	return &Agent{
-		service:           service,
-		logger:            logger,
-		runServer:         nginxruntime.RunAgentServer,
-		validateStartup:   service.ValidateStartup,
-		writeStartupState: nginxruntime.WriteStartupState,
-		recordNginxExit:   nginxruntime.RecordNginxExit,
+		service:             service,
+		logger:              logger,
+		runServer:           nginxruntime.RunAgentServer,
+		validateStartup:     service.ValidateStartup,
+		writeStartupState:   nginxruntime.WriteStartupState,
+		recordNginxExit:     nginxruntime.RecordNginxExit,
+		initializeOptions:   initializeOptions,
+		initializeContainer: nginxruntime.InitializeContainer,
+		effectiveUID:        os.Geteuid,
 	}
 }
 
@@ -97,6 +130,17 @@ func (a *Agent) run(ctx context.Context, mode string, arguments []string) int {
 			return agentExitInvalid
 		}
 		return agentExitSuccess
+	case "init-container":
+		if len(arguments) != 0 {
+			return agentExitUsage
+		}
+		if a.effectiveUID() != 0 {
+			return agentExitInternal
+		}
+		if err := a.initializeContainer(ctx, a.initializeOptions); err != nil {
+			return agentExitInternal
+		}
+		return agentExitSuccess
 	case "record-nginx-exit":
 		if len(arguments) != 2 {
 			return agentExitUsage
@@ -124,6 +168,8 @@ func agentModeAction(mode string) string {
 		return "serve"
 	case "validate-startup":
 		return "validate_startup"
+	case "init-container":
+		return "init_container"
 	case "record-nginx-exit":
 		return "record_nginx_exit"
 	default:

@@ -137,6 +137,138 @@ func TestAgentRecordNginxExitParsesS6Values(t *testing.T) {
 	}
 }
 
+func TestAgentInitContainerRunsAsRootWithTrustedOptions(t *testing.T) {
+	ctx := context.WithValue(context.Background(), agentTestContextKey{}, "initialize")
+	options := nginxruntime.InitializeOptions{
+		DefaultsRoot: "/trusted/defaults",
+		NginxRoot:    "/trusted/nginx",
+		DataRoot:     "/trusted/data",
+		RunRoot:      "/trusted/run",
+		DataUID:      1234,
+		DataGID:      5678,
+	}
+	calls := make([]string, 0, 2)
+	agent := &Agent{
+		logger:            slog.New(slog.DiscardHandler),
+		initializeOptions: options,
+		effectiveUID: func() int {
+			calls = append(calls, "uid")
+			return 0
+		},
+		initializeContainer: func(gotContext context.Context, gotOptions nginxruntime.InitializeOptions) error {
+			calls = append(calls, "initialize")
+			if gotContext != ctx {
+				t.Errorf("initializer context differs from Run context")
+			}
+			if !reflect.DeepEqual(gotOptions, options) {
+				t.Errorf("initializer options = %#v, want %#v", gotOptions, options)
+			}
+			return nil
+		},
+	}
+
+	if got, want := agent.Run(ctx, "init-container", nil), 0; got != want {
+		t.Fatalf("Run(init-container) = %d, want %d", got, want)
+	}
+	if want := []string{"uid", "initialize"}; !reflect.DeepEqual(calls, want) {
+		t.Fatalf("calls = %#v, want %#v", calls, want)
+	}
+}
+
+func TestAgentInitContainerRejectsUnsafeInvocationAndInitializationFailure(t *testing.T) {
+	injected := errors.New("sensitive initialization failure")
+	tests := []struct {
+		name          string
+		arguments     []string
+		effectiveUID  int
+		initializeErr error
+		wantExit      int
+		wantUIDCalls  int
+		wantInitCalls int
+	}{
+		{
+			name: "extra argument", arguments: []string{"/attacker/path"}, effectiveUID: 0,
+			wantExit: 2, wantUIDCalls: 0, wantInitCalls: 0,
+		},
+		{
+			name: "non-root", effectiveUID: 10001,
+			wantExit: 101, wantUIDCalls: 1, wantInitCalls: 0,
+		},
+		{
+			name: "initialization failure", effectiveUID: 0, initializeErr: injected,
+			wantExit: 101, wantUIDCalls: 1, wantInitCalls: 1,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			uidCalls := 0
+			initializeCalls := 0
+			agent := &Agent{
+				logger: slog.New(slog.DiscardHandler),
+				effectiveUID: func() int {
+					uidCalls++
+					return test.effectiveUID
+				},
+				initializeContainer: func(context.Context, nginxruntime.InitializeOptions) error {
+					initializeCalls++
+					return test.initializeErr
+				},
+			}
+
+			if got := agent.Run(context.Background(), "init-container", test.arguments); got != test.wantExit {
+				t.Errorf("Run(init-container, %#v) = %d, want %d", test.arguments, got, test.wantExit)
+			}
+			if uidCalls != test.wantUIDCalls || initializeCalls != test.wantInitCalls {
+				t.Errorf(
+					"calls = (uid %d, initialize %d), want (%d, %d)",
+					uidCalls,
+					initializeCalls,
+					test.wantUIDCalls,
+					test.wantInitCalls,
+				)
+			}
+		})
+	}
+}
+
+func TestAgentInitContainerLogsOnlyBoundedOperationMetadata(t *testing.T) {
+	const sensitive = "PRIVATE initialization path and diagnostic"
+	var output bytes.Buffer
+	agent := &Agent{
+		logger:       NewLogger(&output, slog.LevelInfo),
+		effectiveUID: func() int { return 0 },
+		initializeContainer: func(context.Context, nginxruntime.InitializeOptions) error {
+			return errors.New(sensitive)
+		},
+	}
+
+	if got, want := agent.Run(context.Background(), "init-container", nil), 101; got != want {
+		t.Fatalf("Run(init-container) = %d, want %d", got, want)
+	}
+	if strings.Contains(output.String(), sensitive) {
+		t.Fatalf("log contains sensitive initialization error: %s", output.String())
+	}
+	var record map[string]any
+	if err := json.NewDecoder(&output).Decode(&record); err != nil {
+		t.Fatalf("decode log: %v; output = %q", err, output.String())
+	}
+	allowedKeys := map[string]bool{
+		"time": true, "level": true, "msg": true, "action": true, "result": true, "duration_ms": true,
+	}
+	for key := range record {
+		if !allowedKeys[key] {
+			t.Errorf("unexpected log field %q in %#v", key, record)
+		}
+	}
+	if got, want := record["action"], "init_container"; got != want {
+		t.Errorf("log action = %#v, want %#v", got, want)
+	}
+	if got, want := record["result"], "internal_error"; got != want {
+		t.Errorf("log result = %#v, want %#v", got, want)
+	}
+}
+
 func TestAgentRejectsUnknownModesAndInvalidArgumentsWithoutWork(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -146,6 +278,7 @@ func TestAgentRejectsUnknownModesAndInvalidArgumentsWithoutWork(t *testing.T) {
 		{name: "missing mode"},
 		{name: "unknown mode", mode: "unknown"},
 		{name: "serve extra argument", mode: "serve", arguments: []string{"extra"}},
+		{name: "init extra argument", mode: "init-container", arguments: []string{"extra"}},
 		{name: "validate extra argument", mode: "validate-startup", arguments: []string{"extra"}},
 		{name: "record missing signal", mode: "record-nginx-exit", arguments: []string{"1"}},
 		{name: "record extra argument", mode: "record-nginx-exit", arguments: []string{"1", "0", "extra"}},
@@ -198,14 +331,33 @@ func TestAgentRejectsUnknownModesAndInvalidArgumentsWithoutWork(t *testing.T) {
 
 func TestNewAgentWiresFixedProductionDependencies(t *testing.T) {
 	service := nginxruntime.NewService()
-	agent := NewAgent(service, nil)
+	options := ProductionInitializeOptions()
+	agent := NewAgent(service, nil, options)
 
 	if agent.service != service {
 		t.Fatalf("service = %p, want %p", agent.service, service)
 	}
 	if agent.logger == nil || agent.runServer == nil || agent.validateStartup == nil ||
-		agent.writeStartupState == nil || agent.recordNginxExit == nil {
+		agent.writeStartupState == nil || agent.recordNginxExit == nil ||
+		agent.initializeContainer == nil || agent.effectiveUID == nil {
 		t.Fatalf("NewAgent() left a production dependency unset: %#v", agent)
+	}
+	if !reflect.DeepEqual(agent.initializeOptions, options) {
+		t.Fatalf("initialize options = %#v, want %#v", agent.initializeOptions, options)
+	}
+}
+
+func TestProductionInitializeOptionsUseOnlyFixedContainerValues(t *testing.T) {
+	want := nginxruntime.InitializeOptions{
+		DefaultsRoot: "/usr/share/nginx-uix/default-nginx",
+		NginxRoot:    "/etc/nginx",
+		DataRoot:     "/var/lib/nginx-uix",
+		RunRoot:      "/run/nginx-uix",
+		DataUID:      10001,
+		DataGID:      10001,
+	}
+	if got := ProductionInitializeOptions(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("ProductionInitializeOptions() = %#v, want %#v", got, want)
 	}
 }
 
