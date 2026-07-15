@@ -1,0 +1,19 @@
+#!/bin/sh
+# @author hanchao <hanchao@66yunlian.com>
+# @since 0.1.0
+
+set -eu
+
+if ! /usr/local/bin/nginx-uix-agent record-nginx-exit "$1" "$2"; then
+    echo 'nginx-uix: failed to record nginx exit' >&2
+fi
+
+sleep 1
+
+if [ "$1" -eq 100 ]; then
+    exit 125
+fi
+
+exec /command/s6-permafailon 300 5 \
+    0-255,SIGHUP,SIGINT,SIGQUIT,SIGILL,SIGABRT,SIGBUS,SIGFPE,SIGKILL,SIGUSR1,SIGSEGV,SIGUSR2,SIGPIPE,SIGALRM,SIGTERM,SIGXCPU,SIGXFSZ,SIGVTALRM,SIGPROF,SIGIO,SIGPWR,SIGSYS \
+    /bin/true

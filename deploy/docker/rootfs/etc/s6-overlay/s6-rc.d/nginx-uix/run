@@ -1,0 +1,7 @@
+#!/bin/sh
+# @author hanchao <hanchao@66yunlian.com>
+# @since 0.1.0
+
+set -eu
+
+exec /command/with-contenv /command/s6-setuidgid nginx-uix /usr/local/bin/nginx-uix serve

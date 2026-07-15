@@ -1,0 +1,17 @@
+#!/bin/sh
+# @author hanchao <hanchao@66yunlian.com>
+# @since 0.1.0
+
+set -eu
+
+validation_status=0
+/usr/local/bin/nginx-uix-agent validate-startup || validation_status=$?
+
+if [ "${validation_status}" -eq 100 ]; then
+    exit 100
+fi
+if [ "${validation_status}" -ne 0 ]; then
+    exit "${validation_status}"
+fi
+
+exec /usr/sbin/nginx -g 'daemon off;' -c /etc/nginx/nginx.conf
