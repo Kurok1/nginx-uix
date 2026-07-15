@@ -34,6 +34,8 @@ type initializeFileCopier func(
 	*initializeCopyTransaction,
 ) error
 
+type initializePreparation func(context.Context, InitializeOptions) error
+
 type containerInitializer struct {
 	copyFile initializeFileCopier
 }
@@ -47,7 +49,58 @@ func InitializeContainer(ctx context.Context, options InitializeOptions) error {
 	return newContainerInitializer().initialize(ctx, options)
 }
 
-func (i *containerInitializer) initialize(ctx context.Context, options InitializeOptions) error {
+// InitializeNginxRuntime initializes configuration and ephemeral runtime state
+// without changing persistent UI data.
+func InitializeNginxRuntime(ctx context.Context, options InitializeOptions) error {
+	return newContainerInitializer().initializeWithPreparation(ctx, options, prepareContainerRuntimeDirectory)
+}
+
+// PrepareContainerData secures only the persistent UI data directory.
+func PrepareContainerData(ctx context.Context, options InitializeOptions) error {
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("prepare container data: %w", err)
+	}
+	if err := validateInitializeRootSeparation(options); err != nil {
+		return fmt.Errorf("prepare container data: %w", err)
+	}
+	if options.DataUID < 0 || options.DataGID < 0 {
+		return fmt.Errorf("prepare container data: data owner IDs must be nonnegative")
+	}
+	defaultsRoot, err := resolveInitializeDirectory(options.DefaultsRoot, "default nginx source root")
+	if err != nil {
+		return fmt.Errorf("prepare container data: %w", err)
+	}
+	nginxRoot, err := resolveInitializeDirectory(options.NginxRoot, "nginx configuration root")
+	if err != nil {
+		return fmt.Errorf("prepare container data: %w", err)
+	}
+	dataRoot, runRoot, err := preflightContainerDirectories(options)
+	if err != nil {
+		return fmt.Errorf("prepare container data: %w", err)
+	}
+	if initializePathsOverlap(defaultsRoot, nginxRoot) || initializePathsOverlap(defaultsRoot, dataRoot) ||
+		initializePathsOverlap(defaultsRoot, runRoot) || initializePathsOverlap(nginxRoot, dataRoot) ||
+		initializePathsOverlap(nginxRoot, runRoot) || initializePathsOverlap(dataRoot, runRoot) {
+		return fmt.Errorf("prepare container data: canonical trusted roots must not overlap")
+	}
+	if err := prepareContainerDataDirectory(ctx, options); err != nil {
+		return fmt.Errorf("prepare container data: %w", err)
+	}
+	return nil
+}
+
+func (i *containerInitializer) initialize(
+	ctx context.Context,
+	options InitializeOptions,
+) error {
+	return i.initializeWithPreparation(ctx, options, prepareContainerDirectories)
+}
+
+func (i *containerInitializer) initializeWithPreparation(
+	ctx context.Context,
+	options InitializeOptions,
+	prepare initializePreparation,
+) error {
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("initialize container: %w", err)
 	}
@@ -101,7 +154,7 @@ func (i *containerInitializer) initialize(ctx context.Context, options Initializ
 		}
 	}
 
-	if err := prepareContainerDirectories(ctx, options); err != nil {
+	if err := prepare(ctx, options); err != nil {
 		var rollbackErr error
 		if transaction != nil {
 			rollbackErr = transaction.rollback()
@@ -199,6 +252,13 @@ func initializePathContains(root, path string) bool {
 }
 
 func prepareContainerDirectories(ctx context.Context, options InitializeOptions) error {
+	if err := prepareContainerDataDirectory(ctx, options); err != nil {
+		return err
+	}
+	return prepareContainerRuntimeDirectory(ctx, options)
+}
+
+func prepareContainerDataDirectory(ctx context.Context, options InitializeOptions) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -216,6 +276,13 @@ func prepareContainerDirectories(ctx context.Context, options InitializeOptions)
 	if err := secureInitializeDatabase(dataRoot, options.DataUID, options.DataGID); err != nil {
 		return err
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func prepareContainerRuntimeDirectory(ctx context.Context, options InitializeOptions) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}

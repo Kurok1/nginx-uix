@@ -4,4 +4,8 @@
 
 set -eu
 
+if ! /usr/local/bin/nginx-uix-agent prepare-ui-data; then
+    exit 1
+fi
+
 exec /command/with-contenv /command/s6-setuidgid nginx-uix /usr/local/bin/nginx-uix serve

@@ -35,7 +35,7 @@ const (
 
 type agentServerRunner func(context.Context, *nginxruntime.Service, *slog.Logger) error
 type startupValidator func(context.Context) (nginxruntime.StartupValidation, error)
-type startupStateWriter func(context.Context, nginxruntime.StartupState) error
+type startupValidationWriter func(context.Context, nginxruntime.StartupValidation) error
 type nginxExitRecorder func(context.Context, nginxruntime.ExitEvent) (nginxruntime.RecoveryState, error)
 type containerInitializer func(context.Context, nginxruntime.InitializeOptions) error
 type effectiveUIDReader func() int
@@ -46,13 +46,15 @@ type Agent struct {
 	logger    *slog.Logger
 	runServer agentServerRunner
 
-	validateStartup   startupValidator
-	writeStartupState startupStateWriter
-	recordNginxExit   nginxExitRecorder
+	validateStartup         startupValidator
+	recordStartupValidation startupValidationWriter
+	recordNginxExit         nginxExitRecorder
 
-	initializeOptions   nginxruntime.InitializeOptions
-	initializeContainer containerInitializer
-	effectiveUID        effectiveUIDReader
+	initializeOptions      nginxruntime.InitializeOptions
+	initializeContainer    containerInitializer
+	initializeNginxRuntime containerInitializer
+	prepareContainerData   containerInitializer
+	effectiveUID           effectiveUIDReader
 }
 
 // ProductionInitializeOptions returns the fixed trusted container paths and UI owner.
@@ -77,15 +79,17 @@ func NewAgent(
 		logger = slog.New(slog.DiscardHandler)
 	}
 	return &Agent{
-		service:             service,
-		logger:              logger,
-		runServer:           nginxruntime.RunAgentServer,
-		validateStartup:     service.ValidateStartup,
-		writeStartupState:   nginxruntime.WriteStartupState,
-		recordNginxExit:     nginxruntime.RecordNginxExit,
-		initializeOptions:   initializeOptions,
-		initializeContainer: nginxruntime.InitializeContainer,
-		effectiveUID:        os.Geteuid,
+		service:                 service,
+		logger:                  logger,
+		runServer:               nginxruntime.RunAgentServer,
+		validateStartup:         service.ValidateStartup,
+		recordStartupValidation: nginxruntime.RecordStartupValidation,
+		recordNginxExit:         nginxruntime.RecordNginxExit,
+		initializeOptions:       initializeOptions,
+		initializeContainer:     nginxruntime.InitializeContainer,
+		initializeNginxRuntime:  nginxruntime.InitializeNginxRuntime,
+		prepareContainerData:    nginxruntime.PrepareContainerData,
+		effectiveUID:            os.Geteuid,
 	}
 }
 
@@ -123,7 +127,7 @@ func (a *Agent) run(ctx context.Context, mode string, arguments []string) int {
 		if err != nil && !errors.Is(err, nginxruntime.ErrConfigInvalid) {
 			return agentExitInternal
 		}
-		if err := a.writeStartupState(ctx, nginxruntime.StartupState{Validation: &validation}); err != nil {
+		if err := a.recordStartupValidation(ctx, validation); err != nil {
 			return agentExitInternal
 		}
 		if err != nil {
@@ -138,6 +142,28 @@ func (a *Agent) run(ctx context.Context, mode string, arguments []string) int {
 			return agentExitInternal
 		}
 		if err := a.initializeContainer(ctx, a.initializeOptions); err != nil {
+			return agentExitInternal
+		}
+		return agentExitSuccess
+	case "init-nginx-runtime":
+		if len(arguments) != 0 {
+			return agentExitUsage
+		}
+		if a.effectiveUID() != 0 {
+			return agentExitInternal
+		}
+		if err := a.initializeNginxRuntime(ctx, a.initializeOptions); err != nil {
+			return agentExitInternal
+		}
+		return agentExitSuccess
+	case "prepare-ui-data":
+		if len(arguments) != 0 {
+			return agentExitUsage
+		}
+		if a.effectiveUID() != 0 {
+			return agentExitInternal
+		}
+		if err := a.prepareContainerData(ctx, a.initializeOptions); err != nil {
 			return agentExitInternal
 		}
 		return agentExitSuccess
@@ -170,6 +196,10 @@ func agentModeAction(mode string) string {
 		return "validate_startup"
 	case "init-container":
 		return "init_container"
+	case "init-nginx-runtime":
+		return "init_nginx_runtime"
+	case "prepare-ui-data":
+		return "prepare_ui_data"
 	case "record-nginx-exit":
 		return "record_nginx_exit"
 	default:

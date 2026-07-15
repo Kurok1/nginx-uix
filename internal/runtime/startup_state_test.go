@@ -12,6 +12,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -305,6 +306,49 @@ func TestRecordNginxExitMakesFifthRuntimeDeathPermanent(t *testing.T) {
 	}
 	if stored.Recovery == nil || !stored.Recovery.Permanent {
 		t.Fatalf("stored Recovery = %+v, want permanent", stored.Recovery)
+	}
+}
+
+func TestRecordStartupValidationPreservesRuntimeDeathHistory(t *testing.T) {
+	root := t.TempDir()
+	now := time.Date(2026, 7, 14, 12, 0, 0, 0, time.UTC)
+	store := newStartupStateStore(root)
+	store.now = func() time.Time { return now }
+	events := make([]ExitEvent, 0, 4)
+	for index := range 4 {
+		events = append(events, ExitEvent{
+			OccurredAt: now.Add(-time.Duration(4-index) * time.Second),
+			ExitCode:   index + 1,
+			Signal:     9,
+		})
+	}
+	if err := store.Write(context.Background(), StartupState{Recovery: &RecoveryState{
+		Count: 4, Events: events, LastResult: RecoveryResultRestarting,
+	}}); err != nil {
+		t.Fatalf("Write(initial recovery) error = %v", err)
+	}
+
+	validation := StartupValidation{Valid: true, CheckedAt: now, Diagnostic: "syntax is ok"}
+	if err := store.RecordStartupValidation(context.Background(), validation); err != nil {
+		t.Fatalf("RecordStartupValidation() error = %v", err)
+	}
+	stored, err := store.Read(context.Background())
+	if err != nil {
+		t.Fatalf("Read(after validation) error = %v", err)
+	}
+	if stored.Validation == nil || !reflect.DeepEqual(*stored.Validation, validation) {
+		t.Fatalf("Validation = %+v, want %+v", stored.Validation, validation)
+	}
+	if stored.Recovery == nil || stored.Recovery.Count != 4 || stored.Recovery.Permanent {
+		t.Fatalf("Recovery = %+v, want four preserved runtime deaths", stored.Recovery)
+	}
+
+	recovery, err := store.RecordNginxExit(context.Background(), ExitEvent{ExitCode: 5, Signal: 9})
+	if err != nil {
+		t.Fatalf("RecordNginxExit(fifth) error = %v", err)
+	}
+	if recovery.Count != 5 || !recovery.Permanent || recovery.LastResult != RecoveryResultPermanent {
+		t.Fatalf("Recovery = %+v, want fifth death permanent after validation", recovery)
 	}
 }
 

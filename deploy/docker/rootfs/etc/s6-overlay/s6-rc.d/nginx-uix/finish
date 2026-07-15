@@ -1,0 +1,8 @@
+#!/bin/sh
+# @author hanchao <hanchao@66yunlian.com>
+# @since 0.1.0
+
+set -eu
+
+sleep 1
+exit 0

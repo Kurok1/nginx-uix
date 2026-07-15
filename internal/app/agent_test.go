@@ -62,14 +62,13 @@ func TestAgentValidateStartupRecordsValidState(t *testing.T) {
 			}
 			return validation, nil
 		},
-		writeStartupState: func(gotContext context.Context, state nginxruntime.StartupState) error {
+		recordStartupValidation: func(gotContext context.Context, gotValidation nginxruntime.StartupValidation) error {
 			writeCalls++
 			if gotContext != ctx {
 				t.Errorf("writer context differs from Run context")
 			}
-			want := nginxruntime.StartupState{Validation: &validation}
-			if !reflect.DeepEqual(state, want) {
-				t.Errorf("written state = %#v, want %#v", state, want)
+			if !reflect.DeepEqual(gotValidation, validation) {
+				t.Errorf("written validation = %#v, want %#v", gotValidation, validation)
 			}
 			return nil
 		},
@@ -93,11 +92,10 @@ func TestAgentValidateStartupRecordsInvalidStateBeforeExit100(t *testing.T) {
 		validateStartup: func(context.Context) (nginxruntime.StartupValidation, error) {
 			return validation, fmt.Errorf("fixed nginx validation: %w", nginxruntime.ErrConfigInvalid)
 		},
-		writeStartupState: func(_ context.Context, state nginxruntime.StartupState) error {
+		recordStartupValidation: func(_ context.Context, gotValidation nginxruntime.StartupValidation) error {
 			writeCalls++
-			want := nginxruntime.StartupState{Validation: &validation}
-			if !reflect.DeepEqual(state, want) {
-				t.Errorf("written state = %#v, want %#v", state, want)
+			if !reflect.DeepEqual(gotValidation, validation) {
+				t.Errorf("written validation = %#v, want %#v", gotValidation, validation)
 			}
 			return nil
 		},
@@ -172,6 +170,57 @@ func TestAgentInitContainerRunsAsRootWithTrustedOptions(t *testing.T) {
 	}
 	if want := []string{"uid", "initialize"}; !reflect.DeepEqual(calls, want) {
 		t.Fatalf("calls = %#v, want %#v", calls, want)
+	}
+}
+
+func TestAgentSeparatedContainerInitializersRunOnlyTheirFixedOperation(t *testing.T) {
+	options := nginxruntime.InitializeOptions{
+		DefaultsRoot: "/trusted/defaults",
+		NginxRoot:    "/trusted/nginx",
+		DataRoot:     "/trusted/data",
+		RunRoot:      "/trusted/run",
+		DataUID:      1234,
+		DataGID:      5678,
+	}
+	tests := []struct {
+		mode       string
+		wantAction string
+	}{
+		{mode: "init-nginx-runtime", wantAction: "runtime"},
+		{mode: "prepare-ui-data", wantAction: "data"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.mode, func(t *testing.T) {
+			calls := make([]string, 0, 2)
+			record := func(action string) containerInitializer {
+				return func(_ context.Context, gotOptions nginxruntime.InitializeOptions) error {
+					calls = append(calls, action)
+					if !reflect.DeepEqual(gotOptions, options) {
+						t.Errorf("initializer options = %#v, want %#v", gotOptions, options)
+					}
+					return nil
+				}
+			}
+			agent := &Agent{
+				logger:                 slog.New(slog.DiscardHandler),
+				initializeOptions:      options,
+				initializeContainer:    record("combined"),
+				initializeNginxRuntime: record("runtime"),
+				prepareContainerData:   record("data"),
+				effectiveUID: func() int {
+					calls = append(calls, "uid")
+					return 0
+				},
+			}
+
+			if got, want := agent.Run(context.Background(), test.mode, nil), 0; got != want {
+				t.Fatalf("Run(%s) = %d, want %d", test.mode, got, want)
+			}
+			if want := []string{"uid", test.wantAction}; !reflect.DeepEqual(calls, want) {
+				t.Fatalf("calls = %#v, want %#v", calls, want)
+			}
+		})
 	}
 }
 
@@ -279,6 +328,8 @@ func TestAgentRejectsUnknownModesAndInvalidArgumentsWithoutWork(t *testing.T) {
 		{name: "unknown mode", mode: "unknown"},
 		{name: "serve extra argument", mode: "serve", arguments: []string{"extra"}},
 		{name: "init extra argument", mode: "init-container", arguments: []string{"extra"}},
+		{name: "runtime init extra argument", mode: "init-nginx-runtime", arguments: []string{"extra"}},
+		{name: "data preparation extra argument", mode: "prepare-ui-data", arguments: []string{"extra"}},
 		{name: "validate extra argument", mode: "validate-startup", arguments: []string{"extra"}},
 		{name: "record missing signal", mode: "record-nginx-exit", arguments: []string{"1"}},
 		{name: "record extra argument", mode: "record-nginx-exit", arguments: []string{"1", "0", "extra"}},
@@ -309,7 +360,7 @@ func TestAgentRejectsUnknownModesAndInvalidArgumentsWithoutWork(t *testing.T) {
 					calls++
 					return nginxruntime.StartupValidation{}, nil
 				},
-				writeStartupState: func(context.Context, nginxruntime.StartupState) error {
+				recordStartupValidation: func(context.Context, nginxruntime.StartupValidation) error {
 					calls++
 					return nil
 				},
@@ -338,8 +389,9 @@ func TestNewAgentWiresFixedProductionDependencies(t *testing.T) {
 		t.Fatalf("service = %p, want %p", agent.service, service)
 	}
 	if agent.logger == nil || agent.runServer == nil || agent.validateStartup == nil ||
-		agent.writeStartupState == nil || agent.recordNginxExit == nil ||
-		agent.initializeContainer == nil || agent.effectiveUID == nil {
+		agent.recordStartupValidation == nil || agent.recordNginxExit == nil ||
+		agent.initializeContainer == nil || agent.initializeNginxRuntime == nil ||
+		agent.prepareContainerData == nil || agent.effectiveUID == nil {
 		t.Fatalf("NewAgent() left a production dependency unset: %#v", agent)
 	}
 	if !reflect.DeepEqual(agent.initializeOptions, options) {
@@ -370,7 +422,7 @@ func TestAgentLogsOnlyBoundedOperationMetadata(t *testing.T) {
 		validateStartup: func(context.Context) (nginxruntime.StartupValidation, error) {
 			return validation, fmt.Errorf("%s: %w", sensitive, nginxruntime.ErrConfigInvalid)
 		},
-		writeStartupState: func(context.Context, nginxruntime.StartupState) error { return nil },
+		recordStartupValidation: func(context.Context, nginxruntime.StartupValidation) error { return nil },
 	}
 
 	if got, want := agent.Run(context.Background(), "validate-startup", nil), 100; got != want {
@@ -428,7 +480,7 @@ func TestAgentInternalFailuresExit101(t *testing.T) {
 					*calls = append(*calls, "validate")
 					return nginxruntime.StartupValidation{}, internalFailure
 				}
-				agent.writeStartupState = func(context.Context, nginxruntime.StartupState) error {
+				agent.recordStartupValidation = func(context.Context, nginxruntime.StartupValidation) error {
 					*calls = append(*calls, "write")
 					return nil
 				}
@@ -441,7 +493,7 @@ func TestAgentInternalFailuresExit101(t *testing.T) {
 					*calls = append(*calls, "validate")
 					return nginxruntime.StartupValidation{Valid: true}, nil
 				}
-				agent.writeStartupState = func(context.Context, nginxruntime.StartupState) error {
+				agent.recordStartupValidation = func(context.Context, nginxruntime.StartupValidation) error {
 					*calls = append(*calls, "write")
 					return internalFailure
 				}
@@ -454,7 +506,7 @@ func TestAgentInternalFailuresExit101(t *testing.T) {
 					*calls = append(*calls, "validate")
 					return nginxruntime.StartupValidation{Valid: false}, nginxruntime.ErrConfigInvalid
 				}
-				agent.writeStartupState = func(context.Context, nginxruntime.StartupState) error {
+				agent.recordStartupValidation = func(context.Context, nginxruntime.StartupValidation) error {
 					*calls = append(*calls, "write")
 					return internalFailure
 				}

@@ -105,6 +105,12 @@ func WriteStartupState(ctx context.Context, state StartupState) error {
 	return newProductionStartupStateStore().Write(ctx, state)
 }
 
+// RecordStartupValidation preserves existing recovery evidence while updating
+// the latest fixed Nginx validation result.
+func RecordStartupValidation(ctx context.Context, validation StartupValidation) error {
+	return newProductionStartupStateStore().RecordStartupValidation(ctx, validation)
+}
+
 // RecordNginxExit records one Nginx death in the fixed five-minute recovery window.
 func RecordNginxExit(ctx context.Context, exit ExitEvent) (RecoveryState, error) {
 	return newProductionStartupStateStore().RecordNginxExit(ctx, exit)
@@ -249,6 +255,31 @@ func (s *startupStateStore) Read(ctx context.Context) (*StartupState, error) {
 		return nil, err
 	}
 	return cloneStartupState(&state), nil
+}
+
+func (s *startupStateStore) RecordStartupValidation(
+	ctx context.Context,
+	validation StartupValidation,
+) error {
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("record startup validation: %w", err)
+	}
+	state, err := s.Read(ctx)
+	if err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("record startup validation: %w", err)
+		}
+		state = &StartupState{}
+	}
+	state.Validation = &validation
+	if validation.Valid && state.Recovery != nil &&
+		state.Recovery.LastResult == RecoveryResultInvalidConfig {
+		state.Recovery.LastResult = RecoveryResultPermanent
+	}
+	if err := s.Write(ctx, *state); err != nil {
+		return fmt.Errorf("record startup validation: %w", err)
+	}
+	return nil
 }
 
 func (s *startupStateStore) RecordNginxExit(ctx context.Context, exit ExitEvent) (RecoveryState, error) {

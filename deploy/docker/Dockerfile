@@ -107,6 +107,7 @@ RUN set -eu; \
     find /usr/share/nginx-uix/default-nginx -type f -exec chmod 0644 '{}' +; \
     chmod 0755 \
       /etc/s6-overlay/s6-rc.d/nginx-uix/run \
+      /etc/s6-overlay/s6-rc.d/nginx-uix/finish \
       /etc/s6-overlay/s6-rc.d/nginx-uix-agent/run \
       /etc/s6-overlay/s6-rc.d/nginx/run \
       /etc/s6-overlay/s6-rc.d/nginx/finish; \

@@ -1,1 +1,1 @@
-/usr/local/bin/nginx-uix-agent init-container
+/usr/local/bin/nginx-uix-agent init-nginx-runtime

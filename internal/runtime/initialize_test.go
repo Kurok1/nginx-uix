@@ -52,6 +52,95 @@ func TestInitializeContainerCopiesCompleteDefaultsTreeWhenTargetEmpty(t *testing
 	}
 }
 
+func TestInitializeNginxRuntimeLeavesDataUntouched(t *testing.T) {
+	root := t.TempDir()
+	defaultsRoot := filepath.Join(root, "defaults")
+	nginxRoot := filepath.Join(root, "nginx")
+	dataRoot := filepath.Join(root, "data")
+	runRoot := filepath.Join(root, "run")
+	mustMkdir(t, defaultsRoot, 0o755)
+	mustWriteFile(t, filepath.Join(defaultsRoot, "nginx.conf"), []byte("packaged default\n"), 0o644)
+	mustMkdir(t, nginxRoot, 0o755)
+	mustMkdir(t, dataRoot, 0o751)
+	mustWriteFile(t, filepath.Join(dataRoot, "nginx-uix.db"), []byte("existing database\n"), 0o640)
+	mustWriteFile(t, filepath.Join(dataRoot, ".keep"), []byte("preserve data metadata\n"), 0o600)
+	mustMkdir(t, runRoot, 0o700)
+	mustWriteFile(t, filepath.Join(runRoot, "stale.pid"), []byte("123\n"), 0o600)
+	setTreeModTime(t, dataRoot, time.Unix(1_721_001_000, 111_000_000))
+	dataBefore := snapshotExactTree(t, dataRoot)
+
+	options := InitializeOptions{
+		DefaultsRoot: defaultsRoot,
+		NginxRoot:    nginxRoot,
+		DataRoot:     dataRoot,
+		RunRoot:      runRoot,
+		DataUID:      os.Getuid(),
+		DataGID:      os.Getgid(),
+	}
+	if err := InitializeNginxRuntime(context.Background(), options); err != nil {
+		t.Fatalf("InitializeNginxRuntime() error = %v", err)
+	}
+
+	if dataAfter := snapshotExactTree(t, dataRoot); !reflect.DeepEqual(dataAfter, dataBefore) {
+		t.Fatalf("runtime initialization changed data tree\nbefore: %#v\nafter:  %#v", dataBefore, dataAfter)
+	}
+	if got, want := snapshotTree(t, nginxRoot), snapshotTree(t, defaultsRoot); !reflect.DeepEqual(got, want) {
+		t.Fatalf("runtime initialization copied tree = %#v, want %#v", got, want)
+	}
+	if entries, err := os.ReadDir(runRoot); err != nil || len(entries) != 0 {
+		t.Fatalf("runtime directory entries = %#v, %v; want empty", entries, err)
+	}
+	if information, err := os.Lstat(runRoot); err != nil || information.Mode().Perm() != 0o755 {
+		t.Fatalf("runtime directory mode = %v, %v; want 0755", information, err)
+	}
+}
+
+func TestPrepareContainerDataLeavesNginxAndRuntimeUntouched(t *testing.T) {
+	root := t.TempDir()
+	defaultsRoot := filepath.Join(root, "defaults")
+	nginxRoot := filepath.Join(root, "nginx")
+	dataRoot := filepath.Join(root, "data")
+	runRoot := filepath.Join(root, "run")
+	mustMkdir(t, defaultsRoot, 0o755)
+	mustMkdir(t, nginxRoot, 0o711)
+	mustWriteFile(t, filepath.Join(nginxRoot, "user.conf"), []byte("user configuration\n"), 0o640)
+	mustMkdir(t, dataRoot, 0o755)
+	mustWriteFile(t, filepath.Join(dataRoot, "nginx-uix.db"), []byte("existing database\n"), 0o644)
+	mustMkdir(t, runRoot, 0o700)
+	mustWriteFile(t, filepath.Join(runRoot, "active.sock"), []byte("runtime state\n"), 0o600)
+	setTreeModTime(t, nginxRoot, time.Unix(1_721_001_100, 222_000_000))
+	setTreeModTime(t, runRoot, time.Unix(1_721_001_200, 333_000_000))
+	nginxBefore := snapshotExactTree(t, nginxRoot)
+	runBefore := snapshotExactTree(t, runRoot)
+
+	options := InitializeOptions{
+		DefaultsRoot: defaultsRoot,
+		NginxRoot:    nginxRoot,
+		DataRoot:     dataRoot,
+		RunRoot:      runRoot,
+		DataUID:      os.Getuid(),
+		DataGID:      os.Getgid(),
+	}
+	if err := PrepareContainerData(context.Background(), options); err != nil {
+		t.Fatalf("PrepareContainerData() error = %v", err)
+	}
+
+	if nginxAfter := snapshotExactTree(t, nginxRoot); !reflect.DeepEqual(nginxAfter, nginxBefore) {
+		t.Fatalf("data preparation changed nginx tree\nbefore: %#v\nafter:  %#v", nginxBefore, nginxAfter)
+	}
+	if runAfter := snapshotExactTree(t, runRoot); !reflect.DeepEqual(runAfter, runBefore) {
+		t.Fatalf("data preparation changed runtime tree\nbefore: %#v\nafter:  %#v", runBefore, runAfter)
+	}
+	assertPathModeAndOwner(t, dataRoot, 0o700, options.DataUID, options.DataGID)
+	databaseInformation, err := os.Lstat(filepath.Join(dataRoot, "nginx-uix.db"))
+	if err != nil {
+		t.Fatalf("Lstat(database) error = %v", err)
+	}
+	if got := databaseInformation.Mode().Perm(); got&^fs.FileMode(0o600) != 0 {
+		t.Fatalf("database mode = %04o, want no broader than 0600", got)
+	}
+}
+
 func TestInitializeContainerLeavesEveryNonemptyTargetUntouched(t *testing.T) {
 	tests := []struct {
 		name  string
