@@ -83,7 +83,7 @@ func TestRunUIServesAfterBootstrapAndShutsDown(t *testing.T) {
 		case <-deadline.C:
 			t.Fatal("UI did not become ready before deadline")
 		case <-ticker.C:
-			response, err := client.Get("http://" + address + "/health/ready")
+			response, err := client.Get("http://" + address + "/health/live")
 			if err != nil {
 				continue
 			}

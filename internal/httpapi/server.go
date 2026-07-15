@@ -5,7 +5,6 @@
 package httpapi
 
 import (
-	"context"
 	"io"
 	"io/fs"
 	"log/slog"
@@ -17,8 +16,9 @@ import (
 type Dependencies struct {
 	Assets          fs.FS
 	Sessions        SessionService
+	Agent           Agent
+	Database        DatabaseProbe
 	PublicURL       *url.URL
-	Readiness       func(context.Context) error
 	Logger          *slog.Logger
 	RequestIDSource io.Reader
 }
@@ -27,11 +27,13 @@ type Dependencies struct {
 func NewHandler(dependencies Dependencies) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health/live", live)
-	mux.HandleFunc("GET /health/ready", ready(dependencies.Readiness))
+	mux.HandleFunc("GET /health/ready", ready(dependencies.Database, dependencies.Agent))
 	sessions := &sessionHandler{service: dependencies.Sessions, publicURL: dependencies.PublicURL}
 	mux.HandleFunc("POST /api/v1/auth/session", sessions.login)
 	mux.HandleFunc("GET /api/v1/auth/session", sessions.current)
 	mux.HandleFunc("DELETE /api/v1/auth/session", sessions.logout)
+	mux.HandleFunc("GET /api/v1/system/status", systemStatus(dependencies.Sessions, dependencies.Agent))
+	mux.HandleFunc("GET /api/v1/nginx/effective-config", effectiveConfig(dependencies.Sessions, dependencies.Agent))
 	mux.Handle("/", spaFallback(dependencies.Assets))
 	return requestBoundary(mux, dependencies.Logger, newRequestIDGenerator(dependencies.RequestIDSource))
 }

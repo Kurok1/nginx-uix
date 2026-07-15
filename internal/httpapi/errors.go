@@ -5,9 +5,22 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
+
+	nginxruntime "github.com/kuroky/nginx-uix/internal/runtime"
 )
+
+const (
+	errorCodeAgentUnavailable = "AGENT_UNAVAILABLE"
+	errorCodeConfigInvalid    = "NGINX_CONFIG_INVALID"
+	errorCodeCommandTimeout   = "NGINX_COMMAND_TIMEOUT"
+	errorCodeOutputTooLarge   = "NGINX_OUTPUT_TOO_LARGE"
+)
+
+var errAgentUnavailable = errors.New("agent unavailable")
 
 // ErrorEnvelope is the stable public API error shape.
 type ErrorEnvelope struct {
@@ -60,6 +73,24 @@ func whitelistDetails(code string, details map[string]any) map[string]any {
 		return nil
 	}
 	return result
+}
+
+func writeAgentAPIError(writer http.ResponseWriter, requestID string, err error) {
+	status, code, message := classifyAgentAPIError(err)
+	writeAPIError(writer, requestID, status, code, message, nil)
+}
+
+func classifyAgentAPIError(err error) (int, string, string) {
+	switch {
+	case errors.Is(err, nginxruntime.ErrConfigInvalid):
+		return http.StatusUnprocessableEntity, errorCodeConfigInvalid, "Nginx 配置无法通过检查"
+	case errors.Is(err, nginxruntime.ErrCommandTimeout), errors.Is(err, context.DeadlineExceeded):
+		return http.StatusGatewayTimeout, errorCodeCommandTimeout, "Nginx 命令执行超时"
+	case errors.Is(err, nginxruntime.ErrOutputTooLarge):
+		return http.StatusBadGateway, errorCodeOutputTooLarge, "Nginx 输出超过安全限制"
+	default:
+		return http.StatusServiceUnavailable, errorCodeAgentUnavailable, "本地 Agent 暂时不可用"
+	}
 }
 
 func writeJSON(writer http.ResponseWriter, status int, value any) {

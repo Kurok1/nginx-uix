@@ -29,16 +29,27 @@ func TestOpenAPIParsesAndContainsEveryPublicOperation(t *testing.T) {
 	if document.OpenAPI != "3.1.0" {
 		t.Fatalf("openapi version = %q, want 3.1.0", document.OpenAPI)
 	}
-	operations := []struct {
+	type operation struct {
 		method string
 		path   string
-	}{
+	}
+	healthOperations := []operation{
 		{method: http.MethodGet, path: "/health/live"},
 		{method: http.MethodGet, path: "/health/ready"},
+	}
+	businessOperations := []operation{
 		{method: http.MethodPost, path: "/api/v1/auth/session"},
 		{method: http.MethodGet, path: "/api/v1/auth/session"},
 		{method: http.MethodDelete, path: "/api/v1/auth/session"},
+		{method: http.MethodGet, path: "/api/v1/system/status"},
+		{method: http.MethodGet, path: "/api/v1/nginx/effective-config"},
 	}
+	if got, want := len(businessOperations), 5; got != want {
+		t.Fatalf("business route contract count = %d, want %d", got, want)
+	}
+	operations := make([]operation, 0, len(healthOperations)+len(businessOperations))
+	operations = append(operations, healthOperations...)
+	operations = append(operations, businessOperations...)
 	for _, operation := range operations {
 		methods, exists := document.Paths[operation.path]
 		if !exists {
@@ -55,5 +66,21 @@ func TestOpenAPIParsesAndContainsEveryPublicOperation(t *testing.T) {
 		if recorder.Code == http.StatusNotFound || recorder.Code == http.StatusMethodNotAllowed {
 			t.Errorf("registered handler missing %s %s: status %d", operation.method, operation.path, recorder.Code)
 		}
+	}
+
+	openAPIBusinessCount := 0
+	for path, methods := range document.Paths {
+		if !strings.HasPrefix(path, "/api/v1/") {
+			continue
+		}
+		for method := range methods {
+			switch strings.ToUpper(method) {
+			case http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
+				openAPIBusinessCount++
+			}
+		}
+	}
+	if got, want := openAPIBusinessCount, len(businessOperations); got != want {
+		t.Fatalf("OpenAPI business operation count = %d, want registered contract count %d", got, want)
 	}
 }

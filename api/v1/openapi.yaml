@@ -17,7 +17,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/HealthStatus"
+                $ref: "#/components/schemas/LivenessStatus"
   /health/ready:
     get:
       operationId: getReadiness
@@ -28,13 +28,13 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/HealthStatus"
+                $ref: "#/components/schemas/ReadinessStatus"
         "503":
           description: At least one required component is unavailable
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/HealthStatus"
+                $ref: "#/components/schemas/ReadinessStatus"
   /api/v1/auth/session:
     post:
       operationId: createSession
@@ -116,6 +116,62 @@ paths:
           $ref: "#/components/responses/APIError"
         "403":
           $ref: "#/components/responses/APIError"
+  /api/v1/system/status:
+    get:
+      operationId: getSystemStatus
+      summary: Get the aggregate UI, Agent and verified Nginx status
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/RequestID"
+      responses:
+        "200":
+          description: Aggregate status, including partial evidence when the Agent is unavailable
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SystemStatus"
+        "401":
+          $ref: "#/components/responses/APIError"
+        "500":
+          $ref: "#/components/responses/APIError"
+  /api/v1/nginx/effective-config:
+    get:
+      operationId: getEffectiveConfig
+      summary: Get the ordered effective configuration reported by nginx -T
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/RequestID"
+      responses:
+        "200":
+          description: Complete ordered effective Nginx configuration
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EffectiveConfig"
+        "401":
+          $ref: "#/components/responses/APIError"
+        "422":
+          $ref: "#/components/responses/APIError"
+        "500":
+          $ref: "#/components/responses/APIError"
+        "502":
+          $ref: "#/components/responses/APIError"
+        "503":
+          $ref: "#/components/responses/APIError"
+        "504":
+          $ref: "#/components/responses/APIError"
 components:
   securitySchemes:
     sessionCookie:
@@ -150,14 +206,22 @@ components:
           schema:
             $ref: "#/components/schemas/ErrorEnvelope"
   schemas:
-    HealthStatus:
+    LivenessStatus:
       type: object
       additionalProperties: false
       required: [status]
       properties:
         status:
           type: string
-          enum: [ok, unavailable]
+          enum: [ok]
+    ReadinessStatus:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ready, not_ready]
     LoginRequest:
       type: object
       additionalProperties: false
@@ -202,6 +266,143 @@ components:
         absolute_expires_at:
           type: string
           format: date-time
+    SystemStatus:
+      type: object
+      additionalProperties: false
+      required: [sampled_at, components, master, workers, build, startup_validation, recovery, issues]
+      properties:
+        sampled_at:
+          type: string
+          format: date-time
+        components:
+          $ref: "#/components/schemas/SystemStatusComponents"
+        master:
+          oneOf:
+            - $ref: "#/components/schemas/SystemProcess"
+            - type: "null"
+        workers:
+          type: array
+          items:
+            $ref: "#/components/schemas/SystemProcess"
+        build:
+          oneOf:
+            - $ref: "#/components/schemas/SystemBuild"
+            - type: "null"
+        startup_validation:
+          oneOf:
+            - $ref: "#/components/schemas/StartupValidation"
+            - type: "null"
+        recovery:
+          oneOf:
+            - $ref: "#/components/schemas/RecoveryState"
+            - type: "null"
+        issues:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            pattern: "^[A-Z][A-Z0-9_]*$"
+    SystemStatusComponents:
+      type: object
+      additionalProperties: false
+      required: [ui, agent, nginx]
+      properties:
+        ui:
+          type: string
+          enum: [healthy]
+        agent:
+          type: string
+          enum: [healthy, unavailable]
+        nginx:
+          type: string
+          enum: [running, degraded, stopped, unknown]
+    SystemProcess:
+      type: object
+      additionalProperties: false
+      required: [pid, role, started_at]
+      properties:
+        pid:
+          type: integer
+          minimum: 1
+        role:
+          type: string
+          enum: [master, worker]
+        started_at:
+          type: string
+          format: date-time
+    SystemBuild:
+      type: object
+      additionalProperties: false
+      required: [version, configure_arguments]
+      properties:
+        version:
+          type: string
+        configure_arguments:
+          type: array
+          items:
+            type: string
+    StartupValidation:
+      type: object
+      additionalProperties: false
+      required: [valid, checked_at, exit_code, diagnostic]
+      properties:
+        valid:
+          type: boolean
+        checked_at:
+          type: string
+          format: date-time
+        exit_code:
+          type: [integer, "null"]
+        diagnostic:
+          type: string
+          maxLength: 262144
+    RecoveryState:
+      type: object
+      additionalProperties: false
+      required: [count, last_result, permanent]
+      properties:
+        count:
+          type: integer
+          minimum: 0
+        last_result:
+          type: string
+          enum: ["", restarting, invalid_config, permanent_failure]
+        permanent:
+          type: boolean
+    EffectiveConfig:
+      type: object
+      additionalProperties: false
+      required: [generated_at, nginx_version, entry_config_path, occurrence_count, occurrences]
+      properties:
+        generated_at:
+          type: string
+          format: date-time
+        nginx_version:
+          type: string
+        entry_config_path:
+          type: string
+          const: /etc/nginx/nginx.conf
+        occurrence_count:
+          type: integer
+          minimum: 0
+        occurrences:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConfigOccurrence"
+    ConfigOccurrence:
+      type: object
+      additionalProperties: false
+      required: [id, load_order, path, content]
+      properties:
+        id:
+          type: string
+        load_order:
+          type: integer
+          minimum: 1
+        path:
+          type: string
+        content:
+          type: string
     ErrorEnvelope:
       type: object
       additionalProperties: false

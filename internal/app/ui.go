@@ -16,6 +16,7 @@ import (
 	"github.com/kuroky/nginx-uix/internal/auth"
 	"github.com/kuroky/nginx-uix/internal/httpapi"
 	"github.com/kuroky/nginx-uix/internal/httpapi/uiassets"
+	nginxruntime "github.com/kuroky/nginx-uix/internal/runtime"
 	"github.com/kuroky/nginx-uix/internal/store"
 )
 
@@ -49,7 +50,7 @@ func RunUI(ctx context.Context, config Config) error {
 		Addr: config.ListenAddr,
 		Handler: httpapi.NewHandler(httpapi.Dependencies{
 			Assets: uiassets.FS(), Sessions: sessions, PublicURL: config.PublicURL,
-			Readiness: database.Ping, Logger: logger,
+			Agent: nginxruntime.NewAgentClient(), Database: databasePingProbe(database.Ping), Logger: logger,
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
@@ -104,4 +105,10 @@ type systemClock struct{}
 
 func (systemClock) Now() time.Time {
 	return time.Now()
+}
+
+type databasePingProbe func(context.Context) error
+
+func (probe databasePingProbe) PingContext(ctx context.Context) error {
+	return probe(ctx)
 }
