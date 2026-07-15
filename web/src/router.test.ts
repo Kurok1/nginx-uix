@@ -8,6 +8,7 @@ import { APIClient, APIRequestError } from './api/client'
 import type { LoginRequest, SessionResponse } from './api/types'
 import { createAppRouter, installSessionExpiryRedirect } from './router'
 import { createSessionStore, type SessionClient } from './session'
+import EffectiveConfigView from './views/EffectiveConfigView.vue'
 
 const currentSession: SessionResponse = {
   user: { id: 7, username: 'operator' },
@@ -51,6 +52,16 @@ describe('application router', () => {
       { name: 'configuration', path: '/configuration' },
       { name: 'login', path: '/login' },
     ])
+  })
+
+  it('routes the authenticated configuration URL to the effective-config view', () => {
+    const store = createSessionStore(createClient(vi.fn().mockResolvedValue(currentSession)))
+    const router = createAppRouter(store, createMemoryHistory())
+    const configurationRoute = router
+      .getRoutes()
+      .find((route) => route.name === 'configuration')
+
+    expect(configurationRoute?.components?.default).toBe(EffectiveConfigView)
   })
 
   it('restores a valid session on cold boot and enters Dashboard', async () => {

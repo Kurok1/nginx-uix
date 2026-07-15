@@ -48,8 +48,6 @@ export interface NginxProcess {
 export interface NginxBuild {
   version: string
   configure_arguments: string[]
-  pid_path: string
-  sbin_path: string
 }
 
 export interface StartupValidation {
@@ -74,4 +72,19 @@ export interface SystemStatusResponse {
   startup_validation: StartupValidation | null
   recovery: RecoveryStatus | null
   issues: string[]
+}
+
+export interface EffectiveConfigOccurrence {
+  id: string
+  load_order: number
+  path: string
+  content: string
+}
+
+export interface EffectiveConfigResponse {
+  generated_at: string
+  nginx_version: string
+  entry_config_path: string
+  occurrence_count: number
+  occurrences: EffectiveConfigOccurrence[]
 }

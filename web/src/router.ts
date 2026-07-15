@@ -2,7 +2,6 @@
  * @author hanchao <hanchao@66yunlian.com>
  * @since 0.1.0
  */
-import { defineComponent, h } from 'vue'
 import {
   createRouter,
   createWebHistory,
@@ -14,6 +13,7 @@ import {
 import { apiClient, type APIClient } from './api/client'
 import { sessionStore, type SessionStore } from './session'
 import DashboardView from './views/DashboardView.vue'
+import EffectiveConfigView from './views/EffectiveConfigView.vue'
 import LoginView from './views/LoginView.vue'
 
 declare module 'vue-router' {
@@ -21,14 +21,6 @@ declare module 'vue-router' {
     requiresAuth: boolean
   }
 }
-
-const PendingAuthenticatedView = defineComponent({
-  name: 'PendingAuthenticatedView',
-  setup: () => () =>
-    h('section', { 'aria-labelledby': 'configuration-title' }, [
-      h('h1', { id: 'configuration-title' }, 'Effective configuration'),
-    ]),
-})
 
 const routes: RouteRecordRaw[] = [
   {
@@ -40,7 +32,7 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/configuration',
     name: 'configuration',
-    component: PendingAuthenticatedView,
+    component: EffectiveConfigView,
     meta: { requiresAuth: true },
   },
   {

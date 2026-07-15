@@ -56,8 +56,6 @@ const healthyStatus: SystemStatusResponse = {
   build: {
     version: '1.30.3',
     configure_arguments: ['--with-http_ssl_module', '--with-http_v2_module'],
-    pid_path: '/run/nginx.pid',
-    sbin_path: '/usr/sbin/nginx',
   },
   startup_validation: {
     valid: true,
@@ -161,6 +159,10 @@ describe('DashboardView', () => {
     expect(wrapper.get('.process-metrics__arguments').findAll('li').map((item) => item.text())).toEqual(
       ['--with-http_ssl_module', '--with-http_v2_module'],
     )
+    expect(wrapper.text()).not.toContain('PID 路径')
+    expect(wrapper.text()).not.toContain('二进制路径')
+    expect(wrapper.text()).not.toContain('/run/nginx.pid')
+    expect(wrapper.text()).not.toContain('/usr/sbin/nginx')
     expect(wrapper.get('.validation-result__diagnostic').text()).toBe(
       healthyStatus.startup_validation?.diagnostic,
     )

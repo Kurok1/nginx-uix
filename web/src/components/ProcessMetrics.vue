@@ -45,16 +45,6 @@
         :value="build?.version ?? null"
         :busy="busy"
       />
-      <MetricCard
-        label="PID 路径"
-        :value="build?.pid_path ?? null"
-        :busy="busy"
-      />
-      <MetricCard
-        label="二进制路径"
-        :value="build?.sbin_path ?? null"
-        :busy="busy"
-      />
     </div>
 
     <div

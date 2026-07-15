@@ -33,8 +33,6 @@ const systemStatusPayload = {
   build: {
     version: '1.30.3',
     configure_arguments: ['--with-http_ssl_module', '--with-http_v2_module'],
-    pid_path: '/run/nginx.pid',
-    sbin_path: '/usr/sbin/nginx',
   },
   startup_validation: {
     valid: true,
@@ -48,6 +46,33 @@ const systemStatusPayload = {
     permanent: false,
   },
   issues: ['NGINX_RECOVERING'],
+}
+
+const effectiveConfigPayload = {
+  generated_at: '2026-07-15T08:31:00Z',
+  nginx_version: '1.30.3',
+  entry_config_path: '/etc/nginx/nginx.conf',
+  occurrence_count: 3,
+  occurrences: [
+    {
+      id: 'occurrence-000001',
+      load_order: 1,
+      path: '/etc/nginx/nginx.conf',
+      content: 'events {}\nhttp {\n  include /etc/nginx/conf.d/*.conf;\n}\n',
+    },
+    {
+      id: 'occurrence-000002',
+      load_order: 2,
+      path: '/etc/nginx/conf.d/site.conf',
+      content: 'server { listen 80; }\n',
+    },
+    {
+      id: 'occurrence-000003',
+      load_order: 3,
+      path: '/etc/nginx/conf.d/site.conf',
+      content: 'server { listen 8080; }\n',
+    },
+  ],
 }
 
 function jsonResponse(body: unknown, status = 200, headers?: HeadersInit): Response {
@@ -117,6 +142,67 @@ describe('APIClient', () => {
     expect(headers.has('Content-Type')).toBe(false)
     expect(headers.has('X-CSRF-Token')).toBe(false)
     expect(init.body).toBeUndefined()
+  })
+
+  it('gets ordered effective-config occurrences with the caller AbortSignal', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse(effectiveConfigPayload))
+    const client = new APIClient(fetchMock)
+    const controller = new AbortController()
+
+    await expect(client.getEffectiveConfig(controller.signal)).resolves.toEqual(
+      effectiveConfigPayload,
+    )
+
+    const [url, init] = requestAt(fetchMock)
+    const headers = new Headers(init.headers)
+    expect(url).toBe('/api/v1/nginx/effective-config')
+    expect(init.method).toBe('GET')
+    expect(init.signal).toBe(controller.signal)
+    expect(init.credentials).toBe('same-origin')
+    expect(init.cache).toBe('no-store')
+    expect(headers.has('Content-Type')).toBe(false)
+    expect(headers.has('X-CSRF-Token')).toBe(false)
+    expect(init.body).toBeUndefined()
+  })
+
+  it.each([
+    ['invalid generation time', { ...effectiveConfigPayload, generated_at: 'not-a-time' }],
+    ['invalid occurrence count', { ...effectiveConfigPayload, occurrence_count: 2 }],
+    [
+      'duplicate response-scoped id',
+      {
+        ...effectiveConfigPayload,
+        occurrences: effectiveConfigPayload.occurrences.map((occurrence, index) =>
+          index === 2 ? { ...occurrence, id: 'occurrence-000002' } : occurrence,
+        ),
+      },
+    ],
+    [
+      'non-sequential load order',
+      {
+        ...effectiveConfigPayload,
+        occurrences: effectiveConfigPayload.occurrences.map((occurrence, index) =>
+          index === 1 ? { ...occurrence, load_order: 3 } : occurrence,
+        ),
+      },
+    ],
+    [
+      'invalid occurrence content',
+      {
+        ...effectiveConfigPayload,
+        occurrences: effectiveConfigPayload.occurrences.map((occurrence, index) =>
+          index === 0 ? { ...occurrence, content: 7 } : occurrence,
+        ),
+      },
+    ],
+  ])('rejects effective configuration with %s', async (_name, payload) => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse(payload))
+    const client = new APIClient(fetchMock)
+
+    await expect(client.getEffectiveConfig()).rejects.toMatchObject({
+      kind: 'malformed_response',
+      status: 200,
+    })
   })
 
   it.each([

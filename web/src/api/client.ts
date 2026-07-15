@@ -5,6 +5,8 @@
 import type {
   APIError,
   APIErrorEnvelope,
+  EffectiveConfigOccurrence,
+  EffectiveConfigResponse,
   LoginRequest,
   NginxBuild,
   NginxProcess,
@@ -16,6 +18,7 @@ import type {
 
 const sessionPath = '/api/v1/auth/session'
 const systemStatusPath = '/api/v1/system/status'
+const effectiveConfigPath = '/api/v1/nginx/effective-config'
 
 export type APIRequestErrorKind = 'api' | 'malformed_response' | 'network'
 export type APIErrorListener = (error: APIRequestError) => void
@@ -69,6 +72,11 @@ export class APIClient {
   async getSystemStatus(signal?: AbortSignal): Promise<SystemStatusResponse> {
     const response = await this.send(systemStatusPath, { method: 'GET', signal })
     return parseSystemStatusResponse(await readJSON(response), response.status)
+  }
+
+  async getEffectiveConfig(signal?: AbortSignal): Promise<EffectiveConfigResponse> {
+    const response = await this.send(effectiveConfigPath, { method: 'GET', signal })
+    return parseEffectiveConfigResponse(await readJSON(response), response.status)
   }
 
   async logout(csrfToken: string): Promise<void> {
@@ -190,6 +198,62 @@ function parseSystemStatusResponse(value: unknown, status: number): SystemStatus
   }
 }
 
+function parseEffectiveConfigResponse(value: unknown, status: number): EffectiveConfigResponse {
+  if (
+    !isRecord(value) ||
+    !isRFC3339(value.generated_at) ||
+    typeof value.nginx_version !== 'string' ||
+    typeof value.entry_config_path !== 'string' ||
+    !Number.isSafeInteger(value.occurrence_count) ||
+    (value.occurrence_count as number) < 0 ||
+    !Array.isArray(value.occurrences) ||
+    value.occurrences.length !== value.occurrence_count
+  ) {
+    throw malformedResponse(status)
+  }
+
+  const ids = new Set<string>()
+  const occurrences = value.occurrences.map((occurrence, index) => {
+    const parsed = parseEffectiveConfigOccurrence(occurrence, index + 1, status)
+    if (ids.has(parsed.id)) {
+      throw malformedResponse(status)
+    }
+    ids.add(parsed.id)
+    return parsed
+  })
+
+  return {
+    generated_at: value.generated_at,
+    nginx_version: value.nginx_version,
+    entry_config_path: value.entry_config_path,
+    occurrence_count: value.occurrence_count as number,
+    occurrences,
+  }
+}
+
+function parseEffectiveConfigOccurrence(
+  value: unknown,
+  expectedLoadOrder: number,
+  status: number,
+): EffectiveConfigOccurrence {
+  if (
+    !isRecord(value) ||
+    typeof value.id !== 'string' ||
+    value.id === '' ||
+    value.load_order !== expectedLoadOrder ||
+    typeof value.path !== 'string' ||
+    typeof value.content !== 'string'
+  ) {
+    throw malformedResponse(status)
+  }
+  return {
+    id: value.id,
+    load_order: expectedLoadOrder,
+    path: value.path,
+    content: value.content,
+  }
+}
+
 function parseProcess(value: unknown, role: NginxProcess['role'], status: number): NginxProcess {
   if (
     !isRecord(value) ||
@@ -208,17 +272,13 @@ function parseBuild(value: unknown, status: number): NginxBuild {
     !isRecord(value) ||
     typeof value.version !== 'string' ||
     !Array.isArray(value.configure_arguments) ||
-    !value.configure_arguments.every((argument) => typeof argument === 'string') ||
-    typeof value.pid_path !== 'string' ||
-    typeof value.sbin_path !== 'string'
+    !value.configure_arguments.every((argument) => typeof argument === 'string')
   ) {
     throw malformedResponse(status)
   }
   return {
     version: value.version,
     configure_arguments: [...value.configure_arguments],
-    pid_path: value.pid_path,
-    sbin_path: value.sbin_path,
   }
 }
 
