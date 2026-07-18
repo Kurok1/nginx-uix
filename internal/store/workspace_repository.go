@@ -97,8 +97,8 @@ func (d *DB) CreateWorkspace(ctx context.Context, creation config.WorkspaceCreat
 			`INSERT INTO config_workspaces(
 				id, name, state, state_reason_code, production_digest, base_digest, draft_digest,
 				manifest_version, policy_version, entry_count, managed_bytes, workspace_bytes,
-				revision, created_by, created_at, updated_at
-			 ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1, ?, ?, ?, ?, ?, ?, ?)`,
+				revision, last_release_id, created_by, created_at, updated_at
+			 ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			workspace.ID,
 			workspace.Name,
 			workspace.State,
@@ -110,6 +110,7 @@ func (d *DB) CreateWorkspace(ctx context.Context, creation config.WorkspaceCreat
 			workspace.ManagedBytes,
 			workspace.WorkspaceBytes,
 			workspace.Revision,
+			nullableReleaseID(workspace.LastReleaseID),
 			workspace.CreatedBy,
 			formatTime(workspace.CreatedAt),
 			formatTime(workspace.UpdatedAt),
@@ -146,7 +147,8 @@ func (d *DB) UpdateWorkspace(ctx context.Context, change config.WorkspaceChange)
 			ctx,
 			`UPDATE config_workspaces SET
 				name = ?, state = ?, state_reason_code = ?, production_digest = ?, base_digest = ?,
-				draft_digest = ?, entry_count = ?, managed_bytes = ?, workspace_bytes = ?, revision = ?, updated_at = ?
+				draft_digest = ?, entry_count = ?, managed_bytes = ?, workspace_bytes = ?, revision = ?,
+				last_release_id = ?, updated_at = ?
 			 WHERE id = ? AND revision = ?`,
 			next.Name,
 			next.State,
@@ -158,6 +160,7 @@ func (d *DB) UpdateWorkspace(ctx context.Context, change config.WorkspaceChange)
 			next.ManagedBytes,
 			next.WorkspaceBytes,
 			next.Revision,
+			nullableReleaseID(next.LastReleaseID),
 			formatTime(next.UpdatedAt),
 			next.ID,
 			change.ExpectedRevision,
@@ -226,13 +229,14 @@ func (d *DB) DeleteWorkspace(ctx context.Context, deletion config.WorkspaceDelet
 
 const workspaceSelect = `SELECT
 	id, name, state, state_reason_code, production_digest, base_digest, draft_digest,
-	entry_count, managed_bytes, workspace_bytes, revision, created_by, created_at, updated_at
+	entry_count, managed_bytes, workspace_bytes, revision, last_release_id, created_by, created_at, updated_at
 FROM config_workspaces`
 
 func scanWorkspace(row rowScanner) (config.Workspace, error) {
 	var workspace config.Workspace
 	var productionDigest, baseDigest, draftDigest []byte
 	var revision int64
+	var lastReleaseID sql.NullString
 	var createdAt, updatedAt string
 	if err := row.Scan(
 		&workspace.ID,
@@ -246,6 +250,7 @@ func scanWorkspace(row rowScanner) (config.Workspace, error) {
 		&workspace.ManagedBytes,
 		&workspace.WorkspaceBytes,
 		&revision,
+		&lastReleaseID,
 		&workspace.CreatedBy,
 		&createdAt,
 		&updatedAt,
@@ -263,6 +268,13 @@ func scanWorkspace(row rowScanner) (config.Workspace, error) {
 	copy(workspace.BaseDigest[:], baseDigest)
 	copy(workspace.DraftDigest[:], draftDigest)
 	workspace.Revision = uint64(revision)
+	if lastReleaseID.Valid {
+		parsed, err := config.ParseReleaseID(lastReleaseID.String)
+		if err != nil {
+			return config.Workspace{}, fmt.Errorf("decode workspace: invalid release id")
+		}
+		workspace.LastReleaseID = parsed
+	}
 
 	parsedCreatedAt, err := parseTime("workspace creation", createdAt)
 	if err != nil {
@@ -301,7 +313,7 @@ func validateWorkspace(workspace config.Workspace, action string) error {
 		return fmt.Errorf("%s: %w", action, config.ErrDisplayNameInvalid)
 	}
 	switch workspace.State {
-	case config.StatePreparing, config.StateReady, config.StateStale, config.StateNeedsAttention:
+	case config.StatePreparing, config.StateReady, config.StateStale, config.StatePublished, config.StateNeedsAttention:
 	default:
 		return fmt.Errorf("%s: invalid workspace state", action)
 	}
@@ -311,7 +323,22 @@ func validateWorkspace(workspace config.Workspace, action string) error {
 	if workspace.CreatedBy <= 0 || !validRevision(workspace.Revision) {
 		return fmt.Errorf("%s: invalid workspace metadata", action)
 	}
+	if workspace.State == config.StatePublished && workspace.LastReleaseID == "" {
+		return fmt.Errorf("%s: published workspace lacks release id", action)
+	}
+	if workspace.LastReleaseID != "" {
+		if _, err := config.ParseReleaseID(string(workspace.LastReleaseID)); err != nil {
+			return fmt.Errorf("%s: invalid release id", action)
+		}
+	}
 	return nil
+}
+
+func nullableReleaseID(id config.ReleaseID) any {
+	if id == "" {
+		return nil
+	}
+	return id
 }
 
 func validRevision(revision uint64) bool {

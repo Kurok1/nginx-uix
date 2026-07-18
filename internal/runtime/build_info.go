@@ -43,6 +43,11 @@ type Service struct {
 	readStartupState     startupStateReader
 	now                  func() time.Time
 	configSnapshot       configSnapshotOptions
+	candidate            candidateOptions
+	backup               backupOptions
+	release              releaseOptions
+	candidateLock        chan struct{}
+	releaseLock          chan struct{}
 }
 
 // NewService creates the production fixed-command service.
@@ -59,6 +64,11 @@ func newServiceWithExecutor(executor commandExecutor) *Service {
 		readStartupState: readStartupState,
 		now:              func() time.Time { return time.Now().UTC() },
 		configSnapshot:   defaultConfigSnapshotOptions(),
+		candidate:        defaultCandidateOptions(),
+		backup:           defaultBackupOptions(),
+		release:          defaultReleaseOptions(),
+		candidateLock:    make(chan struct{}, 2),
+		releaseLock:      make(chan struct{}, 1),
 	}
 }
 

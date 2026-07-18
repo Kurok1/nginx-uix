@@ -38,12 +38,22 @@ export type APIErrorCode =
   | 'CONFIG_ENTRY_NOT_MANAGED'
   | 'CONFIG_LIMIT_EXCEEDED'
   | 'CONFIG_WORKSPACE_NOT_FOUND'
+  | 'CONFIG_PUBLISH_CHECK_NOT_FOUND'
+  | 'CONFIG_RELEASE_NOT_FOUND'
   | 'CONFIG_WORKSPACE_CONFLICT'
   | 'CONFIG_WORKSPACE_STALE'
   | 'CONFIG_WORKSPACE_NEEDS_ATTENTION'
   | 'CONFIG_SNAPSHOT_CHANGED'
+  | 'CONFIG_PRODUCTION_CHANGED'
+  | 'CONFIG_BACKUP_INVALID'
+  | 'NGINX_HEALTH_UNAVAILABLE'
+  | 'CONFIG_RELEASE_NEEDS_ATTENTION'
   | 'AGENT_UNAVAILABLE'
   | 'CONFIG_OPERATION_TIMEOUT'
+	| 'CONFIG_CANDIDATE_INVALID'
+	| 'CONFIG_NO_CHANGES'
+	| 'CONFIG_PUBLISH_CHECK_EXPIRED'
+	| 'CONFIG_PUBLISH_IN_PROGRESS'
 
 export interface APIError {
   code: APIErrorCode
@@ -117,7 +127,7 @@ export interface EffectiveConfigResponse {
   occurrences: EffectiveConfigOccurrence[]
 }
 
-export type WorkspaceState = 'preparing' | 'ready' | 'stale' | 'needs_attention'
+export type WorkspaceState = 'preparing' | 'ready' | 'stale' | 'published' | 'needs_attention'
 export type EntryType = 'regular' | 'directory' | 'symlink' | 'special'
 export type DiffStatus = 'unchanged' | 'created' | 'modified' | 'deleted'
 export type ConfigStatusReason =
@@ -145,6 +155,7 @@ export interface WorkspaceSummary {
   name: string
   state: WorkspaceState
   state_reason_code?: string
+	last_release_id?: string
   production_digest: string
   base_digest: string
   draft_etag: string
@@ -250,4 +261,91 @@ export interface GroupMutationRequest {
   name: string
   sort_order: number
   members: string[]
+}
+
+export type PublishCheckState = 'running' | 'valid' | 'invalid' | 'failed'
+
+export interface CandidateDiagnostic {
+	code: string
+	path: string
+	line: number
+	summary: string
+}
+
+export interface PublishCheck {
+	id: string
+	workspace_id: string
+	workspace_revision: number
+	production_digest: string
+	base_digest: string
+	draft_digest: string
+	candidate_digest: string
+	manifest_version: number
+	policy_version: number
+	validator_version: number
+	validator_build_id: string
+	state: PublishCheckState
+	diagnostic_count: number
+	details: { diagnostics: CandidateDiagnostic[] }
+	started_at: string
+	finished_at: string
+	expires_at: string
+}
+
+export type ReleaseState =
+	| 'queued'
+	| 'running'
+	| 'rolling_back'
+	| 'succeeded'
+	| 'failed'
+	| 'rolled_back'
+	| 'needs_attention'
+	| 'cancelled'
+
+export type ReleaseStageName =
+	| 'queued'
+	| 'rechecking'
+	| 'backup_creating'
+	| 'backup_verified'
+	| 'candidate_validated'
+	| 'files_applying'
+	| 'files_applied'
+	| 'production_validated'
+	| 'reload_requested'
+	| 'runtime_confirmed'
+	| 'committed'
+	| 'rollback_applying'
+	| 'rollback_files_restored'
+	| 'rollback_validated'
+	| 'rollback_reload_requested'
+	| 'rolled_back'
+	| 'failed'
+	| 'needs_attention'
+
+export type ReleaseStageResult = 'pending' | 'running' | 'success' | 'failed' | 'warning'
+
+export interface ReleaseStage {
+	sequence: number
+	stage: ReleaseStageName
+	result: ReleaseStageResult
+	code?: string
+	details: Readonly<Record<string, unknown>>
+	occurred_at: string
+}
+
+export interface Release {
+	id: string
+	workspace_id: string
+	check_id: string
+	backup_id?: string
+	state: ReleaseState
+	stage: ReleaseStageName
+	production_digest: string
+	draft_digest: string
+	candidate_digest: string
+	last_error_code?: string
+	created_at: string
+	updated_at: string
+	finished_at?: string
+	stages: ReleaseStage[]
 }

@@ -85,6 +85,9 @@ const draftETagA = `"draft-v1:${digestA}"`
 const draftETagB = `"draft-v1:${digestB}"`
 const groupsETagA = `"groups-v1:${digestA}"`
 const groupsETagB = `"groups-v1:${digestB}"`
+const checkID = '11111111111111111111111111111111'
+const releaseID = '22222222222222222222222222222222'
+const backupID = '33333333333333333333333333333333'
 
 function workspaceFixture(digest = digestA) {
   return {
@@ -172,6 +175,69 @@ function groupCollectionFixture(digest = digestA) {
       },
     ],
     groups_etag: `"groups-v1:${digest}"`,
+  }
+}
+
+function publishCheckFixture(state: 'valid' | 'invalid' = 'valid') {
+  return {
+    id: checkID,
+    workspace_id: workspaceID,
+    workspace_revision: 2,
+    production_digest: digestA,
+    base_digest: digestA,
+    draft_digest: digestB,
+    candidate_digest: state === 'valid' ? digestB : '0'.repeat(64),
+    manifest_version: 1,
+    policy_version: 1,
+    validator_version: 1,
+    validator_build_id: 'build-id',
+    state,
+    diagnostic_count: state === 'valid' ? 0 : 1,
+    details: {
+      diagnostics:
+        state === 'valid'
+          ? []
+          : [{ code: 'syntax_error', path: 'conf.d/site.conf', line: 4, summary: '配置语法无效' }],
+    },
+    started_at: '2026-07-18T04:00:00Z',
+    finished_at: '2026-07-18T04:00:01Z',
+    expires_at: '2026-07-18T04:10:01Z',
+  }
+}
+
+function releaseFixture(state: 'queued' | 'succeeded' = 'queued') {
+  const terminal = state === 'succeeded'
+  return {
+    id: releaseID,
+    workspace_id: workspaceID,
+    check_id: checkID,
+    backup_id: terminal ? backupID : undefined,
+    state,
+    stage: terminal ? 'committed' : 'queued',
+    production_digest: digestA,
+    draft_digest: digestB,
+    candidate_digest: digestB,
+    created_at: '2026-07-18T04:01:00Z',
+    updated_at: terminal ? '2026-07-18T04:01:10Z' : '2026-07-18T04:01:00Z',
+    finished_at: terminal ? '2026-07-18T04:01:10Z' : undefined,
+    stages: terminal
+      ? [
+          {
+            sequence: 1,
+            stage: 'queued',
+            result: 'pending',
+            details: {},
+            occurred_at: '2026-07-18T04:01:00Z',
+          },
+          {
+            sequence: 2,
+            stage: 'committed',
+            result: 'success',
+            details: {},
+            occurred_at: '2026-07-18T04:01:10Z',
+          },
+        ]
+      : [],
   }
 }
 
@@ -446,6 +512,51 @@ describe('APIClient', () => {
 })
 
 describe('configuration APIClient surface', () => {
+	 it('creates valid and invalid persisted publish checks with exact mutation headers', async () => {
+		const fetchMock = vi
+			.fn<typeof fetch>()
+			.mockResolvedValueOnce(jsonResponse(publishCheckFixture(), 201))
+			.mockResolvedValueOnce(jsonResponse(publishCheckFixture('invalid'), 422))
+		const client = new APIClient(fetchMock)
+
+		await expect(client.createPublishCheck(workspaceID, draftETagB, 'csrf-1')).resolves.toEqual(
+			publishCheckFixture(),
+		)
+		await expect(client.createPublishCheck(workspaceID, draftETagB, 'csrf-1')).resolves.toEqual(
+			publishCheckFixture('invalid'),
+		)
+		const [url, init] = requestAt(fetchMock)
+		const headers = new Headers(init.headers)
+		expect(url).toBe(`/api/v1/config/workspaces/${workspaceID}/publish-checks`)
+		expect(init.method).toBe('POST')
+		expect(headers.get('If-Match')).toBe(draftETagB)
+		expect(headers.get('X-CSRF-Token')).toBe('csrf-1')
+		expect(init.body).toBe('{}')
+	})
+
+	it('queues and reads one release with strict stage parsing', async () => {
+		const queued = releaseFixture()
+		const succeeded = releaseFixture('succeeded')
+		const fetchMock = vi
+			.fn<typeof fetch>()
+			.mockResolvedValueOnce(
+				jsonResponse(queued, 202, { Location: `/api/v1/config/releases/${releaseID}` }),
+			)
+			.mockResolvedValueOnce(jsonResponse(succeeded))
+		const client = new APIClient(fetchMock)
+
+		await expect(
+			client.createRelease(workspaceID, checkID, 'Primary workspace', draftETagB, 'csrf-1'),
+		).resolves.toEqual(queued)
+		await expect(client.getRelease(releaseID)).resolves.toEqual(succeeded)
+		const [url, init] = requestAt(fetchMock)
+		expect(url).toBe(`/api/v1/config/workspaces/${workspaceID}/releases`)
+		expect(init.body).toBe(
+			`{"check_id":"${checkID}","confirm_name":"Primary workspace"}`,
+		)
+		expect(requestAt(fetchMock, 1)[0]).toBe(`/api/v1/config/releases/${releaseID}`)
+	})
+
   it('lists workspaces from the closed workspace-list envelope', async () => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
       jsonResponse({ workspaces: [workspaceFixture()] }),
@@ -891,10 +1002,16 @@ describe('configuration API runtime validation', () => {
     'CONFIG_ENTRY_NOT_MANAGED',
     'CONFIG_LIMIT_EXCEEDED',
     'CONFIG_WORKSPACE_NOT_FOUND',
+    'CONFIG_PUBLISH_CHECK_NOT_FOUND',
+    'CONFIG_RELEASE_NOT_FOUND',
     'CONFIG_WORKSPACE_CONFLICT',
     'CONFIG_WORKSPACE_STALE',
     'CONFIG_WORKSPACE_NEEDS_ATTENTION',
     'CONFIG_SNAPSHOT_CHANGED',
+    'CONFIG_PRODUCTION_CHANGED',
+    'CONFIG_BACKUP_INVALID',
+    'NGINX_HEALTH_UNAVAILABLE',
+    'CONFIG_RELEASE_NEEDS_ATTENTION',
     'AGENT_UNAVAILABLE',
     'CONFIG_OPERATION_TIMEOUT',
   ] as const

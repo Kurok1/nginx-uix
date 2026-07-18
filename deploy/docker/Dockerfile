@@ -1,7 +1,7 @@
 # @author hanchao <hanchao@66yunlian.com>
 # @since 0.1.0
 
-ARG VERSION=0.2.1
+ARG VERSION=0.2.2
 ARG COMMIT
 ARG BUILD_TIME
 ARG SOURCE_FINGERPRINT

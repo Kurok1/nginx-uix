@@ -62,6 +62,7 @@ type workspaceResponse struct {
 	CreatedBy        int64                 `json:"created_by"`
 	CreatedAt        time.Time             `json:"created_at"`
 	UpdatedAt        time.Time             `json:"updated_at"`
+	LastReleaseID    string                `json:"last_release_id,omitempty"`
 }
 
 type workspaceListResponse struct {
@@ -580,6 +581,7 @@ func newWorkspaceResponse(workspace config.Workspace) workspaceResponse {
 		ProductionDigest: workspace.ProductionDigest.String(), BaseDigest: workspace.BaseDigest.String(), DraftETag: workspace.ETag(),
 		EntryCount: workspace.EntryCount, ManagedBytes: workspace.ManagedBytes, WorkspaceBytes: workspace.WorkspaceBytes,
 		CreatedBy: workspace.CreatedBy, CreatedAt: workspace.CreatedAt.UTC(), UpdatedAt: workspace.UpdatedAt.UTC(),
+		LastReleaseID: string(workspace.LastReleaseID),
 	}
 }
 

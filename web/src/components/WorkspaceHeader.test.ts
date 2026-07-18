@@ -59,6 +59,21 @@ describe('WorkspaceHeader', () => {
     expect(wrapper.text()).toContain('Workspace ID: workspace-id')
   })
 
+	it('shows the durable release identity for a published workspace', () => {
+		const wrapper = mount(WorkspaceHeader, {
+			props: {
+				workspace: workspace({
+					state: 'published',
+					last_release_id: '22222222222222222222222222222222',
+				}),
+				draftChangeCount: 1,
+			},
+		})
+		expect(wrapper.text()).toContain('Published')
+		expect(wrapper.text()).toContain('22222222222222222222222222222222')
+		expect(wrapper.text()).toContain('发布校验与运行确认已完成')
+	})
+
   it('contains no production operation action or forbidden business CSS', () => {
     expect(headerSource).not.toMatch(/<button[\s\S]*?(?:validate|publish|reload|restart|restore)/i)
     expect(headerSource).not.toMatch(/\b(?:apiClient|fetch|XMLHttpRequest)\b/)

@@ -315,6 +315,22 @@
         />
       </ReviewDrawer>
 
+      <PublishPanel
+        :check="releaseState.check"
+        :phase="releaseState.phase"
+        :blocked-reason="publishBlockedReason"
+        :expired="publishCheckExpired"
+        :error="releaseState.error"
+        @check="startPublishCheck"
+        @publish="requestPublish"
+      />
+
+      <ReleaseTimeline
+        v-if="releaseState.release !== null"
+        :release="releaseState.release"
+        :stream-state="releaseState.stream"
+      />
+
       <form
         v-if="fileMutation !== null"
         class="workspace-mutation-form"
@@ -414,6 +430,16 @@
       @cancel="deleteTarget = null"
       @confirm="confirmDelete"
     />
+    <ConfirmModal
+      :open="releaseModalOpen"
+      title="Publish configuration to production?"
+      consequence="The system will recheck production and the draft, create a complete backup, update production files, validate the full configuration, reload Nginx, and automatically roll back when the result is safely knowable."
+      :object-name="state.active?.name ?? ''"
+      confirm-label="Publish"
+      :trigger="releaseTrigger"
+      @cancel="releaseModalOpen = false"
+      @confirm="confirmPublish"
+    />
     <ToastRegion
       :toasts="toasts"
       @dismiss="dismissToast"
@@ -431,10 +457,13 @@ import ConfigReview from '../components/ConfigReview.vue'
 import ConfigTree from '../components/ConfigTree.vue'
 import ConfirmModal from '../components/ConfirmModal.vue'
 import InlineBanner from '../components/InlineBanner.vue'
+	import PublishPanel from '../components/PublishPanel.vue'
+	import ReleaseTimeline from '../components/ReleaseTimeline.vue'
 import ReviewDrawer from '../components/ReviewDrawer.vue'
 import ToastRegion, { type ToastMessage } from '../components/ToastRegion.vue'
 import WorkspaceHeader from '../components/WorkspaceHeader.vue'
 import WorkspaceList from '../components/WorkspaceList.vue'
+	import { isTerminalRelease, releaseStore, type ReleaseStore } from '../release'
 import { workspaceStore, type WorkspaceStore } from '../workspace'
 
 type WorkspaceTask = 'editor' | 'files' | 'review'
@@ -467,11 +496,14 @@ type DeleteTarget =
       consequence: string
     }
 
-const props = withDefaults(defineProps<{ store?: WorkspaceStore }>(), {
+const props = withDefaults(defineProps<{ store?: WorkspaceStore; releases?: ReleaseStore }>(), {
   store: () => workspaceStore,
+	releases: () => releaseStore,
 })
 const store = props.store
 const state = store.state
+	const releases = props.releases
+	const releaseState = releases.state
 const route = useRoute()
 const router = useRouter()
 
@@ -482,6 +514,9 @@ const reviewDrawerOpen = ref(false)
 const drawerTrigger = ref<HTMLElement | null>(null)
 const deleteTarget = ref<DeleteTarget | null>(null)
 const deleteTrigger = ref<HTMLElement | null>(null)
+	const releaseModalOpen = ref(false)
+	const releaseTrigger = ref<HTMLElement | null>(null)
+	const expiryClock = ref(Date.now())
 const fileMutation = ref<FileMutation | null>(null)
 const mutationPath = ref('')
 const mutationContent = ref('')
@@ -493,6 +528,8 @@ const groupMembers = ref('')
 const toasts = ref<ToastMessage[]>([])
 const isMobileTaskLayout = ref(false)
 let toastSequence = 0
+	let expiryTimer: number | undefined
+	let lastTerminalRelease = ''
 
 const dirtyDocuments = computed(() => state.documents.filter(({ dirty }) => dirty))
 const conflictedDocuments = computed(() =>
@@ -544,28 +581,76 @@ const fileMutationReady = computed(() =>
     ? mutationPath.value !== ''
     : mutationDestination.value !== '',
 )
+	const publishBlockedReason = computed(() => {
+		const workspace = state.active
+		if (workspace === null) return 'Open a workspace before checking publication.'
+		if (workspace.state !== 'ready') {
+			if (workspace.state === 'published') return 'This immutable workspace has already been published.'
+			if (workspace.state === 'stale') return 'Production changed. Create a new workspace before publishing.'
+			if (workspace.state === 'needs_attention') return 'Workspace consistency must be resolved before publishing.'
+			return 'The workspace is not ready for publication.'
+		}
+		if (state.pendingAction !== null) return 'Wait for the current workspace mutation to finish.'
+		if (store.hasUnsavedChanges()) return 'Save all open documents before checking publication.'
+		if (state.diff === null) return 'Load the complete all-files diff before checking publication.'
+		if (!state.diff.complete) return 'The diff is incomplete. Reduce it until the full review is available.'
+		if (!state.diff.files.some(({ status }) => status !== 'unchanged')) return 'This workspace has no publishable changes.'
+		if (releaseState.release !== null && !isTerminalRelease(releaseState.release)) return 'A release or rollback is already in progress.'
+		return ''
+	})
+	const publishCheckExpired = computed(
+		() => releaseState.check !== null && Date.parse(releaseState.check.expires_at) <= expiryClock.value,
+	)
 
 watch(
   () => route.params.workspaceId,
   (workspaceId) => {
     if (typeof workspaceId === 'string' && workspaceId !== '') {
       void run(async () => {
+			releases.reset()
         await store.openWorkspace(workspaceId)
         await store.loadGroups(workspaceId)
+			const releaseID = routeReleaseID() ?? state.active?.last_release_id
+			if (releaseID !== undefined) await releases.resume(releaseID)
       })
     }
   },
   { immediate: true },
 )
 
+	watch(
+		() => route.query.release,
+		(value) => {
+			if (typeof value === 'string' && /^[0-9a-f]{32}$/.test(value) && releaseState.release?.id !== value) {
+				void run(() => releases.resume(value))
+			}
+		},
+	)
+
+	watch(
+		() => releaseState.release?.state,
+		(releaseStatus) => {
+			const release = releaseState.release
+			if (release === null || !isTerminalRelease(release) || lastTerminalRelease === release.id) return
+			lastTerminalRelease = release.id
+			if (release.workspace_id === state.active?.id && (releaseStatus === 'succeeded' || releaseStatus === 'needs_attention')) {
+				void run(() => store.openWorkspace(release.workspace_id))
+			}
+			if (releaseStatus === 'succeeded') addToast('Configuration published and Nginx health confirmed.')
+			else if (releaseStatus === 'rolled_back') addToast('Release failed; the last valid version was restored and confirmed healthy.')
+		},
+	)
+
 onMounted(() => {
   updateMobileLayout()
   window.addEventListener('resize', updateMobileLayout)
+	expiryTimer = window.setInterval(() => { expiryClock.value = Date.now() }, 30_000)
   void run(store.loadWorkspaces)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', updateMobileLayout)
+	if (expiryTimer !== undefined) window.clearInterval(expiryTimer)
 })
 
 function updateMobileLayout(): void {
@@ -784,6 +869,40 @@ function loadDiff(path?: string): Promise<void> {
 function searchFiles(query: string): void {
   void run(() => store.searchFiles(query))
 }
+
+	function startPublishCheck(): void {
+		const workspace = state.active
+		if (workspace === null || publishBlockedReason.value !== '') return
+		void run(async () => {
+			const check = await releases.check(workspace, state.diff, store.hasUnsavedChanges())
+			addToast(check.state === 'valid' ? 'Complete candidate check passed.' : 'Candidate check found configuration errors.')
+		})
+	}
+
+	function requestPublish(): void {
+		if (state.active === null || releaseState.check?.state !== 'valid' || publishCheckExpired.value) return
+		releaseTrigger.value = document.activeElement instanceof HTMLElement ? document.activeElement : null
+		releaseModalOpen.value = true
+	}
+
+	async function confirmPublish(name: string): Promise<void> {
+		const workspace = state.active
+		if (workspace === null) return
+		await run(async () => {
+			const release = await releases.queue(workspace, name)
+			releaseModalOpen.value = false
+			await router.replace({
+				name: 'config-workspaces',
+				params: { workspaceId: workspace.id },
+				query: { ...route.query, release: release.id },
+			})
+		})
+	}
+
+	function routeReleaseID(): string | undefined {
+		const value = route.query.release
+		return typeof value === 'string' && /^[0-9a-f]{32}$/.test(value) ? value : undefined
+	}
 
 function addToast(message: string): void {
   toastSequence += 1

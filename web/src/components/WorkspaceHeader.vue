@@ -9,6 +9,9 @@
       <p v-if="workspace.state === 'needs_attention'">
         Workspace ID: {{ workspace.id }}
       </p>
+      <p v-else-if="workspace.state === 'published'">
+        Release ID: {{ workspace.last_release_id }}
+      </p>
     </div>
     <dl>
       <div>
@@ -31,7 +34,7 @@
       </div>
       <div>
         <dt>Safety boundary</dt>
-        <dd>尚未执行 Nginx 校验</dd>
+        <dd>{{ workspace.state === 'published' ? '发布校验与运行确认已完成' : '尚未执行 Nginx 校验' }}</dd>
       </div>
     </dl>
   </header>
@@ -55,6 +58,7 @@ const stateLabel = computed(() => {
     case 'preparing': return 'Preparing'
     case 'ready': return 'Ready'
     case 'stale': return 'Stale'
+	case 'published': return 'Published'
     case 'needs_attention': return 'Needs attention'
     default: return ''
   }
@@ -64,7 +68,9 @@ const stateIcon = computed(() =>
     ? '✓'
     : props.workspace.state === 'preparing'
       ? '◌'
-      : props.workspace.state === 'stale'
+	  : props.workspace.state === 'published'
+		? '✓'
+		: props.workspace.state === 'stale'
         ? '△!'
         : '◇!',
 )

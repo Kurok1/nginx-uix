@@ -53,6 +53,9 @@ func RunAgentServer(ctx context.Context, service *Service, logger *slog.Logger) 
 	if service == nil {
 		return fmt.Errorf("run agent server: service is required")
 	}
+	if err := service.ReconcileReleaseArtifacts(ctx); err != nil {
+		return fmt.Errorf("run agent server: reconcile release artifacts: %w", err)
+	}
 	return runAgentServer(ctx, newAgentServerConfig(service, logger))
 }
 

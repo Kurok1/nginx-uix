@@ -49,7 +49,13 @@ func TestConfigErrorResponseMapsStableCodesAndStatuses(t *testing.T) {
 		{name: "limit", err: config.ErrLimitExceeded, status: http.StatusRequestEntityTooLarge, code: "CONFIG_LIMIT_EXCEEDED"},
 		{name: "missing", err: fs.ErrNotExist, status: http.StatusNotFound, code: "CONFIG_WORKSPACE_NOT_FOUND"},
 		{name: "conflict", err: config.ErrConflict, status: http.StatusConflict, code: "CONFIG_WORKSPACE_CONFLICT"},
+		{name: "workspace stale", err: config.ErrWorkspaceStale, status: http.StatusConflict, code: "CONFIG_WORKSPACE_STALE"},
+		{name: "workspace needs attention", err: config.ErrWorkspaceNeedsAttention, status: http.StatusConflict, code: "CONFIG_WORKSPACE_NEEDS_ATTENTION"},
+		{name: "production changed", err: config.ErrProductionChanged, status: http.StatusConflict, code: "CONFIG_PRODUCTION_CHANGED"},
 		{name: "snapshot", err: config.ErrSnapshotChanged, status: http.StatusConflict, code: "CONFIG_SNAPSHOT_CHANGED"},
+		{name: "candidate", err: config.ErrCandidateInvalid, status: http.StatusUnprocessableEntity, code: "CONFIG_CANDIDATE_INVALID"},
+		{name: "expired check", err: config.ErrPublishCheckExpired, status: http.StatusConflict, code: "CONFIG_PUBLISH_CHECK_EXPIRED"},
+		{name: "release active", err: config.ErrReleaseInProgress, status: http.StatusConflict, code: "CONFIG_PUBLISH_IN_PROGRESS"},
 		{name: "timeout", err: context.DeadlineExceeded, status: http.StatusGatewayTimeout, code: "CONFIG_OPERATION_TIMEOUT"},
 	}
 	for _, test := range tests {

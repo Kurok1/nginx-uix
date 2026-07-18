@@ -52,6 +52,37 @@ func TestWorkspaceUsageListOrderAndLookup(t *testing.T) {
 	}
 }
 
+func TestWorkspaceCanPersistPublishedReleaseIdentity(t *testing.T) {
+	database := openRepositoryDatabase(t)
+	workspace := testWorkspace(1, "Primary", testTime(2))
+	createWorkspaceRecord(t, database, workspace, "config.workspace.create-published")
+
+	next := workspace
+	next.State = config.StatePublished
+	next.LastReleaseID = config.ReleaseID("00000000000000000000000000000009")
+	next.Revision++
+	next.UpdatedAt = testTime(3)
+	operation := testOperation("config.workspace.published", "workspace", string(workspace.ID), next.UpdatedAt)
+	if err := database.UpdateWorkspace(context.Background(), config.WorkspaceChange{
+		ExpectedRevision: workspace.Revision,
+		Next:             next,
+		Operation:        operation,
+		Audit:            testAudit(operation, `{"release_id":"00000000000000000000000000000009"}`),
+	}); err != nil {
+		t.Fatalf("UpdateWorkspace() error = %v", err)
+	}
+
+	got, err := database.Workspace(context.Background(), workspace.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	next.CreatedAt = next.CreatedAt.UTC()
+	next.UpdatedAt = next.UpdatedAt.UTC()
+	if got != next {
+		t.Fatalf("Workspace() = %#v, want %#v", got, next)
+	}
+}
+
 func TestWorkspaceNotFoundIsDistinctFromRevisionConflict(t *testing.T) {
 	database := openRepositoryDatabase(t)
 	missing := testWorkspace(99, "Missing", testTime(2))

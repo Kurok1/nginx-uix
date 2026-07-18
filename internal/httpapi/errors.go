@@ -160,8 +160,22 @@ func writeConfigAPIError(writer http.ResponseWriter, request *http.Request, err 
 		writeAPIError(writer, requestID, http.StatusNotFound, "CONFIG_WORKSPACE_NOT_FOUND", "配置工作区不存在", nil)
 	case errors.As(err, &conflict):
 		writeAPIError(writer, requestID, http.StatusConflict, "CONFIG_WORKSPACE_CONFLICT", "配置工作区已变化", map[string]any{"current_etag": conflict.CurrentETag})
+	case errors.Is(err, config.ErrWorkspaceStale):
+		writeAPIError(writer, requestID, http.StatusConflict, "CONFIG_WORKSPACE_STALE", "生产配置已变化，工作区只读", nil)
+	case errors.Is(err, config.ErrWorkspaceNeedsAttention):
+		writeAPIError(writer, requestID, http.StatusConflict, "CONFIG_WORKSPACE_NEEDS_ATTENTION", "工作区需要人工处理", nil)
+	case errors.Is(err, config.ErrProductionChanged):
+		writeAPIError(writer, requestID, http.StatusConflict, "CONFIG_PRODUCTION_CHANGED", "生产配置在发布前发生变化", nil)
 	case errors.Is(err, config.ErrSnapshotChanged):
 		writeAPIError(writer, requestID, http.StatusConflict, "CONFIG_SNAPSHOT_CHANGED", "生产配置在快照期间发生变化", nil)
+	case errors.Is(err, config.ErrCandidateInvalid):
+		writeAPIError(writer, requestID, http.StatusUnprocessableEntity, "CONFIG_CANDIDATE_INVALID", "候选配置无法通过完整检查", nil)
+	case errors.Is(err, config.ErrNoChanges):
+		writeAPIError(writer, requestID, http.StatusUnprocessableEntity, "CONFIG_NO_CHANGES", "工作区没有可发布的配置变化", nil)
+	case errors.Is(err, config.ErrPublishCheckExpired):
+		writeAPIError(writer, requestID, http.StatusConflict, "CONFIG_PUBLISH_CHECK_EXPIRED", "发布检查已过期或绑定事实已变化", nil)
+	case errors.Is(err, config.ErrReleaseInProgress):
+		writeAPIError(writer, requestID, http.StatusConflict, "CONFIG_PUBLISH_IN_PROGRESS", "已有配置发布或回滚正在进行", nil)
 	case errors.Is(err, config.ErrConflict), errors.Is(err, fs.ErrExist):
 		writeAPIError(writer, requestID, http.StatusConflict, "CONFIG_WORKSPACE_CONFLICT", "配置工作区已变化", details)
 	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, nginxruntime.ErrCommandTimeout):

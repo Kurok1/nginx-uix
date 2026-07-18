@@ -200,6 +200,37 @@ func TestPrepareContainerDataCreatesAndSecuresPersistentWorkspaceRoot(t *testing
 	})
 }
 
+func TestPrepareContainerDataCreatesRootOnlyReleaseRoots(t *testing.T) {
+	root := t.TempDir()
+	defaultsRoot := filepath.Join(root, "defaults")
+	nginxRoot := filepath.Join(root, "nginx")
+	dataRoot := filepath.Join(root, "data")
+	runRoot := filepath.Join(root, "run")
+	for _, path := range []string{defaultsRoot, nginxRoot, dataRoot, runRoot} {
+		mustMkdir(t, path, 0o700)
+	}
+	options := InitializeOptions{
+		DefaultsRoot: defaultsRoot, NginxRoot: nginxRoot, DataRoot: dataRoot,
+		WorkspaceRoot: filepath.Join(dataRoot, "workspaces"), RunRoot: runRoot,
+		DataUID: os.Getuid(), DataGID: os.Getgid(),
+	}
+	if err := PrepareContainerData(context.Background(), options); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"backups", "releases"} {
+		path := filepath.Join(dataRoot, name)
+		information, err := os.Lstat(path)
+		if err != nil {
+			t.Fatalf("Lstat(%s) error = %v", name, err)
+		}
+		stat, ok := information.Sys().(*syscall.Stat_t)
+		if !ok || !information.IsDir() || information.Mode()&os.ModeSymlink != 0 || information.Mode().Perm() != 0o700 ||
+			int(stat.Uid) != os.Geteuid() || int(stat.Gid) != os.Getegid() {
+			t.Fatalf("%s identity = mode:%v stat:%+v, want current effective owner and 0700", name, information.Mode(), stat)
+		}
+	}
+}
+
 func TestPrepareContainerDataRejectsUnsafePersistentWorkspaceRoot(t *testing.T) {
 	for _, kind := range []string{"symlink", "regular file"} {
 		t.Run(kind, func(t *testing.T) {
@@ -236,6 +267,41 @@ func TestPrepareContainerDataRejectsUnsafePersistentWorkspaceRoot(t *testing.T) 
 				t.Fatalf("workspace file = %q, %v", contents, err)
 			}
 		})
+	}
+}
+
+func TestPrepareContainerDataRejectsUnsafeReleaseRoots(t *testing.T) {
+	for _, name := range []string{"backups", "releases"} {
+		for _, kind := range []string{"symlink", "regular file"} {
+			t.Run(name+"/"+kind, func(t *testing.T) {
+				root := t.TempDir()
+				defaultsRoot := filepath.Join(root, "defaults")
+				nginxRoot := filepath.Join(root, "nginx")
+				dataRoot := filepath.Join(root, "data")
+				runRoot := filepath.Join(root, "run")
+				for _, path := range []string{defaultsRoot, nginxRoot, dataRoot, runRoot} {
+					mustMkdir(t, path, 0o700)
+				}
+				target := filepath.Join(dataRoot, name)
+				if kind == "symlink" {
+					outside := filepath.Join(root, "outside")
+					mustMkdir(t, outside, 0o700)
+					if err := os.Symlink(outside, target); err != nil {
+						t.Fatal(err)
+					}
+				} else {
+					mustWriteFile(t, target, []byte("keep"), 0o600)
+				}
+				options := InitializeOptions{
+					DefaultsRoot: defaultsRoot, NginxRoot: nginxRoot, DataRoot: dataRoot,
+					WorkspaceRoot: filepath.Join(dataRoot, "workspaces"), RunRoot: runRoot,
+					DataUID: os.Getuid(), DataGID: os.Getgid(),
+				}
+				if err := PrepareContainerData(context.Background(), options); err == nil {
+					t.Fatal("PrepareContainerData() error = nil, want unsafe release root rejection")
+				}
+			})
+		}
 	}
 }
 

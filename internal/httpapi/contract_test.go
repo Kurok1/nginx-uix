@@ -108,6 +108,10 @@ var configContractOperations = []contractOperation{
 	{http.MethodPost, "/api/v1/config/workspaces/{workspace_id}/files/copies", "copyConfigFile", "201", []string{"FileMutationResponse"}, "", false, true, true, 256 << 10},
 	{http.MethodGet, "/api/v1/config/workspaces/{workspace_id}/files/search", "searchConfigFiles", "200", []string{"SearchResponse"}, "query", true, false, false, 0},
 	{http.MethodGet, "/api/v1/config/workspaces/{workspace_id}/diff", "getConfigDiff", "200", []string{"DiffResponse"}, "path", false, false, false, 0},
+	{http.MethodPost, "/api/v1/config/workspaces/{workspace_id}/publish-checks", "createConfigPublishCheck", "201", []string{"PublishCheck"}, "", false, true, false, 4 << 10},
+	{http.MethodGet, "/api/v1/config/publish-checks/{check_id}", "getConfigPublishCheck", "200", []string{"PublishCheck"}, "", false, false, false, 0},
+	{http.MethodPost, "/api/v1/config/workspaces/{workspace_id}/releases", "createConfigRelease", "202", []string{"Release"}, "", false, true, false, 4 << 10},
+	{http.MethodGet, "/api/v1/config/releases/{release_id}", "getConfigRelease", "200", []string{"Release"}, "", false, false, false, 0},
 	{http.MethodGet, "/api/v1/config/groups", "listConfigGroups", "200", []string{"GroupCollection"}, "workspace_id", false, false, true, 0},
 	{http.MethodPost, "/api/v1/config/groups", "createConfigGroup", "201", []string{"GroupCollection"}, "", false, true, true, 256 << 10},
 	{http.MethodPut, "/api/v1/config/groups/{group_id}", "replaceConfigGroup", "200", []string{"GroupCollection"}, "", false, true, true, 256 << 10},
@@ -144,6 +148,7 @@ func TestOpenAPIContract(t *testing.T) {
 	for _, operation := range configContractOperations {
 		businessOperations = append(businessOperations, publicOperation{method: operation.method, path: operation.path})
 	}
+	businessOperations = append(businessOperations, publicOperation{method: http.MethodGet, path: "/api/v1/config/releases/{release_id}/events"})
 	operations := make([]publicOperation, 0, len(healthOperations)+len(businessOperations))
 	operations = append(operations, healthOperations...)
 	operations = append(operations, businessOperations...)
@@ -230,7 +235,7 @@ func assertConfigOpenAPIContract(t *testing.T, contents []byte, document openAPI
 				t.Fatalf("yaml.Marshal(%s %s) error = %v", method, path, err)
 			}
 			lower := strings.ToLower(string(serialized))
-			for _, forbidden := range []string{"publish", "reload", "restart", "restore", "shell", "absolute_path", "nginx_args"} {
+			for _, forbidden := range []string{"restart", "restore", "shell", "absolute_path", "nginx_args"} {
 				if strings.Contains(lower, forbidden) {
 					t.Errorf("config operation %s %s exposes forbidden term %q", method, path, forbidden)
 				}
@@ -377,6 +382,16 @@ func assertErrorContract(t *testing.T, expected contractOperation, responses map
 			continue
 		}
 		seen = true
+		if expected.operationID == "createConfigPublishCheck" && status == "422" {
+			if !slices.Contains(schemaRefs(response.Content["application/json"].Schema), "#/components/schemas/PublishCheck") {
+				t.Errorf("%s %s response 422 does not expose persisted publish-check evidence", expected.method, expected.path)
+			}
+			cache := response.Headers["Cache-Control"].Schema
+			if schemaType(cache) != "string" || !slices.Contains(cache.Enum, "no-store") {
+				t.Errorf("%s %s response 422 does not guarantee Cache-Control no-store", expected.method, expected.path)
+			}
+			continue
+		}
 		if response.Ref != "#/components/responses/ConfigAPIError" {
 			t.Errorf("%s %s response %s is not the stable config error envelope", expected.method, expected.path, status)
 		}
@@ -393,6 +408,7 @@ func assertConfigSchemas(t *testing.T, schemas map[string]openAPISchema) {
 		"CreateWorkspaceRequest", "CreateFileRequest", "ReplaceFileRequest", "RenameFileRequest", "CopyFileRequest",
 		"DeleteWorkspaceRequest", "DeleteFileRequest", "FileMutationResponse", "DiffResponse", "FileDiffSummary",
 		"SearchResponse", "SearchMatch", "GroupCollection", "ConfigGroup", "GroupMutationRequest", "DeleteGroupRequest",
+		"PublishCheck", "CandidateDiagnostic", "CreateReleaseRequest", "Release", "ReleaseStage",
 		"APIErrorEnvelope", "ConfigErrorCode",
 	}
 	for _, name := range requiredSchemas {
@@ -402,11 +418,26 @@ func assertConfigSchemas(t *testing.T, schemas map[string]openAPISchema) {
 	}
 	for _, code := range []string{
 		"CONFIG_PATH_INVALID", "CONFIG_ENTRY_NOT_MANAGED", "CONFIG_LIMIT_EXCEEDED", "CONFIG_WORKSPACE_NOT_FOUND",
+		"CONFIG_PUBLISH_CHECK_NOT_FOUND", "CONFIG_RELEASE_NOT_FOUND",
 		"CONFIG_WORKSPACE_CONFLICT", "CONFIG_WORKSPACE_STALE", "CONFIG_WORKSPACE_NEEDS_ATTENTION", "CONFIG_SNAPSHOT_CHANGED",
+		"CONFIG_PRODUCTION_CHANGED", "CONFIG_BACKUP_INVALID", "NGINX_HEALTH_UNAVAILABLE", "CONFIG_RELEASE_NEEDS_ATTENTION",
 		"AGENT_UNAVAILABLE", "CONFIG_OPERATION_TIMEOUT",
+		"CONFIG_CANDIDATE_INVALID", "CONFIG_NO_CHANGES", "CONFIG_PUBLISH_CHECK_EXPIRED", "CONFIG_PUBLISH_IN_PROGRESS",
 	} {
 		if !slices.Contains(schemas["ConfigErrorCode"].Enum, code) {
 			t.Errorf("ConfigErrorCode missing %s", code)
+		}
+	}
+	wantReleaseStages := []string{
+		"queued", "rechecking", "backup_creating", "backup_verified", "candidate_validated", "files_applying",
+		"files_applied", "production_validated", "reload_requested", "runtime_confirmed", "committed",
+		"rollback_applying", "rollback_files_restored", "rollback_validated", "rollback_reload_requested",
+		"rolled_back", "failed", "needs_attention",
+	}
+	for _, name := range []string{"Release", "ReleaseStage"} {
+		stage := schemas[name].Properties["stage"]
+		if schemaType(stage) != "string" || !slices.Equal(stage.Enum, wantReleaseStages) {
+			t.Errorf("%s.stage enum = %v", name, stage.Enum)
 		}
 	}
 	for _, name := range []string{"WorkspaceList", "ConfigTree", "DiffResponse", "SearchResponse", "GroupCollection", "ConfigGroup", "GroupMutationRequest"} {

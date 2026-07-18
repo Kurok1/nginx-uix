@@ -209,6 +209,62 @@ func TestRunUIWiresConfigurationServiceIntoHTTPHandler(t *testing.T) {
 	}
 }
 
+func TestReleaseTaskOwnerStopsNewWorkAndCancelsAtShutdownDeadline(t *testing.T) {
+	started := make(chan struct{})
+	stopped := make(chan struct{})
+	owner := newReleaseTaskOwner(context.Background(), func(ctx context.Context, _ configservice.ReleaseID) error {
+		close(started)
+		<-ctx.Done()
+		close(stopped)
+		return ctx.Err()
+	}, slog.New(slog.DiscardHandler))
+	if !owner.Start("22222222222222222222222222222222") {
+		t.Fatal("Start() = false")
+	}
+	<-started
+	stopCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := owner.Stop(stopCtx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Stop() error = %v", err)
+	}
+	<-stopped
+	if owner.Start("33333333333333333333333333333333") {
+		t.Fatal("Start() accepted work after shutdown")
+	}
+}
+
+func TestReleaseTaskOwnerStopReturnsAtDeadlineWhenRunnerDoesNotObserveCancellation(t *testing.T) {
+	started := make(chan struct{})
+	unblock := make(chan struct{})
+	finished := make(chan struct{})
+	owner := newReleaseTaskOwner(context.Background(), func(context.Context, configservice.ReleaseID) error {
+		close(started)
+		<-unblock
+		close(finished)
+		return nil
+	}, slog.New(slog.DiscardHandler))
+	if !owner.Start("22222222222222222222222222222222") {
+		t.Fatal("Start() = false")
+	}
+	<-started
+	stopCtx, cancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
+	startedAt := time.Now()
+	err := owner.Stop(stopCtx)
+	cancel()
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Stop() error = %v", err)
+	}
+	if elapsed := time.Since(startedAt); elapsed > 500*time.Millisecond {
+		t.Fatalf("Stop() elapsed = %s, want bounded return", elapsed)
+	}
+	close(unblock)
+	select {
+	case <-finished:
+	case <-time.After(time.Second):
+		t.Fatal("runner did not finish after test cleanup")
+	}
+}
+
 type trackingUIDatabase struct {
 	*store.DB
 	closed bool

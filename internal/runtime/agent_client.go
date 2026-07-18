@@ -23,7 +23,9 @@ import (
 const (
 	agentClientBaseURL          = "http://nginx-uix-agent"
 	agentClientRequestTimeout   = 30 * time.Second
-	agentClientTransportTimeout = 65 * time.Second
+	agentClientDialTimeout      = 10 * time.Second
+	agentClientTransportTimeout = 5 * time.Minute
+	agentReleaseTimeout         = 5 * time.Minute
 )
 
 var errAgentInvalidResponse = errors.New("invalid agent response")
@@ -40,7 +42,7 @@ func NewAgentClient() *AgentClient {
 }
 
 func newAgentClient(socketPath string) *AgentClient {
-	dialer := &net.Dialer{Timeout: agentClientTransportTimeout}
+	dialer := &net.Dialer{Timeout: agentClientDialTimeout}
 	transport := &http.Transport{
 		Proxy: nil,
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
@@ -152,6 +154,91 @@ func (c *AgentClient) ConfigDigest(ctx context.Context, requestID string) (confi
 		return config.ProductionState{}, fmt.Errorf("get agent config digest: %w", newAgentClientProtocolError(agentErrorCodeInternal))
 	}
 	return state, nil
+}
+
+// ValidateCandidate asks the Agent to validate exact fixed-root filesystem identities.
+func (c *AgentClient) ValidateCandidate(ctx context.Context, requestID string, request config.CandidateValidationRequest) (config.CandidateValidation, error) {
+	if !validAgentRequestID(requestID) {
+		return config.CandidateValidation{}, newAgentClientProtocolError(agentErrorCodeInvalidRequest)
+	}
+	if err := validateCandidateClientRequest(request); err != nil {
+		return config.CandidateValidation{}, newAgentClientProtocolError(agentErrorCodeInvalidRequest)
+	}
+	payload, err := json.Marshal(agentCandidateValidationRequest{
+		ProtocolVersion: agentProtocolVersion, WorkspaceID: string(request.WorkspaceID),
+		ProductionDigest: request.ProductionDigest.String(), DraftDigest: request.DraftDigest.String(),
+	})
+	if err != nil {
+		return config.CandidateValidation{}, newAgentClientProtocolError(agentErrorCodeInternal)
+	}
+	var response agentCandidateValidationResponse
+	if err := c.doJSON(ctx, requestID, http.MethodPost, agentProtocolCandidateValidationPath, append(payload, '\n'), candidateValidationTimeout, &response); err != nil {
+		return config.CandidateValidation{}, fmt.Errorf("validate agent candidate: %w", err)
+	}
+	validation, err := candidateValidationFromAgentResponse(response)
+	if err != nil {
+		return config.CandidateValidation{}, fmt.Errorf("validate agent candidate: %w", newAgentClientProtocolError(agentErrorCodeInternal))
+	}
+	return validation, nil
+}
+
+// ExecuteRelease asks the Agent to run one globally serialized durable transaction.
+func (c *AgentClient) ExecuteRelease(ctx context.Context, requestID string, request config.ReleaseExecutionRequest) (config.ReleaseExecutionResult, error) {
+	return c.executeReleaseOperation(ctx, requestID, agentProtocolReleasePath, request, "execute", agentReleaseTimeout)
+}
+
+// ReleaseProgress reads the Agent's durable stages while a transaction remains in progress.
+func (c *AgentClient) ReleaseProgress(ctx context.Context, requestID string, request config.ReleaseExecutionRequest) (config.ReleaseExecutionResult, error) {
+	return c.executeReleaseOperation(ctx, requestID, agentProtocolReleaseProgressPath, request, "read progress", agentClientRequestTimeout)
+}
+
+// RecoverRelease asks the Agent to reconcile one interrupted durable transaction.
+func (c *AgentClient) RecoverRelease(ctx context.Context, requestID string, request config.ReleaseExecutionRequest) (config.ReleaseExecutionResult, error) {
+	return c.executeReleaseOperation(ctx, requestID, agentProtocolReleaseRecoveryPath, request, "recover", agentReleaseTimeout)
+}
+
+func (c *AgentClient) executeReleaseOperation(
+	ctx context.Context,
+	requestID string,
+	path string,
+	request config.ReleaseExecutionRequest,
+	action string,
+	timeout time.Duration,
+) (config.ReleaseExecutionResult, error) {
+	if !validAgentRequestID(requestID) {
+		return config.ReleaseExecutionResult{}, newAgentClientProtocolError(agentErrorCodeInvalidRequest)
+	}
+	if err := validateReleaseExecutionRequest(request); err != nil {
+		return config.ReleaseExecutionResult{}, newAgentClientProtocolError(agentErrorCodeInvalidRequest)
+	}
+	payload, err := json.Marshal(agentReleaseRequest{
+		ProtocolVersion: agentProtocolVersion, ReleaseID: string(request.ReleaseID), BackupID: string(request.BackupID),
+		WorkspaceID: string(request.WorkspaceID), ProductionDigest: request.ProductionDigest.String(),
+		DraftDigest: request.DraftDigest.String(), CandidateDigest: request.CandidateDigest.String(),
+	})
+	if err != nil {
+		return config.ReleaseExecutionResult{}, newAgentClientProtocolError(agentErrorCodeInternal)
+	}
+	var response agentReleaseResponse
+	if err := c.doJSON(ctx, requestID, http.MethodPost, path, append(payload, '\n'), timeout, &response); err != nil {
+		return config.ReleaseExecutionResult{}, fmt.Errorf("%s agent release: %w", action, err)
+	}
+	result, err := releaseFromAgentResponse(response)
+	if err != nil || result.ReleaseID != request.ReleaseID ||
+		(result.Backup.BackupID != "" && (result.Backup.BackupID != request.BackupID || result.Backup.ProductionDigest != request.ProductionDigest)) {
+		return config.ReleaseExecutionResult{}, fmt.Errorf("%s agent release: %w", action, newAgentClientProtocolError(agentErrorCodeInternal))
+	}
+	return result, nil
+}
+
+func validateCandidateClientRequest(request config.CandidateValidationRequest) error {
+	if _, err := config.ParseWorkspaceID(string(request.WorkspaceID)); err != nil {
+		return err
+	}
+	if request.ProductionDigest == (config.Digest{}) || request.DraftDigest == (config.Digest{}) {
+		return config.ErrDigestInvalid
+	}
+	return nil
 }
 
 func (c *AgentClient) get(ctx context.Context, path string, target any) error {
@@ -413,6 +500,118 @@ func configDigestFromAgentResponse(response agentConfigDigestResponse) (config.P
 		Digest: digest, ManifestVersion: response.ManifestVersion,
 		EntryCount: response.EntryCount, ManagedBytes: response.ManagedBytes,
 	}, nil
+}
+
+func candidateValidationFromAgentResponse(response agentCandidateValidationResponse) (config.CandidateValidation, error) {
+	digest, err := config.ParseDigest(response.CandidateDigest)
+	if err != nil || digest == (config.Digest{}) || response.ValidatorVersion != candidateValidatorVersion || response.ValidatorBuildID == "" || response.CheckedAt.IsZero() || response.CheckedAt.Location() != time.UTC {
+		return config.CandidateValidation{}, errAgentInvalidResponse
+	}
+	diagnostics := make([]config.CandidateDiagnostic, 0, len(response.Diagnostics))
+	for _, diagnostic := range response.Diagnostics {
+		var path config.RelativePath
+		if diagnostic.Path != "" {
+			path, err = config.ParseRelativePath(diagnostic.Path, config.DefaultLimits())
+			if err != nil {
+				return config.CandidateValidation{}, errAgentInvalidResponse
+			}
+		}
+		if diagnostic.Code == "" || diagnostic.Summary == "" || diagnostic.Line < 0 {
+			return config.CandidateValidation{}, errAgentInvalidResponse
+		}
+		diagnostics = append(diagnostics, config.CandidateDiagnostic{Code: diagnostic.Code, Path: path, Line: diagnostic.Line, Summary: diagnostic.Summary})
+	}
+	if response.Valid && len(diagnostics) != 0 || !response.Valid && len(diagnostics) == 0 {
+		return config.CandidateValidation{}, errAgentInvalidResponse
+	}
+	return config.CandidateValidation{
+		Valid: response.Valid, CandidateDigest: digest, ValidatorVersion: response.ValidatorVersion,
+		ValidatorBuildID: response.ValidatorBuildID, CheckedAt: response.CheckedAt, Diagnostics: diagnostics,
+	}, nil
+}
+
+func releaseFromAgentResponse(response agentReleaseResponse) (config.ReleaseExecutionResult, error) {
+	releaseID, err := config.ParseReleaseID(response.ReleaseID)
+	terminal := terminalAgentReleaseState(response.State)
+	if err != nil || !knownAgentReleaseState(response.State) || !knownReleaseStage(response.Stage) ||
+		(response.State != config.ReleaseStateCancelled && releaseStateForJournalStage(response.Stage) != response.State) ||
+		(terminal && (response.FinishedAt.IsZero() || response.FinishedAt.Location() != time.UTC)) ||
+		(!terminal && !response.FinishedAt.IsZero()) {
+		return config.ReleaseExecutionResult{}, errAgentInvalidResponse
+	}
+	result := config.ReleaseExecutionResult{
+		ReleaseID: releaseID, State: response.State, Stage: response.Stage, ErrorCode: response.ErrorCode,
+		MasterPID: response.MasterPID, WorkerCount: response.WorkerCount, HTTPStatus: response.HTTPStatus,
+		FinishedAt: response.FinishedAt, Stages: make([]config.ReleaseStage, 0, len(response.Stages)),
+	}
+	if response.Backup.BackupID != "" {
+		backupID, backupErr := config.ParseBackupID(response.Backup.BackupID)
+		backupReleaseID, releaseErr := config.ParseReleaseID(response.Backup.ReleaseID)
+		productionDigest, productionErr := config.ParseDigest(response.Backup.ProductionDigest)
+		treeDigest, treeErr := config.ParseDigest(response.Backup.TreeDigest)
+		if backupErr != nil || releaseErr != nil || backupReleaseID != releaseID || productionErr != nil || treeErr != nil ||
+			productionDigest == (config.Digest{}) || treeDigest == (config.Digest{}) || response.Backup.EntryCount <= 0 ||
+			response.Backup.TotalBytes < 0 || response.Backup.VerifiedAt.IsZero() || response.Backup.VerifiedAt.Location() != time.UTC {
+			return config.ReleaseExecutionResult{}, errAgentInvalidResponse
+		}
+		result.Backup = config.BackupEvidence{
+			BackupID: backupID, ReleaseID: backupReleaseID,
+			ProductionDigest: productionDigest, TreeDigest: treeDigest,
+			EntryCount: response.Backup.EntryCount, TotalBytes: response.Backup.TotalBytes, VerifiedAt: response.Backup.VerifiedAt,
+		}
+	}
+	for index, stage := range response.Stages {
+		if stage.Sequence != uint64(index+1) || !knownReleaseStage(stage.Stage) || !knownAgentStageResult(stage.Result) ||
+			stage.OccurredAt.IsZero() || stage.OccurredAt.Location() != time.UTC || !json.Valid([]byte(stage.PublicDetailsJSON)) {
+			return config.ReleaseExecutionResult{}, errAgentInvalidResponse
+		}
+		result.Stages = append(result.Stages, config.ReleaseStage{
+			ReleaseID: releaseID, Sequence: stage.Sequence, Stage: stage.Stage, Result: stage.Result,
+			Code: stage.Code, PublicDetailsJSON: stage.PublicDetailsJSON, OccurredAt: stage.OccurredAt,
+		})
+	}
+	if terminal && (len(result.Stages) == 0 || result.Stages[len(result.Stages)-1].Stage != result.Stage) {
+		return config.ReleaseExecutionResult{}, errAgentInvalidResponse
+	}
+	if terminalAgentResultRequiresBackup(result) && result.Backup.BackupID == "" {
+		return config.ReleaseExecutionResult{}, errAgentInvalidResponse
+	}
+	return result, nil
+}
+
+func terminalAgentResultRequiresBackup(result config.ReleaseExecutionResult) bool {
+	if !terminalAgentReleaseState(result.State) {
+		return false
+	}
+	switch result.State {
+	case config.ReleaseStateSucceeded, config.ReleaseStateRolledBack, config.ReleaseStateNeedsAttention:
+		return true
+	}
+	for _, stage := range result.Stages {
+		if stage.Stage == config.ReleaseStageBackupVerified {
+			return true
+		}
+	}
+	return false
+}
+
+func knownAgentReleaseState(state config.ReleaseState) bool {
+	switch state {
+	case config.ReleaseStateQueued, config.ReleaseStateRunning, config.ReleaseStateRollingBack,
+		config.ReleaseStateSucceeded, config.ReleaseStateFailed, config.ReleaseStateRolledBack,
+		config.ReleaseStateNeedsAttention, config.ReleaseStateCancelled:
+		return true
+	}
+	return false
+}
+
+func knownAgentStageResult(result config.StageResult) bool {
+	switch result {
+	case config.StageResultPending, config.StageResultRunning, config.StageResultSuccess,
+		config.StageResultFailed, config.StageResultWarning:
+		return true
+	}
+	return false
 }
 
 func buildInfoFromAgentResponse(response agentBuildInfoResponse) BuildInfo {

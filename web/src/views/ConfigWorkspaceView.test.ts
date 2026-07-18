@@ -11,11 +11,16 @@ import type {
   ConfigGroup,
   ConfigTreeNode,
   DiffResponse,
+	PublishCheck,
+	Release,
   WorkspaceDetail,
 } from '../api/types'
 import ConfigReview from '../components/ConfigReview.vue'
 import ConfigTree from '../components/ConfigTree.vue'
 import ConfirmModal from '../components/ConfirmModal.vue'
+	import PublishPanel from '../components/PublishPanel.vue'
+	import ReleaseTimeline from '../components/ReleaseTimeline.vue'
+	import type { ReleaseStateModel, ReleaseStore } from '../release'
 import type { OpenDocument, WorkspaceStateModel, WorkspaceStore } from '../workspace'
 import ConfigWorkspaceView from './ConfigWorkspaceView.vue'
 import viewSource from './ConfigWorkspaceView.vue?raw'
@@ -154,6 +159,7 @@ function createStore(options: {
 async function mountView(
   store: WorkspaceStore,
   workspaceId: string | null = store.state.active?.id ?? null,
+	releases?: ReleaseStore,
 ) {
   const router = createRouter({
     history: createMemoryHistory(),
@@ -170,7 +176,7 @@ async function mountView(
   )
   await router.isReady()
   const wrapper = mount(ConfigWorkspaceView, {
-    props: { store },
+	props: { store, ...(releases === undefined ? {} : { releases }) },
     global: {
       plugins: [router],
       stubs: { CodeEditor: { template: '<div data-code-editor />' } },
@@ -180,7 +186,88 @@ async function mountView(
   return { router, wrapper }
 }
 
+	function createReleaseStoreStub(): ReleaseStore {
+		const check: PublishCheck = {
+			id: '11111111111111111111111111111111',
+			workspace_id: 'workspace-id',
+			workspace_revision: 2,
+			production_digest: digest,
+			base_digest: digest,
+			draft_digest: 'b'.repeat(64),
+			candidate_digest: 'c'.repeat(64),
+			manifest_version: 1,
+			policy_version: 1,
+			validator_version: 1,
+			validator_build_id: 'build-id',
+			state: 'valid',
+			diagnostic_count: 0,
+			details: { diagnostics: [] },
+			started_at: '2026-07-18T04:00:00Z',
+			finished_at: '2026-07-18T04:00:01Z',
+			expires_at: '2099-07-18T04:10:01Z',
+		}
+		const queued: Release = {
+			id: '22222222222222222222222222222222',
+			workspace_id: 'workspace-id',
+			check_id: check.id,
+			state: 'queued',
+			stage: 'queued',
+			production_digest: digest,
+			draft_digest: check.draft_digest,
+			candidate_digest: check.candidate_digest,
+			created_at: '2026-07-18T04:01:00Z',
+			updated_at: '2026-07-18T04:01:00Z',
+			stages: [],
+		}
+		const state = reactive<ReleaseStateModel>({
+			phase: 'idle',
+			stream: 'closed',
+			check: null,
+			release: null,
+			error: '',
+		})
+		return {
+			state,
+			check: vi.fn(async () => {
+				state.check = check
+				state.phase = 'checked'
+				return check
+			}),
+			queue: vi.fn(async () => {
+				state.release = queued
+				state.phase = 'tracking'
+				return queued
+			}),
+			resume: vi.fn(async () => queued),
+			refresh: vi.fn(async () => state.release),
+			reset: vi.fn(() => undefined),
+			dispose: vi.fn(() => undefined),
+		}
+	}
+
 describe('ConfigWorkspaceView', () => {
+	it('checks, names, queues, and exposes persisted release progress', async () => {
+		const { state, store } = createStore({ documents: [document(false)] })
+		const releases = createReleaseStoreStub()
+		const { router, wrapper } = await mountView(store, 'workspace-id', releases)
+
+		const panel = wrapper.getComponent(PublishPanel)
+		await panel.get('button[data-action="check"]').trigger('click')
+		await flushPromises()
+		expect(releases.check).toHaveBeenCalledWith(state.active, state.diff, false)
+		await panel.get('button[data-action="publish"]').trigger('click')
+		const publishModal = wrapper
+			.findAllComponents(ConfirmModal)
+			.find((candidate) => candidate.text().includes('Publish configuration to production?'))
+		expect(publishModal).toBeDefined()
+		await publishModal!.get('input').setValue('Review changes')
+		await publishModal!.get('form').trigger('submit')
+		await flushPromises()
+		expect(releases.queue).toHaveBeenCalledWith(state.active, 'Review changes')
+		expect(router.currentRoute.value.query.release).toBe('22222222222222222222222222222222')
+		expect(wrapper.findComponent(ReleaseTimeline).exists()).toBe(true)
+	})
+
   it('loads the bounded workspace list and renders loading and empty states', async () => {
     const { state, store } = createStore({ active: null, phase: 'loading' })
     const { wrapper } = await mountView(store)

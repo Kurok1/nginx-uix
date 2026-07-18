@@ -257,7 +257,7 @@ func validateControlState(state ControlState) error {
 		return fmt.Errorf("validate workspace control state: %w", err)
 	}
 	switch state.State {
-	case StatePreparing, StateReady, StateStale, StateNeedsAttention:
+	case StatePreparing, StateReady, StateStale, StatePublished, StateNeedsAttention:
 	default:
 		return fmt.Errorf("validate workspace control state: invalid state")
 	}

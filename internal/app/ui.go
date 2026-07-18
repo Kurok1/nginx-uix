@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/kuroky/nginx-uix/internal/auth"
@@ -110,12 +111,6 @@ func runUI(ctx context.Context, applicationConfig Config, operations uiOperation
 		}
 		return fmt.Errorf("create configuration service: %w", err)
 	}
-	if err := configurationService.Reconcile(ctx); err != nil {
-		if closeErr := database.Close(); closeErr != nil {
-			return errors.Join(fmt.Errorf("reconcile configuration workspaces: %w", err), closeErr)
-		}
-		return fmt.Errorf("reconcile configuration workspaces: %w", err)
-	}
 	workspaces, ok := configurationService.(httpapi.WorkspaceAPI)
 	if !ok {
 		if closeErr := database.Close(); closeErr != nil {
@@ -130,11 +125,39 @@ func runUI(ctx context.Context, applicationConfig Config, operations uiOperation
 		}
 		return fmt.Errorf("create configuration HTTP API: group service is unavailable")
 	}
+	var releases httpapi.ReleaseAPI
+	var releaseTasks *releaseTaskOwner
+	workspaceService, workspaceOK := configurationService.(*configservice.Service)
+	releaseRepository, repositoryOK := database.(configservice.ReleaseRepository)
+	releaseAgent, agentOK := agent.(configservice.ReleaseAgent)
+	if workspaceOK && repositoryOK && agentOK {
+		releaseService, releaseErr := configservice.NewReleaseService(configservice.ReleaseDependencies{
+			Workspaces: workspaceService, Repository: releaseRepository, Agent: releaseAgent,
+			Clock: systemClock{}, Random: rand.Reader,
+		})
+		if releaseErr == nil {
+			releaseErr = releaseService.Reconcile(ctx)
+		}
+		if releaseErr != nil {
+			if closeErr := database.Close(); closeErr != nil {
+				return errors.Join(fmt.Errorf("reconcile configuration releases: %w", releaseErr), closeErr)
+			}
+			return fmt.Errorf("reconcile configuration releases: %w", releaseErr)
+		}
+		releases = releaseService
+		releaseTasks = newReleaseTaskOwner(ctx, releaseService.Run, logger)
+	}
+	if err := configurationService.Reconcile(ctx); err != nil {
+		if closeErr := database.Close(); closeErr != nil {
+			return errors.Join(fmt.Errorf("reconcile configuration workspaces: %w", err), closeErr)
+		}
+		return fmt.Errorf("reconcile configuration workspaces: %w", err)
+	}
 	server := &http.Server{
 		Addr: applicationConfig.ListenAddr,
 		Handler: httpapi.NewHandler(httpapi.Dependencies{
 			Assets: uiassets.FS(), Sessions: sessions, PublicURL: applicationConfig.PublicURL,
-			Workspaces: workspaces, Groups: groups,
+			Workspaces: workspaces, Groups: groups, Releases: releases, ReleaseTasks: releaseTasks,
 			Agent: agent, Database: databasePingProbe(database.Ping), Logger: logger,
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
@@ -144,17 +167,79 @@ func runUI(ctx context.Context, applicationConfig Config, operations uiOperation
 	}
 
 	runErr := operations.runServer(ctx, server, logger, applicationConfig.ShutdownTimeout)
+	var taskErr error
+	if releaseTasks != nil {
+		shutdownTimeout := applicationConfig.ShutdownTimeout
+		if shutdownTimeout <= 0 {
+			shutdownTimeout = 10 * time.Second
+		}
+		taskCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
+		taskErr = releaseTasks.Stop(taskCtx)
+		cancel()
+	}
 	closeErr := database.Close()
-	if runErr != nil && closeErr != nil {
-		return errors.Join(runErr, closeErr)
+	return errors.Join(runErr, taskErr, closeErr)
+}
+
+type releaseTaskOwner struct {
+	run      func(context.Context, configservice.ReleaseID) error
+	logger   *slog.Logger
+	ctx      context.Context
+	cancel   context.CancelFunc
+	mu       sync.Mutex
+	stopping bool
+	wait     sync.WaitGroup
+}
+
+func newReleaseTaskOwner(
+	parent context.Context,
+	run func(context.Context, configservice.ReleaseID) error,
+	logger *slog.Logger,
+) *releaseTaskOwner {
+	// #nosec G118 -- Stop owns and invokes cancel; detaching cancellation grants the documented bounded shutdown window.
+	ctx, cancel := context.WithCancel(context.WithoutCancel(parent))
+	return &releaseTaskOwner{run: run, logger: logger, ctx: ctx, cancel: cancel}
+}
+
+func (o *releaseTaskOwner) Start(id configservice.ReleaseID) bool {
+	if o == nil || o.run == nil {
+		return false
 	}
-	if runErr != nil {
-		return runErr
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.stopping {
+		return false
 	}
-	if closeErr != nil {
-		return closeErr
+	o.wait.Add(1)
+	go func() {
+		defer o.wait.Done()
+		if err := o.run(o.ctx, id); err != nil && o.logger != nil {
+			o.logger.Error("configuration release finished with failure", "release_id", id, "error", err)
+		}
+	}()
+	return true
+}
+
+func (o *releaseTaskOwner) Stop(ctx context.Context) error {
+	if o == nil {
+		return nil
 	}
-	return nil
+	o.mu.Lock()
+	o.stopping = true
+	o.mu.Unlock()
+	done := make(chan struct{})
+	go func() {
+		o.wait.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		o.cancel()
+		return nil
+	case <-ctx.Done():
+		o.cancel()
+		return fmt.Errorf("stop configuration release tasks: %w", ctx.Err())
+	}
 }
 
 func runHTTPServer(ctx context.Context, server *http.Server, logger *slog.Logger, shutdownTimeout time.Duration) error {

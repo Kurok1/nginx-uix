@@ -53,6 +53,8 @@ const (
 	StateReady WorkspaceState = "ready"
 	// StateStale indicates that production changed after workspace creation.
 	StateStale WorkspaceState = "stale"
+	// StatePublished indicates that the immutable draft was successfully released.
+	StatePublished WorkspaceState = "published"
 	// StateNeedsAttention indicates that automatic recovery cannot establish safety.
 	StateNeedsAttention WorkspaceState = "needs_attention"
 )
@@ -94,6 +96,7 @@ type Workspace struct {
 	ManagedBytes     int64
 	WorkspaceBytes   int64
 	Revision         uint64
+	LastReleaseID    ReleaseID
 	CreatedBy        int64
 	CreatedAt        time.Time
 	UpdatedAt        time.Time

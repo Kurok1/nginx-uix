@@ -24,8 +24,22 @@ var (
 	ErrEntryNotManaged = errors.New("entry not managed")
 	// ErrSnapshotChanged indicates that source content changed during snapshot construction.
 	ErrSnapshotChanged = errors.New("snapshot changed")
+	// ErrProductionChanged indicates that the live production digest no longer matches release evidence.
+	ErrProductionChanged = errors.New("production changed")
+	// ErrWorkspaceStale indicates that production changed after the workspace snapshot was created.
+	ErrWorkspaceStale = errors.New("workspace stale")
+	// ErrWorkspaceNeedsAttention indicates that a workspace cannot be changed automatically with confidence.
+	ErrWorkspaceNeedsAttention = errors.New("workspace needs attention")
 	// ErrConflict indicates that concurrent state or uniqueness prevents a mutation.
 	ErrConflict = errors.New("conflict")
+	// ErrReleaseInProgress indicates that the single global publication slot is occupied.
+	ErrReleaseInProgress = errors.New("release in progress")
+	// ErrCandidateInvalid indicates that the complete isolated candidate was rejected.
+	ErrCandidateInvalid = errors.New("candidate invalid")
+	// ErrPublishCheckExpired indicates that digest-bound validation evidence is no longer usable.
+	ErrPublishCheckExpired = errors.New("publish check expired")
+	// ErrNoChanges indicates that a publication candidate is identical to its immutable base.
+	ErrNoChanges = errors.New("no configuration changes")
 )
 
 // ConflictError returns the current strong workspace ETag without retaining request data.

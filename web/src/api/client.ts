@@ -21,6 +21,9 @@ import type {
   LoginRequest,
   NginxBuild,
   NginxProcess,
+	PublishCheck,
+	Release,
+	ReleaseStage,
   RecoveryStatus,
   SearchMatch,
   SearchResponse,
@@ -271,6 +274,60 @@ export class APIClient {
     return parseDiffResponse(await readJSON(response), response.status)
   }
 
+	async createPublishCheck(
+		workspaceId: string,
+		etag: string,
+		csrfToken: string,
+		signal?: AbortSignal,
+	): Promise<PublishCheck> {
+		const response = await this.send(
+			`${workspacePath(workspaceId)}/publish-checks`,
+			{
+				method: 'POST',
+				headers: jsonMutationHeaders(csrfToken, etag),
+				body: '{}',
+				signal,
+			},
+			[422],
+		)
+		return parsePublishCheck(await readJSON(response), response.status)
+	}
+
+	async getPublishCheck(id: string, signal?: AbortSignal): Promise<PublishCheck> {
+		const response = await this.send(`/api/v1/config/publish-checks/${id}`, {
+			method: 'GET',
+			signal,
+		})
+		return parsePublishCheck(await readJSON(response), response.status)
+	}
+
+	async createRelease(
+		workspaceId: string,
+		checkId: string,
+		confirmName: string,
+		etag: string,
+		csrfToken: string,
+	): Promise<Release> {
+		const response = await this.send(`${workspacePath(workspaceId)}/releases`, {
+			method: 'POST',
+			headers: jsonMutationHeaders(csrfToken, etag),
+			body: JSON.stringify({ check_id: checkId, confirm_name: confirmName }),
+		})
+		const release = parseRelease(await readJSON(response), response.status)
+		if (response.status !== 202 || response.headers.get('Location') !== `/api/v1/config/releases/${release.id}`) {
+			throw malformedResponse(response.status)
+		}
+		return release
+	}
+
+	async getRelease(id: string, signal?: AbortSignal): Promise<Release> {
+		const response = await this.send(`/api/v1/config/releases/${id}`, {
+			method: 'GET',
+			signal,
+		})
+		return parseRelease(await readJSON(response), response.status)
+	}
+
   async listConfigGroups(
     workspaceId?: string,
     signal?: AbortSignal,
@@ -360,7 +417,7 @@ export class APIClient {
     return parseGroupCollectionResponse(response)
   }
 
-  private async send(path: string, init: RequestInit): Promise<Response> {
+	private async send(path: string, init: RequestInit, acceptedStatuses: readonly number[] = []): Promise<Response> {
     let response: Response
     try {
       response = await this.fetcher(path, {
@@ -372,7 +429,7 @@ export class APIClient {
       throw new APIRequestError({ kind: 'network', message: 'Network request failed' })
     }
 
-    if (response.ok) {
+		if (response.ok || acceptedStatuses.includes(response.status)) {
       return response
     }
 
@@ -676,13 +733,15 @@ function parseWorkspace(value: unknown, status: number): WorkspaceDetail {
         'created_at',
         'updated_at',
       ],
-      ['state_reason_code'],
+	      ['state_reason_code', 'last_release_id'],
     ) ||
     !isOpaqueID(value.id) ||
     !isBoundedString(value.name, 1, 80) ||
-    !isOneOf(value.state, ['preparing', 'ready', 'stale', 'needs_attention']) ||
-    (value.state_reason_code !== undefined &&
-      (typeof value.state_reason_code !== 'string' || !/^[a-z0-9_]*$/.test(value.state_reason_code))) ||
+	    !isOneOf(value.state, ['preparing', 'ready', 'stale', 'published', 'needs_attention']) ||
+	    (value.state_reason_code !== undefined &&
+	      (typeof value.state_reason_code !== 'string' || !/^[a-z0-9_]*$/.test(value.state_reason_code))) ||
+	    (value.last_release_id !== undefined && !isOpaqueID(value.last_release_id)) ||
+	    (value.state === 'published' && value.last_release_id === undefined) ||
     !isDigest(value.production_digest) ||
     !isDigest(value.base_digest) ||
     !isDraftETag(value.draft_etag) ||
@@ -699,7 +758,8 @@ function parseWorkspace(value: unknown, status: number): WorkspaceDetail {
     id: value.id,
     name: value.name,
     state: value.state,
-    ...(value.state_reason_code === undefined ? {} : { state_reason_code: value.state_reason_code }),
+	    ...(value.state_reason_code === undefined ? {} : { state_reason_code: value.state_reason_code }),
+	    ...(value.last_release_id === undefined ? {} : { last_release_id: value.last_release_id }),
     production_digest: value.production_digest,
     base_digest: value.base_digest,
     draft_etag: value.draft_etag,
@@ -879,6 +939,206 @@ function parseDiffResponse(value: unknown, status: number): DiffResponse {
     reason: value.reason,
     patch: value.patch,
   }
+}
+
+function parsePublishCheck(value: unknown, status: number): PublishCheck {
+	if (
+		!hasExactKeys(value, [
+			'id',
+			'workspace_id',
+			'workspace_revision',
+			'production_digest',
+			'base_digest',
+			'draft_digest',
+			'candidate_digest',
+			'manifest_version',
+			'policy_version',
+			'validator_version',
+			'validator_build_id',
+			'state',
+			'diagnostic_count',
+			'details',
+			'started_at',
+			'finished_at',
+			'expires_at',
+		]) ||
+		!isOpaqueID(value.id) ||
+		!isOpaqueID(value.workspace_id) ||
+		!isIntegerInRange(value.workspace_revision, 1) ||
+		!isDigest(value.production_digest) ||
+		!isDigest(value.base_digest) ||
+		!isDigest(value.draft_digest) ||
+		!isDigest(value.candidate_digest) ||
+		!isIntegerInRange(value.manifest_version, 1, 65_535) ||
+		!isIntegerInRange(value.policy_version, 1, 65_535) ||
+		!isIntegerInRange(value.validator_version, 1, 65_535) ||
+		!isBoundedString(value.validator_build_id, 1, 128) ||
+		!isOneOf(value.state, ['running', 'valid', 'invalid', 'failed']) ||
+		!isIntegerInRange(value.diagnostic_count, 0, 128) ||
+		!hasExactKeys(value.details, ['diagnostics']) ||
+		!Array.isArray(value.details.diagnostics) ||
+		value.details.diagnostics.length !== value.diagnostic_count ||
+		!isRFC3339(value.started_at) ||
+		!isRFC3339(value.finished_at) ||
+		!isRFC3339(value.expires_at) ||
+		Date.parse(value.started_at) > Date.parse(value.finished_at) ||
+		Date.parse(value.finished_at) >= Date.parse(value.expires_at)
+	) {
+		throw malformedResponse(status)
+	}
+	const diagnostics = value.details.diagnostics.map((diagnostic) =>
+		parseCandidateDiagnostic(diagnostic, status),
+	)
+	if ((value.state === 'valid' && diagnostics.length !== 0) || (value.state === 'invalid' && diagnostics.length === 0)) {
+		throw malformedResponse(status)
+	}
+	return {
+		id: value.id,
+		workspace_id: value.workspace_id,
+		workspace_revision: value.workspace_revision as number,
+		production_digest: value.production_digest,
+		base_digest: value.base_digest,
+		draft_digest: value.draft_digest,
+		candidate_digest: value.candidate_digest,
+		manifest_version: value.manifest_version as number,
+		policy_version: value.policy_version as number,
+		validator_version: value.validator_version as number,
+		validator_build_id: value.validator_build_id,
+		state: value.state,
+		diagnostic_count: value.diagnostic_count as number,
+		details: { diagnostics },
+		started_at: value.started_at,
+		finished_at: value.finished_at,
+		expires_at: value.expires_at,
+	}
+}
+
+function parseCandidateDiagnostic(value: unknown, status: number): PublishCheck['details']['diagnostics'][number] {
+	if (
+		!hasExactKeys(value, ['code', 'path', 'line', 'summary']) ||
+		!isBoundedString(value.code, 1, 64) ||
+		!/^[a-z0-9_]+$/.test(value.code) ||
+		(typeof value.path !== 'string' || (value.path !== '' && !isSafeRelativePath(value.path))) ||
+		!isIntegerInRange(value.line, 0, 10_000_000) ||
+		!isBoundedString(value.summary, 1, 512)
+	) {
+		throw malformedResponse(status)
+	}
+	return { code: value.code, path: value.path, line: value.line as number, summary: value.summary }
+}
+
+function parseRelease(value: unknown, status: number): Release {
+	if (
+		!hasExactKeys(
+			value,
+			[
+				'id',
+				'workspace_id',
+				'check_id',
+				'state',
+				'stage',
+				'production_digest',
+				'draft_digest',
+				'candidate_digest',
+				'created_at',
+				'updated_at',
+				'stages',
+			],
+			['backup_id', 'last_error_code', 'finished_at'],
+		) ||
+		!isOpaqueID(value.id) ||
+		!isOpaqueID(value.workspace_id) ||
+		!isOpaqueID(value.check_id) ||
+		(value.backup_id !== undefined && !isOpaqueID(value.backup_id)) ||
+		!isOneOf(value.state, [
+			'queued',
+			'running',
+			'rolling_back',
+			'succeeded',
+			'failed',
+			'rolled_back',
+			'needs_attention',
+			'cancelled',
+		]) ||
+		!isReleaseStageName(value.stage) ||
+		!isDigest(value.production_digest) ||
+		!isDigest(value.draft_digest) ||
+		!isDigest(value.candidate_digest) ||
+		(value.last_error_code !== undefined && !isBoundedString(value.last_error_code, 1, 128)) ||
+		!isRFC3339(value.created_at) ||
+		!isRFC3339(value.updated_at) ||
+		(value.finished_at !== undefined && !isRFC3339(value.finished_at)) ||
+		!Array.isArray(value.stages) ||
+		value.stages.length > 512
+	) {
+		throw malformedResponse(status)
+	}
+	const terminal = isOneOf(value.state, ['succeeded', 'failed', 'rolled_back', 'needs_attention', 'cancelled'])
+	if (terminal !== (value.finished_at !== undefined)) {
+		throw malformedResponse(status)
+	}
+	const stages = value.stages.map((stage, index) => parseReleaseStage(stage, index + 1, status))
+	return {
+		id: value.id,
+		workspace_id: value.workspace_id,
+		check_id: value.check_id,
+		...(value.backup_id === undefined ? {} : { backup_id: value.backup_id }),
+		state: value.state,
+		stage: value.stage,
+		production_digest: value.production_digest,
+		draft_digest: value.draft_digest,
+		candidate_digest: value.candidate_digest,
+		...(value.last_error_code === undefined ? {} : { last_error_code: value.last_error_code }),
+		created_at: value.created_at,
+		updated_at: value.updated_at,
+		...(value.finished_at === undefined ? {} : { finished_at: value.finished_at }),
+		stages,
+	}
+}
+
+function parseReleaseStage(value: unknown, sequence: number, status: number): ReleaseStage {
+	if (
+		!hasExactKeys(value, ['sequence', 'stage', 'result', 'details', 'occurred_at'], ['code']) ||
+		value.sequence !== sequence ||
+		!isReleaseStageName(value.stage) ||
+		!isOneOf(value.result, ['pending', 'running', 'success', 'failed', 'warning']) ||
+		(value.code !== undefined && !isBoundedString(value.code, 1, 128)) ||
+		!isRecord(value.details) ||
+		!isRFC3339(value.occurred_at)
+	) {
+		throw malformedResponse(status)
+	}
+	return {
+		sequence,
+		stage: value.stage,
+		result: value.result,
+		...(value.code === undefined ? {} : { code: value.code }),
+		details: { ...value.details },
+		occurred_at: value.occurred_at,
+	}
+}
+
+function isReleaseStageName(value: unknown): value is ReleaseStage['stage'] {
+	return isOneOf(value, [
+		'queued',
+		'rechecking',
+		'backup_creating',
+		'backup_verified',
+		'candidate_validated',
+		'files_applying',
+		'files_applied',
+		'production_validated',
+		'reload_requested',
+		'runtime_confirmed',
+		'committed',
+		'rollback_applying',
+		'rollback_files_restored',
+		'rollback_validated',
+		'rollback_reload_requested',
+		'rolled_back',
+		'failed',
+		'needs_attention',
+	])
 }
 
 function parseFileDiffSummary(value: unknown, status: number): FileDiffSummary {
@@ -1131,12 +1391,22 @@ const apiErrorCodes = [
   'CONFIG_ENTRY_NOT_MANAGED',
   'CONFIG_LIMIT_EXCEEDED',
   'CONFIG_WORKSPACE_NOT_FOUND',
+  'CONFIG_PUBLISH_CHECK_NOT_FOUND',
+  'CONFIG_RELEASE_NOT_FOUND',
   'CONFIG_WORKSPACE_CONFLICT',
   'CONFIG_WORKSPACE_STALE',
   'CONFIG_WORKSPACE_NEEDS_ATTENTION',
   'CONFIG_SNAPSHOT_CHANGED',
+  'CONFIG_PRODUCTION_CHANGED',
+  'CONFIG_BACKUP_INVALID',
+  'NGINX_HEALTH_UNAVAILABLE',
+  'CONFIG_RELEASE_NEEDS_ATTENTION',
   'AGENT_UNAVAILABLE',
   'CONFIG_OPERATION_TIMEOUT',
+	'CONFIG_CANDIDATE_INVALID',
+	'CONFIG_NO_CHANGES',
+	'CONFIG_PUBLISH_CHECK_EXPIRED',
+	'CONFIG_PUBLISH_IN_PROGRESS',
 ] as const satisfies readonly APIErrorCode[]
 
 function isAPIErrorCode(value: unknown): value is APIErrorCode {

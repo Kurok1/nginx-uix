@@ -191,6 +191,16 @@ func preflightContainerDirectories(options InitializeOptions) (string, string, e
 		if workspaceErr != nil && !errors.Is(workspaceErr, fs.ErrNotExist) {
 			return "", "", fmt.Errorf("inspect workspace root: %w", workspaceErr)
 		}
+		for _, name := range []string{"backups", "releases"} {
+			path := filepath.Join(dataRoot, name)
+			information, inspectErr := os.Lstat(path)
+			if inspectErr == nil && (information.Mode()&os.ModeSymlink != 0 || !information.IsDir()) {
+				return "", "", fmt.Errorf("%s root must be a directory without symlinks", name)
+			}
+			if inspectErr != nil && !errors.Is(inspectErr, fs.ErrNotExist) {
+				return "", "", fmt.Errorf("inspect %s root: %w", name, inspectErr)
+			}
+		}
 	}
 	runRoot, _, err := inspectInitializeDirectoryCandidate(options.RunRoot, "runtime root")
 	if err != nil {
@@ -293,8 +303,41 @@ func prepareContainerDataDirectory(ctx context.Context, options InitializeOption
 	if err := secureInitializeWorkspaceRoot(dataRoot, options); err != nil {
 		return err
 	}
+	if err := secureInitializeAgentDataRoots(dataRoot); err != nil {
+		return err
+	}
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	return nil
+}
+
+func secureInitializeAgentDataRoots(dataRoot string) error {
+	for _, name := range []string{"backups", "releases"} {
+		path := filepath.Join(dataRoot, name)
+		if err := requireInitializeChild(dataRoot, path); err != nil {
+			return fmt.Errorf("resolve %s root: %w", name, err)
+		}
+		root, err := ensureInitializeDirectory(path, name+" root", 0o700)
+		if err != nil {
+			return err
+		}
+		if err := os.Chown(root, os.Geteuid(), os.Getegid()); err != nil {
+			return fmt.Errorf("set %s root ownership: %w", name, err)
+		}
+		// #nosec G302 -- Agent release evidence is deliberately owner-only 0700.
+		if err := os.Chmod(root, 0o700); err != nil {
+			return fmt.Errorf("set %s root permissions: %w", name, err)
+		}
+		information, err := os.Lstat(root)
+		if err != nil {
+			return fmt.Errorf("verify %s root: %w", name, err)
+		}
+		stat, ok := information.Sys().(*syscall.Stat_t)
+		if !ok || information.Mode()&os.ModeSymlink != 0 || !information.IsDir() || information.Mode().Perm() != 0o700 ||
+			int(stat.Uid) != os.Geteuid() || int(stat.Gid) != os.Getegid() {
+			return fmt.Errorf("verify %s root: exact Agent ownership and mode are required", name)
+		}
 	}
 	return nil
 }

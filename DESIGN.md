@@ -623,7 +623,7 @@ Static badges need no live-region role. For asynchronous status changes, put one
 
 ### Configuration Workspace
 
-The configuration workspace extends the read-only configuration surface for v0.2.1. It edits only a workspace draft: it does not validate, publish, reload, restart, or otherwise change production configuration. Use the existing system font, spacing, radii, neutral borders, and Action Blue focus treatment; do not introduce a gradient, decorative shadow, second accent color, or a business-component hex value.
+The configuration workspace extends the read-only configuration surface. v0.2.1 editing remains confined to the draft; v0.2.2 adds an explicit checked publication flow that can back up and update production and reload Nginx. Publication is never implicit in Save, diff, navigation, modal close, or browser disconnect. Restart, arbitrary restore, and arbitrary commands remain unavailable. Use the existing system font, spacing, radii, neutral borders, and Action Blue focus treatment; do not introduce a gradient, decorative shadow, second accent color, or a business-component hex value.
 
 #### Operational Tokens
 
@@ -639,6 +639,8 @@ The following literal token contract is stable for CSS and tests:
 --component-editor-min-height: 480px
 --component-drawer-width: min(92vw, 520px)
 --component-modal-width: min(calc(100vw - 32px), 480px)
+--component-release-timeline-marker: 24px
+--component-release-diagnostic-max-height: 240px
 ```
 
 `--color-state-success`, `--color-state-warning`, `--color-state-danger`, and `--color-state-info` are semantic status tokens only, never brand emphasis. `--color-diff-added`, `--color-diff-removed`, and `--color-diff-context` are status surfaces only; every added, removed, and context line also has its visible `+`, `−`, or context-line label. These tokens inherit the existing semantic foreground/surface approach and must never make a colored surface the sole state signal.
@@ -657,6 +659,12 @@ At desktop width, the workspace is a continuous three-pane review: tree, editor,
 
 **`workspace-toast`** — toast: non-critical success only; conflict/stale/needs_attention stay inline. Toasts may announce a completed non-critical action once through the nearest restrained polite live region. Conflict, stale, `needs_attention`, capacity failures, and Agent-unavailable states remain persistently visible inline with their context, action, and non-color status cue; they are never reduced to a transient toast.
 
+**`publish-check-panel`** — A persistent neutral review card beneath the workspace diff. Before a check it shows the exact blocking reason when unavailable: dirty browser documents, incomplete or empty diff, non-`ready` state, another mutation/task, or Agent failure. During checking it preserves its dimensions, uses `aria-busy="true"`, and names the action “Checking complete candidate…”. A valid result displays production/draft/candidate identity abbreviations, validator build, check and expiry times, and the explicit sentence “Production configuration has not been changed.” Invalid diagnostics use the read-only code-viewer language: selectable text, bounded internal scroll at `--component-release-diagnostic-max-height`, relative path and line only, no editor role, absolute path, raw stderr, or secrets.
+
+**`release-confirmation-modal`** — A named confirmation modal at `--component-modal-width`. It states that the system will recheck production and the draft, create a complete backup, update production files, run full validation, reload Nginx, and automatically roll back when the result is safely knowable. The confirmation input must exactly equal the visible workspace name before the primary action is enabled. It follows `workspace-modal` focus trap, Escape, inert background, 44px target, and trigger-focus restoration rules. Closing it before submission has no effect; after a task is queued, closing it or leaving the page does not cancel the task.
+
+**`release-stage-timeline`** — An ordered list of persisted release stages. Each row contains a `--component-release-timeline-marker` icon/shape, visible stage name, visible status word, and timestamp; the connecting hairline is neutral and never a progress gradient. Only the current concise stage phrase uses a local `aria-live="polite"`/`aria-atomic="true"`; historical rows and SSE heartbeats are not live. Refresh and reconnect rebuild the list from the release resource and `Last-Event-ID`, never from elapsed browser time. Terminal panels remain inline and distinguish: published and healthy; failed before production changed; failed but rolled back and healthy; or `needs_attention`. The last case is a blocking alert with evidence-only actions and no v0.2.3 restore control.
+
 #### Operational State Examples
 
 All workspace state includes visible text plus its status icon/shape; no state relies on color alone. Keep each state local to the affected panel and use the smallest appropriate `aria-live` region.
@@ -669,6 +677,9 @@ All workspace state includes visible text plus its status icon/shape; no state r
 | Conflict | “This file changed on the server. Your local text has not been overwritten.” Keep a persistent inline banner with “Copy local content”, “Read server version”, and “View server diff”; do not retry or overwrite automatically. |
 | Stale | “Production configuration changed. Create a new workspace to continue.” The old workspace is read-only and the message remains inline. |
 | needs-attention (`needs_attention`) | “Workspace consistency cannot be confirmed.” Show the workspace ID, make ordinary saving unavailable, and permit only viewing or named deletion. |
+| Published (`published`) | “This immutable workspace was published successfully.” Show its release ID, keep files and diff readable, and make editing and repeat publication unavailable. |
+| Release rolled back | “Publication failed. The previous configuration was restored and runtime health was confirmed.” Keep the release and backup IDs plus stage evidence visible. |
+| Release needs attention | “Production or runtime state cannot be confirmed.” Use a blocking inline alert; permit evidence review only and do not offer retry, restart, or restore in v0.2.2. |
 | Agent-unavailable | “Configuration Agent is unavailable. Production configuration and files are unaffected.” Keep the workspace inline state visible and do not fall back to direct production-file access. |
 | Diff incomplete | “Diff incomplete: response limit reached.” Retain the per-file `response_limit` state and do not present the available portion as a complete review. |
 
@@ -677,6 +688,7 @@ Named confirmation modals state their actual scope and whether production config
 - **Delete file “`<filename>`”?** “This deletes `'<filename>'` only from this workspace draft. Production configuration and files are unaffected.”
 - **Delete workspace “`<workspace name>`”?** “This removes the workspace draft and its metadata. Production configuration and files are unaffected.”
 - **Delete logical group “`<group name>`”?** “This removes only the logical group. It does not delete files, and production configuration is unaffected.”
+- **Publish workspace “`<workspace name>`” and reload Nginx?** “The system will recheck production and the draft, create a complete backup, update production configuration, validate it, and reload Nginx. Safely knowable failures are rolled back; uncertain outcomes require manual attention.”
 
 #### Configuration Workspace Responsive Behavior
 
@@ -690,7 +702,7 @@ breakpoints: 1069 / 1068 / 834 / 833 / 735 / 734 / 640 CSS px
 | `<= 734px` | Replace the persistent tree with a full-width labelled file selector; the editor fills the content width and review remains in `workspace-drawer`. |
 | `<= 640px` | Use file, edit, and review task tabs; show one task panel at a time without destroying the current file or unsaved editor text. |
 
-At 320 CSS px and at every listed threshold, the page shell and workspace children use `min-width: 0`; tree labels wrap or truncate with an accessible full name, while code and diff retain horizontal scrolling inside their own labelled panes only. Drawer opening locks background interaction, and task-tab switching preserves visible dirty state and keyboard focus order.
+At 320 CSS px and at every listed threshold, the page shell and workspace children use `min-width: 0`; tree labels wrap or truncate with an accessible full name, while code, diff, release diagnostics, and the timeline retain horizontal scrolling inside their own labelled panes only. The confirmation modal stays within the viewport without page-level horizontal overflow; timeline rows stack their timestamp beneath the label below 480px. Drawer opening locks background interaction, and task-tab switching preserves visible dirty state and keyboard focus order.
 
 ### Footer
 

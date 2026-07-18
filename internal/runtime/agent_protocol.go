@@ -44,6 +44,10 @@ const (
 	agentProtocolEffectiveConfigPath     = "/v1/effective-config"
 	agentProtocolConfigSnapshotPath      = "/v1/config/snapshot"
 	agentProtocolConfigDigestPath        = "/v1/config/digest"
+	agentProtocolCandidateValidationPath = "/v1/config/candidate-validation"
+	agentProtocolReleasePath             = "/v1/config/release"
+	agentProtocolReleaseProgressPath     = "/v1/config/release/progress"
+	agentProtocolReleaseRecoveryPath     = "/v1/config/release/recovery"
 	agentSnapshotRequestLimit            = 4 * 1024
 	agentSnapshotTimeout                 = configSnapshotTimeout
 	agentDigestTimeout                   = configDigestTimeout
@@ -59,6 +63,13 @@ type agentOperations interface {
 	EffectiveConfig(context.Context) (EffectiveConfig, error)
 	ConfigSnapshot(context.Context, config.WorkspaceID) (config.Snapshot, error)
 	ConfigDigest(context.Context) (config.ProductionState, error)
+}
+
+type agentReleaseOperations interface {
+	ValidateCandidate(context.Context, config.CandidateValidationRequest) (config.CandidateValidation, error)
+	ExecuteRelease(context.Context, config.ReleaseExecutionRequest) (config.ReleaseExecutionResult, error)
+	ReleaseProgress(context.Context, config.ReleaseExecutionRequest) (config.ReleaseExecutionResult, error)
+	RecoverRelease(context.Context, config.ReleaseExecutionRequest) (config.ReleaseExecutionResult, error)
 }
 
 // AgentProtocolError is one stable, non-sensitive error returned by the local Agent.
@@ -119,6 +130,8 @@ func (h *agentProtocolHandler) ServeHTTP(writer http.ResponseWriter, request *ht
 	}
 	requestID := ""
 	var snapshotID config.WorkspaceID
+	var candidateRequest config.CandidateValidationRequest
+	var releaseRequest config.ReleaseExecutionRequest
 	if agentActionRequiresRequestID(action) {
 		requestID = agentRequestID(request)
 		if requestID == "" {
@@ -140,13 +153,29 @@ func (h *agentProtocolHandler) ServeHTTP(writer http.ResponseWriter, request *ht
 			h.log(action, agentErrorCodeInvalidRequest, requestID, startedAt, bytesWritten)
 			return
 		}
+	} else if action == "candidate_validation" {
+		decoded, err := decodeAgentCandidateValidationRequest(request)
+		if err != nil {
+			bytesWritten := writeAgentProtocolError(writer, http.StatusBadRequest, agentErrorCodeInvalidRequest, "agent request is invalid")
+			h.log(action, agentErrorCodeInvalidRequest, requestID, startedAt, bytesWritten)
+			return
+		}
+		candidateRequest = decoded
+	} else if action == "release" || action == "release_progress" || action == "release_recovery" {
+		decoded, err := decodeAgentReleaseRequest(request)
+		if err != nil {
+			bytesWritten := writeAgentProtocolError(writer, http.StatusBadRequest, agentErrorCodeInvalidRequest, "agent request is invalid")
+			h.log(action, agentErrorCodeInvalidRequest, requestID, startedAt, bytesWritten)
+			return
+		}
+		releaseRequest = decoded
 	} else if hasBody, err := agentRequestHasBody(request); err != nil || hasBody {
 		bytesWritten := writeAgentProtocolError(writer, http.StatusBadRequest, agentErrorCodeInvalidRequest, "agent request is invalid")
 		h.log(action, agentErrorCodeInvalidRequest, requestID, startedAt, bytesWritten)
 		return
 	}
 
-	response, err := h.execute(request.Context(), action, snapshotID)
+	response, err := h.execute(request.Context(), action, snapshotID, candidateRequest, releaseRequest)
 	if err != nil {
 		status, protocolError := classifyAgentOperationError(action, err)
 		bytesWritten := writeAgentProtocolError(writer, status, protocolError.Code, protocolError.Message)
@@ -185,20 +214,30 @@ func agentAction(path string) (string, bool) {
 		return "config_snapshot", true
 	case agentProtocolConfigDigestPath:
 		return "config_digest", true
+	case agentProtocolCandidateValidationPath:
+		return "candidate_validation", true
+	case agentProtocolReleasePath:
+		return "release", true
+	case agentProtocolReleaseProgressPath:
+		return "release_progress", true
+	case agentProtocolReleaseRecoveryPath:
+		return "release_recovery", true
 	default:
 		return "reject_request", false
 	}
 }
 
 func agentActionMethod(action string) string {
-	if action == "config_snapshot" {
+	if action == "config_snapshot" || action == "candidate_validation" || action == "release" ||
+		action == "release_progress" || action == "release_recovery" {
 		return http.MethodPost
 	}
 	return http.MethodGet
 }
 
 func agentActionRequiresRequestID(action string) bool {
-	return action == "config_snapshot" || action == "config_digest"
+	return action == "config_snapshot" || action == "config_digest" || action == "candidate_validation" ||
+		action == "release" || action == "release_progress" || action == "release_recovery"
 }
 
 func agentRequestHasBody(request *http.Request) (bool, error) {
@@ -305,7 +344,90 @@ func decodeAgentConfigSnapshotRequest(request *http.Request) (agentConfigSnapsho
 	return decoded, nil
 }
 
-func (h *agentProtocolHandler) execute(ctx context.Context, action string, snapshotID config.WorkspaceID) (any, error) {
+type agentCandidateValidationRequest struct {
+	ProtocolVersion  uint16 `json:"protocol_version"`
+	WorkspaceID      string `json:"workspace_id"`
+	ProductionDigest string `json:"production_digest"`
+	DraftDigest      string `json:"draft_digest"`
+}
+
+func decodeAgentCandidateValidationRequest(request *http.Request) (config.CandidateValidationRequest, error) {
+	var decoded agentCandidateValidationRequest
+	if err := decodeAgentTypedRequest(request, &decoded); err != nil || decoded.ProtocolVersion != agentProtocolVersion {
+		return config.CandidateValidationRequest{}, errors.New("candidate validation request is invalid")
+	}
+	workspaceID, workspaceErr := config.ParseWorkspaceID(decoded.WorkspaceID)
+	productionDigest, productionErr := config.ParseDigest(decoded.ProductionDigest)
+	draftDigest, draftErr := config.ParseDigest(decoded.DraftDigest)
+	if workspaceErr != nil || productionErr != nil || draftErr != nil || productionDigest == (config.Digest{}) || draftDigest == (config.Digest{}) {
+		return config.CandidateValidationRequest{}, errors.New("candidate validation request fields are invalid")
+	}
+	return config.CandidateValidationRequest{WorkspaceID: workspaceID, ProductionDigest: productionDigest, DraftDigest: draftDigest}, nil
+}
+
+type agentReleaseRequest struct {
+	ProtocolVersion  uint16 `json:"protocol_version"`
+	ReleaseID        string `json:"release_id"`
+	BackupID         string `json:"backup_id"`
+	WorkspaceID      string `json:"workspace_id"`
+	ProductionDigest string `json:"production_digest"`
+	DraftDigest      string `json:"draft_digest"`
+	CandidateDigest  string `json:"candidate_digest"`
+}
+
+func decodeAgentReleaseRequest(request *http.Request) (config.ReleaseExecutionRequest, error) {
+	var decoded agentReleaseRequest
+	if err := decodeAgentTypedRequest(request, &decoded); err != nil || decoded.ProtocolVersion != agentProtocolVersion {
+		return config.ReleaseExecutionRequest{}, errors.New("release request is invalid")
+	}
+	releaseID, releaseErr := config.ParseReleaseID(decoded.ReleaseID)
+	backupID, backupErr := config.ParseBackupID(decoded.BackupID)
+	workspaceID, workspaceErr := config.ParseWorkspaceID(decoded.WorkspaceID)
+	productionDigest, productionErr := config.ParseDigest(decoded.ProductionDigest)
+	draftDigest, draftErr := config.ParseDigest(decoded.DraftDigest)
+	candidateDigest, candidateErr := config.ParseDigest(decoded.CandidateDigest)
+	if releaseErr != nil || backupErr != nil || workspaceErr != nil || productionErr != nil || draftErr != nil || candidateErr != nil ||
+		productionDigest == (config.Digest{}) || draftDigest == (config.Digest{}) || candidateDigest == (config.Digest{}) {
+		return config.ReleaseExecutionRequest{}, errors.New("release request fields are invalid")
+	}
+	return config.ReleaseExecutionRequest{
+		ReleaseID: releaseID, BackupID: backupID, WorkspaceID: workspaceID,
+		ProductionDigest: productionDigest, DraftDigest: draftDigest, CandidateDigest: candidateDigest,
+	}, nil
+}
+
+func decodeAgentTypedRequest(request *http.Request, target any) error {
+	contentTypes := request.Header.Values("Content-Type")
+	if len(contentTypes) != 1 {
+		return errors.New("agent content type is required")
+	}
+	mediaType, parameters, err := mime.ParseMediaType(contentTypes[0])
+	if err != nil || mediaType != agentProtocolContentType || len(parameters) != 0 || request.ContentLength > agentSnapshotRequestLimit {
+		return errors.New("agent content type is invalid")
+	}
+	payload, err := io.ReadAll(io.LimitReader(request.Body, agentSnapshotRequestLimit+1))
+	if err != nil || len(payload) > agentSnapshotRequestLimit || rejectDuplicateAgentJSONFields(payload) != nil {
+		return errors.New("agent request exceeds limit")
+	}
+	decoder := json.NewDecoder(bytes.NewReader(payload))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		return errors.New("agent request is invalid")
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return errors.New("agent request has trailing data")
+	}
+	return nil
+}
+
+func (h *agentProtocolHandler) execute(
+	ctx context.Context,
+	action string,
+	snapshotID config.WorkspaceID,
+	candidateRequest config.CandidateValidationRequest,
+	releaseRequest config.ReleaseExecutionRequest,
+) (any, error) {
 	switch action {
 	case "health":
 		if err := h.operations.Health(ctx); err != nil {
@@ -337,6 +459,48 @@ func (h *agentProtocolHandler) execute(ctx context.Context, action string, snaps
 		defer cancel()
 		state, err := h.operations.ConfigDigest(operationCtx)
 		return newAgentConfigDigestResponse(state), err
+	case "candidate_validation":
+		operations, ok := h.operations.(agentReleaseOperations)
+		if !ok {
+			return nil, errors.New("candidate validation operation is unavailable")
+		}
+		operationCtx, cancel := context.WithTimeout(ctx, candidateValidationTimeout)
+		defer cancel()
+		validation, err := operations.ValidateCandidate(operationCtx, candidateRequest)
+		if err != nil && !errors.Is(err, ErrConfigInvalid) {
+			return nil, err
+		}
+		return newAgentCandidateValidationResponse(validation), nil
+	case "release":
+		operations, ok := h.operations.(agentReleaseOperations)
+		if !ok {
+			return nil, errors.New("release operation is unavailable")
+		}
+		result, err := operations.ExecuteRelease(ctx, releaseRequest)
+		if result.ReleaseID != "" && result.State != "" {
+			return newAgentReleaseResponse(result), nil
+		}
+		return nil, err
+	case "release_progress":
+		operations, ok := h.operations.(agentReleaseOperations)
+		if !ok {
+			return nil, errors.New("release progress operation is unavailable")
+		}
+		result, err := operations.ReleaseProgress(ctx, releaseRequest)
+		if err != nil {
+			return nil, err
+		}
+		return newAgentReleaseResponse(result), nil
+	case "release_recovery":
+		operations, ok := h.operations.(agentReleaseOperations)
+		if !ok {
+			return nil, errors.New("release recovery operation is unavailable")
+		}
+		result, err := operations.RecoverRelease(ctx, releaseRequest)
+		if result.ReleaseID != "" && result.State != "" {
+			return newAgentReleaseResponse(result), nil
+		}
+		return nil, err
 	default:
 		return nil, fmt.Errorf("execute agent operation: unknown action")
 	}
@@ -496,6 +660,89 @@ type agentConfigDigestResponse struct {
 	ManifestVersion  uint16 `json:"manifest_version"`
 	EntryCount       int    `json:"entry_count"`
 	ManagedBytes     int64  `json:"managed_bytes"`
+}
+
+type agentCandidateDiagnosticResponse struct {
+	Code    string `json:"code"`
+	Path    string `json:"path,omitempty"`
+	Line    int    `json:"line,omitempty"`
+	Summary string `json:"summary"`
+}
+
+type agentCandidateValidationResponse struct {
+	Valid            bool                               `json:"valid"`
+	CandidateDigest  string                             `json:"candidate_digest"`
+	ValidatorVersion uint16                             `json:"validator_version"`
+	ValidatorBuildID string                             `json:"validator_build_id"`
+	CheckedAt        time.Time                          `json:"checked_at"`
+	Diagnostics      []agentCandidateDiagnosticResponse `json:"diagnostics"`
+}
+
+func newAgentCandidateValidationResponse(validation config.CandidateValidation) agentCandidateValidationResponse {
+	diagnostics := make([]agentCandidateDiagnosticResponse, 0, len(validation.Diagnostics))
+	for _, diagnostic := range validation.Diagnostics {
+		diagnostics = append(diagnostics, agentCandidateDiagnosticResponse{
+			Code: diagnostic.Code, Path: string(diagnostic.Path), Line: diagnostic.Line, Summary: diagnostic.Summary,
+		})
+	}
+	return agentCandidateValidationResponse{
+		Valid: validation.Valid, CandidateDigest: validation.CandidateDigest.String(),
+		ValidatorVersion: validation.ValidatorVersion, ValidatorBuildID: validation.ValidatorBuildID,
+		CheckedAt: validation.CheckedAt, Diagnostics: diagnostics,
+	}
+}
+
+type agentReleaseStageResponse struct {
+	Sequence          uint64                  `json:"sequence"`
+	Stage             config.ReleaseStageName `json:"stage"`
+	Result            config.StageResult      `json:"result"`
+	Code              string                  `json:"code"`
+	PublicDetailsJSON string                  `json:"public_details_json"`
+	OccurredAt        time.Time               `json:"occurred_at"`
+}
+
+type agentBackupEvidenceResponse struct {
+	BackupID         string    `json:"backup_id"`
+	ReleaseID        string    `json:"release_id"`
+	ProductionDigest string    `json:"production_digest"`
+	TreeDigest       string    `json:"tree_digest"`
+	EntryCount       int       `json:"entry_count"`
+	TotalBytes       int64     `json:"total_bytes"`
+	VerifiedAt       time.Time `json:"verified_at"`
+}
+
+type agentReleaseResponse struct {
+	ReleaseID   string                      `json:"release_id"`
+	State       config.ReleaseState         `json:"state"`
+	Stage       config.ReleaseStageName     `json:"stage"`
+	Backup      agentBackupEvidenceResponse `json:"backup"`
+	Stages      []agentReleaseStageResponse `json:"stages"`
+	ErrorCode   string                      `json:"error_code"`
+	MasterPID   int                         `json:"master_pid"`
+	WorkerCount int                         `json:"worker_count"`
+	HTTPStatus  int                         `json:"http_status"`
+	FinishedAt  time.Time                   `json:"finished_at"`
+}
+
+func newAgentReleaseResponse(result config.ReleaseExecutionResult) agentReleaseResponse {
+	stages := make([]agentReleaseStageResponse, 0, len(result.Stages))
+	for _, stage := range result.Stages {
+		stages = append(stages, agentReleaseStageResponse{
+			Sequence: stage.Sequence, Stage: stage.Stage, Result: stage.Result, Code: stage.Code,
+			PublicDetailsJSON: stage.PublicDetailsJSON, OccurredAt: stage.OccurredAt,
+		})
+	}
+	return agentReleaseResponse{
+		ReleaseID: string(result.ReleaseID), State: result.State, Stage: result.Stage,
+		Backup: agentBackupEvidenceResponse{
+			BackupID: string(result.Backup.BackupID), ReleaseID: string(result.Backup.ReleaseID),
+			ProductionDigest: result.Backup.ProductionDigest.String(),
+			TreeDigest:       result.Backup.TreeDigest.String(), EntryCount: result.Backup.EntryCount,
+			TotalBytes: result.Backup.TotalBytes, VerifiedAt: result.Backup.VerifiedAt,
+		},
+		Stages: stages, ErrorCode: result.ErrorCode, MasterPID: result.MasterPID,
+		WorkerCount: result.WorkerCount, HTTPStatus: result.HTTPStatus, FinishedAt: result.FinishedAt,
+	}
 }
 
 func newAgentConfigDigestResponse(state config.ProductionState) agentConfigDigestResponse {

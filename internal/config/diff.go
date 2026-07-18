@@ -207,7 +207,7 @@ func (s *Service) openReviewWorkspace(ctx context.Context, id WorkspaceID, verif
 		return fail(err)
 	}
 	switch workspace.State {
-	case StateReady, StateStale, StateNeedsAttention:
+	case StateReady, StateStale, StatePublished, StateNeedsAttention:
 	case StatePreparing:
 		return fail(ErrConflict)
 	default:

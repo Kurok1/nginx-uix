@@ -26,10 +26,115 @@ func TestMigrateAddsConfigSchemaWithoutChangingV1Data(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	assertTables(t, database, "config_workspaces", "config_group_collection", "config_groups", "config_group_members")
+	assertTables(t, database,
+		"config_workspaces", "config_group_collection", "config_groups", "config_group_members",
+		"config_publish_checks", "config_releases", "config_release_stages", "config_backups",
+	)
 	assertV1UserAndSession(t, database)
-	if got := migrationVersions(t, database); !reflect.DeepEqual(got, []int{1, 2}) {
-		t.Fatalf("versions = %v, want [1 2]", got)
+	if got := migrationVersions(t, database); !reflect.DeepEqual(got, []int{1, 2, 3}) {
+		t.Fatalf("versions = %v, want [1 2 3]", got)
+	}
+}
+
+func TestMigrateV021WorkspaceDataIntoReleaseSchema(t *testing.T) {
+	path := filepath.Join(secureTempDir(t), "v021.db")
+	connection, err := sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(1)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	database := &DB{sql: connection}
+	t.Cleanup(func() {
+		if err := database.Close(); err != nil {
+			t.Errorf("Close() error = %v", err)
+		}
+	})
+	first, err := fs.ReadFile(embeddedMigrations, "migrations/0001_initial.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := fs.ReadFile(embeddedMigrations, "migrations/0002_config_workspaces.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.migrate(context.Background(), fstest.MapFS{
+		"migrations/0001_initial.sql":           {Data: first},
+		"migrations/0002_config_workspaces.sql": {Data: second},
+	}); err != nil {
+		t.Fatalf("create v0.2.1 fixture: %v", err)
+	}
+	digest := bytes.Repeat([]byte{0x44}, 32)
+	statements := []struct {
+		query string
+		args  []any
+	}{
+		{`INSERT INTO users(id, username, normalized_name, password_hash, disabled, created_at)
+			VALUES (41, 'operator', 'operator', 'hash', 0, '2026-07-17T01:00:00Z')`, nil},
+		{`INSERT INTO config_workspaces(
+			id, name, state, state_reason_code, production_digest, base_digest, draft_digest,
+			manifest_version, policy_version, entry_count, managed_bytes, workspace_bytes,
+			revision, created_by, created_at, updated_at
+		) VALUES ('11111111111111111111111111111111', 'Production review', 'ready', '', ?, ?, ?,
+			1, 1, 2, 128, 256, 7, 41, '2026-07-17T01:01:00Z', '2026-07-17T01:02:00Z')`, []any{digest, digest, digest}},
+		{`INSERT INTO config_groups(id, name, normalized_name, sort_order, created_by, created_at, updated_at)
+			VALUES ('22222222222222222222222222222222', 'Entry points', 'entry points', 10, 41,
+			'2026-07-17T01:03:00Z', '2026-07-17T01:03:00Z')`, nil},
+		{`INSERT INTO config_group_members(group_id, ordinal, path)
+			VALUES ('22222222222222222222222222222222', 0, 'nginx.conf')`, nil},
+		{`INSERT INTO config_operations(id, object_type, object_id, action, result, request_id, occurred_at)
+			VALUES ('legacy-operation', 'config_workspace', '11111111111111111111111111111111',
+			'config.workspace.create', 'success', 'legacy-request', '2026-07-17T01:01:00Z')`, nil},
+		{`INSERT INTO audit_events(
+			occurred_at, actor_user_id, action, object_type, object_id, result, request_id, details_json, operation_id
+		) VALUES ('2026-07-17T01:01:00Z', 41, 'config.workspace.create', 'config_workspace',
+			'11111111111111111111111111111111', 'success', 'legacy-request', '{}', 'legacy-operation')`, nil},
+	}
+	for _, statement := range statements {
+		if _, err := database.sql.ExecContext(context.Background(), statement.query, statement.args...); err != nil {
+			t.Fatalf("seed v0.2.1 fixture: %v", err)
+		}
+	}
+
+	if err := database.Migrate(context.Background()); err != nil {
+		t.Fatalf("Migrate() error = %v", err)
+	}
+	var name, state string
+	var revision int
+	var lastRelease sql.NullString
+	if err := database.sql.QueryRowContext(context.Background(), `SELECT name, state, revision, last_release_id
+		FROM config_workspaces WHERE id = '11111111111111111111111111111111'`).Scan(
+		&name, &state, &revision, &lastRelease,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if name != "Production review" || state != "ready" || revision != 7 || lastRelease.Valid {
+		t.Fatalf("migrated workspace = %q/%q/%d/%v", name, state, revision, lastRelease)
+	}
+	for query, want := range map[string]int{
+		"SELECT COUNT(*) FROM config_groups WHERE id = '22222222222222222222222222222222'":              1,
+		"SELECT COUNT(*) FROM config_group_members WHERE group_id = '22222222222222222222222222222222'": 1,
+		"SELECT COUNT(*) FROM config_operations WHERE id = 'legacy-operation'":                          1,
+		"SELECT COUNT(*) FROM audit_events WHERE operation_id = 'legacy-operation'":                     1,
+	} {
+		var count int
+		if err := database.sql.QueryRowContext(context.Background(), query).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		if count != want {
+			t.Fatalf("query %q count = %d, want %d", query, count, want)
+		}
+	}
+	rows, err := database.sql.QueryContext(context.Background(), "PRAGMA foreign_key_check")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rows.Next() {
+		t.Fatal("foreign_key_check reported a violation after v0.2.1 migration")
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if err := rows.Close(); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -59,8 +164,8 @@ func TestMigrateIsIdempotent(t *testing.T) {
 	if err := database.sql.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM schema_migrations").Scan(&count); err != nil {
 		t.Fatalf("count migrations: %v", err)
 	}
-	if count != 2 {
-		t.Fatalf("migration count = %d, want 2", count)
+	if count != 3 {
+		t.Fatalf("migration count = %d, want 3", count)
 	}
 }
 
@@ -83,7 +188,7 @@ func TestMigrateRollsBackFailedMigration(t *testing.T) {
 
 	database := openTestDatabase(t)
 	broken := fstest.MapFS{
-		"migrations/0003_broken.sql": {Data: []byte(`
+		"migrations/0004_broken.sql": {Data: []byte(`
 			CREATE TABLE migration_probe(id INTEGER PRIMARY KEY);
 			INSERT INTO table_that_does_not_exist(id) VALUES (1);
 		`)},
@@ -95,7 +200,7 @@ func TestMigrateRollsBackFailedMigration(t *testing.T) {
 
 	for query, label := range map[string]string{
 		"SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'migration_probe'": "probe table",
-		"SELECT COUNT(*) FROM schema_migrations WHERE version = 3":                             "migration row",
+		"SELECT COUNT(*) FROM schema_migrations WHERE version = 4":                             "migration row",
 	} {
 		var count int
 		if err := database.sql.QueryRowContext(context.Background(), query).Scan(&count); err != nil {

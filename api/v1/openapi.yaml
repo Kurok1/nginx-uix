@@ -3,7 +3,7 @@
 openapi: 3.1.0
 info:
   title: Nginx UIX API
-  version: 0.2.1
+  version: 0.2.2
 servers:
   - url: /
 paths:
@@ -796,6 +796,165 @@ paths:
           $ref: "#/components/responses/ConfigAPIError"
         "504":
           $ref: "#/components/responses/ConfigAPIError"
+  /api/v1/config/workspaces/{workspace_id}/publish-checks:
+    post:
+      operationId: createConfigPublishCheck
+      summary: Validate one complete digest-bound publication candidate
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - $ref: "#/components/parameters/Origin"
+        - $ref: "#/components/parameters/CSRFToken"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        description: Strict JSON object limited to 4096 bytes.
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmptyObject"
+      responses:
+        "201":
+          description: Persisted candidate validation evidence; production has not changed
+          headers:
+            X-Request-ID: { $ref: "#/components/headers/RequestID" }
+            Cache-Control:
+              schema: { type: string, enum: [no-store] }
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublishCheck"
+        "400": { $ref: "#/components/responses/ConfigAPIError" }
+        "401": { $ref: "#/components/responses/ConfigAPIError" }
+        "403": { $ref: "#/components/responses/ConfigAPIError" }
+        "409": { $ref: "#/components/responses/ConfigAPIError" }
+        "413": { $ref: "#/components/responses/ConfigAPIError" }
+        "415": { $ref: "#/components/responses/ConfigAPIError" }
+        "422":
+          description: Persisted invalid candidate evidence with safe diagnostics
+          headers:
+            X-Request-ID: { $ref: "#/components/headers/RequestID" }
+            Cache-Control:
+              schema: { type: string, enum: [no-store] }
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublishCheck"
+        "503": { $ref: "#/components/responses/ConfigAPIError" }
+        "504": { $ref: "#/components/responses/ConfigAPIError" }
+  /api/v1/config/publish-checks/{check_id}:
+    get:
+      operationId: getConfigPublishCheck
+      summary: Get persisted candidate validation evidence
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/CheckID"
+        - $ref: "#/components/parameters/RequestID"
+      responses:
+        "200":
+          description: Publish check evidence
+          headers:
+            X-Request-ID: { $ref: "#/components/headers/RequestID" }
+            Cache-Control:
+              schema: { type: string, enum: [no-store] }
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublishCheck"
+        "400": { $ref: "#/components/responses/ConfigAPIError" }
+        "401": { $ref: "#/components/responses/ConfigAPIError" }
+        "404": { $ref: "#/components/responses/ConfigAPIError" }
+  /api/v1/config/workspaces/{workspace_id}/releases:
+    post:
+      operationId: createConfigRelease
+      summary: Queue one named and digest-bound publication task
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - $ref: "#/components/parameters/Origin"
+        - $ref: "#/components/parameters/CSRFToken"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        description: Strict JSON object limited to 4096 bytes.
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateReleaseRequest"
+      responses:
+        "202":
+          description: Durable queued task; this response is not publication success
+          headers:
+            X-Request-ID: { $ref: "#/components/headers/RequestID" }
+            Cache-Control:
+              schema: { type: string, enum: [no-store] }
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Release"
+        "400": { $ref: "#/components/responses/ConfigAPIError" }
+        "401": { $ref: "#/components/responses/ConfigAPIError" }
+        "403": { $ref: "#/components/responses/ConfigAPIError" }
+        "409": { $ref: "#/components/responses/ConfigAPIError" }
+        "413": { $ref: "#/components/responses/ConfigAPIError" }
+        "415": { $ref: "#/components/responses/ConfigAPIError" }
+  /api/v1/config/releases/{release_id}:
+    get:
+      operationId: getConfigRelease
+      summary: Get one persisted publication task and its stages
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/ReleaseID"
+        - $ref: "#/components/parameters/RequestID"
+      responses:
+        "200":
+          description: Current release projection
+          headers:
+            X-Request-ID: { $ref: "#/components/headers/RequestID" }
+            Cache-Control:
+              schema: { type: string, enum: [no-store] }
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Release"
+        "400": { $ref: "#/components/responses/ConfigAPIError" }
+        "401": { $ref: "#/components/responses/ConfigAPIError" }
+        "404": { $ref: "#/components/responses/ConfigAPIError" }
+  /api/v1/config/releases/{release_id}/events:
+    get:
+      operationId: streamConfigReleaseEvents
+      summary: Resume persisted publication stages by Last-Event-ID
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/ReleaseID"
+        - name: Last-Event-ID
+          in: header
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 512
+        - $ref: "#/components/parameters/RequestID"
+      responses:
+        "200":
+          description: SSE snapshot, stage, terminal and heartbeat events
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        "400": { $ref: "#/components/responses/ConfigAPIError" }
+        "401": { $ref: "#/components/responses/ConfigAPIError" }
+        "404": { $ref: "#/components/responses/ConfigAPIError" }
   /api/v1/config/groups:
     get:
       operationId: listConfigGroups
@@ -1060,6 +1219,20 @@ components:
       in: path
       required: true
       description: Opaque logical group identifier.
+      schema:
+        type: string
+        pattern: "^[0-9a-f]{32}$"
+    CheckID:
+      name: check_id
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: "^[0-9a-f]{32}$"
+    ReleaseID:
+      name: release_id
+      in: path
+      required: true
       schema:
         type: string
         pattern: "^[0-9a-f]{32}$"
@@ -1331,7 +1504,7 @@ components:
           maxLength: 80
         state:
           type: string
-          enum: [preparing, ready, stale, needs_attention]
+          enum: [preparing, ready, stale, published, needs_attention]
         state_reason_code:
           type: string
           pattern: "^[a-z0-9_]*$"
@@ -1369,6 +1542,9 @@ components:
         updated_at:
           type: string
           format: date-time
+        last_release_id:
+          type: string
+          pattern: "^[0-9a-f]{32}$"
     WorkspaceDetail:
       type: object
       additionalProperties: false
@@ -1383,7 +1559,7 @@ components:
           maxLength: 80
         state:
           type: string
-          enum: [preparing, ready, stale, needs_attention]
+          enum: [preparing, ready, stale, published, needs_attention]
         state_reason_code:
           type: string
           pattern: "^[a-z0-9_]*$"
@@ -1421,6 +1597,102 @@ components:
         updated_at:
           type: string
           format: date-time
+        last_release_id:
+          type: string
+          pattern: "^[0-9a-f]{32}$"
+    CreateReleaseRequest:
+      type: object
+      additionalProperties: false
+      required: [check_id, confirm_name]
+      properties:
+        check_id:
+          type: string
+          pattern: "^[0-9a-f]{32}$"
+        confirm_name:
+          type: string
+          minLength: 1
+          maxLength: 128
+    EmptyObject:
+      type: object
+      additionalProperties: false
+    CandidateDiagnostic:
+      type: object
+      additionalProperties: false
+      required: [code, path, line, summary]
+      properties:
+        code: { type: string, pattern: "^[a-z0-9_]+$", minLength: 1, maxLength: 64 }
+        path:
+          type: string
+          maxLength: 1024
+          description: Empty when no safe candidate-relative path can be identified.
+        line: { type: integer, minimum: 0, maximum: 10000000 }
+        summary: { type: string, minLength: 1, maxLength: 512 }
+    PublishCheck:
+      type: object
+      additionalProperties: false
+      required: [id, workspace_id, workspace_revision, production_digest, base_digest, draft_digest, candidate_digest, manifest_version, policy_version, validator_version, validator_build_id, state, diagnostic_count, details, started_at, finished_at, expires_at]
+      properties:
+        id: { type: string, pattern: "^[0-9a-f]{32}$" }
+        workspace_id: { type: string, pattern: "^[0-9a-f]{32}$" }
+        workspace_revision: { type: integer, minimum: 1 }
+        production_digest: { type: string, pattern: "^[0-9a-f]{64}$" }
+        base_digest: { type: string, pattern: "^[0-9a-f]{64}$" }
+        draft_digest: { type: string, pattern: "^[0-9a-f]{64}$" }
+        candidate_digest: { type: string, pattern: "^[0-9a-f]{64}$" }
+        manifest_version: { type: integer, minimum: 1 }
+        policy_version: { type: integer, minimum: 1 }
+        validator_version: { type: integer, minimum: 1 }
+        validator_build_id: { type: string }
+        state: { type: string, enum: [running, valid, invalid, failed] }
+        diagnostic_count: { type: integer, minimum: 0 }
+        details:
+          type: object
+          additionalProperties: false
+          required: [diagnostics]
+          properties:
+            diagnostics:
+              type: array
+              items: { $ref: "#/components/schemas/CandidateDiagnostic" }
+        started_at: { type: string, format: date-time }
+        finished_at: { type: string, format: date-time }
+        expires_at: { type: string, format: date-time }
+    ReleaseStage:
+      type: object
+      additionalProperties: false
+      required: [sequence, stage, result, details, occurred_at]
+      properties:
+        sequence: { type: integer, minimum: 1 }
+        stage:
+          type: string
+          enum: [queued, rechecking, backup_creating, backup_verified, candidate_validated, files_applying, files_applied, production_validated, reload_requested, runtime_confirmed, committed, rollback_applying, rollback_files_restored, rollback_validated, rollback_reload_requested, rolled_back, failed, needs_attention]
+        result: { type: string, enum: [pending, running, success, failed, warning] }
+        code: { type: string }
+        details: { type: object, additionalProperties: true }
+        occurred_at: { type: string, format: date-time }
+    Release:
+      type: object
+      additionalProperties: false
+      required: [id, workspace_id, check_id, state, stage, production_digest, draft_digest, candidate_digest, created_at, updated_at, stages]
+      properties:
+        id: { type: string, pattern: "^[0-9a-f]{32}$" }
+        workspace_id: { type: string, pattern: "^[0-9a-f]{32}$" }
+        check_id: { type: string, pattern: "^[0-9a-f]{32}$" }
+        backup_id: { type: string, pattern: "^[0-9a-f]{32}$" }
+        state: { type: string, enum: [queued, running, rolling_back, succeeded, failed, rolled_back, needs_attention, cancelled] }
+        stage:
+          type: string
+          enum: [queued, rechecking, backup_creating, backup_verified, candidate_validated, files_applying, files_applied, production_validated, reload_requested, runtime_confirmed, committed, rollback_applying, rollback_files_restored, rollback_validated, rollback_reload_requested, rolled_back, failed, needs_attention]
+        production_digest: { type: string, pattern: "^[0-9a-f]{64}$" }
+        draft_digest: { type: string, pattern: "^[0-9a-f]{64}$" }
+        candidate_digest: { type: string, pattern: "^[0-9a-f]{64}$" }
+        last_error_code: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        finished_at: { type: string, format: date-time }
+        stages:
+          type: array
+          maxItems: 512
+          items: { $ref: "#/components/schemas/ReleaseStage" }
     WorkspaceList:
       type: object
       additionalProperties: false
@@ -1781,12 +2053,22 @@ components:
         - CONFIG_ENTRY_NOT_MANAGED
         - CONFIG_LIMIT_EXCEEDED
         - CONFIG_WORKSPACE_NOT_FOUND
+        - CONFIG_PUBLISH_CHECK_NOT_FOUND
+        - CONFIG_RELEASE_NOT_FOUND
         - CONFIG_WORKSPACE_CONFLICT
         - CONFIG_WORKSPACE_STALE
         - CONFIG_WORKSPACE_NEEDS_ATTENTION
         - CONFIG_SNAPSHOT_CHANGED
+        - CONFIG_PRODUCTION_CHANGED
+        - CONFIG_BACKUP_INVALID
+        - NGINX_HEALTH_UNAVAILABLE
+        - CONFIG_RELEASE_NEEDS_ATTENTION
         - AGENT_UNAVAILABLE
         - CONFIG_OPERATION_TIMEOUT
+        - CONFIG_CANDIDATE_INVALID
+        - CONFIG_NO_CHANGES
+        - CONFIG_PUBLISH_CHECK_EXPIRED
+        - CONFIG_PUBLISH_IN_PROGRESS
     ConfigAPIErrorCode:
       oneOf:
         - $ref: "#/components/schemas/ConfigErrorCode"

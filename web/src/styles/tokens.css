@@ -89,6 +89,8 @@
   --component-editor-min-height: 480px;
   --component-drawer-width: min(92vw, 520px);
   --component-modal-width: min(calc(100vw - 32px), 480px);
+	--component-release-diagnostic-max-height: 240px;
+	--component-release-timeline-marker: 16px;
 
   --focus-outline: 2px solid var(--color-primary-focus);
   --focus-offset: 2px;

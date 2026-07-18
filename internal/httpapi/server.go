@@ -19,6 +19,8 @@ type Dependencies struct {
 	Sessions        SessionService
 	Workspaces      WorkspaceAPI
 	Groups          GroupAPI
+	Releases        ReleaseAPI
+	ReleaseTasks    ReleaseTaskStarter
 	Agent           Agent
 	Database        DatabaseProbe
 	PublicURL       *url.URL
@@ -41,6 +43,10 @@ func NewHandler(dependencies Dependencies) http.Handler {
 		workspaces: dependencies.Workspaces, groups: dependencies.Groups,
 		sessions: dependencies.Sessions, publicURL: dependencies.PublicURL,
 	}
+	releases := &releaseHandler{
+		service: dependencies.Releases, tasks: dependencies.ReleaseTasks,
+		sessions: dependencies.Sessions, publicURL: dependencies.PublicURL,
+	}
 	mux.HandleFunc("GET /api/v1/config/workspaces", configuration.workspacesCollection)
 	mux.HandleFunc("POST /api/v1/config/workspaces", configuration.workspacesCollection)
 	mux.HandleFunc("GET /api/v1/config/workspaces/{workspace_id}", configuration.workspace)
@@ -53,6 +59,11 @@ func NewHandler(dependencies Dependencies) http.Handler {
 	mux.HandleFunc("POST /api/v1/config/workspaces/{workspace_id}/files/copies", configuration.copies)
 	mux.HandleFunc("GET /api/v1/config/workspaces/{workspace_id}/files/search", configuration.search)
 	mux.HandleFunc("GET /api/v1/config/workspaces/{workspace_id}/diff", configuration.diff)
+	mux.HandleFunc("POST /api/v1/config/workspaces/{workspace_id}/publish-checks", releases.checkWorkspace)
+	mux.HandleFunc("GET /api/v1/config/publish-checks/{check_id}", releases.check)
+	mux.HandleFunc("POST /api/v1/config/workspaces/{workspace_id}/releases", releases.queue)
+	mux.HandleFunc("GET /api/v1/config/releases/{release_id}", releases.release)
+	mux.HandleFunc("GET /api/v1/config/releases/{release_id}/events", releases.events)
 	mux.HandleFunc("GET /api/v1/config/groups", configuration.groupsCollection)
 	mux.HandleFunc("POST /api/v1/config/groups", configuration.groupsCollection)
 	mux.HandleFunc("PUT /api/v1/config/groups/{group_id}", configuration.group)

@@ -46,8 +46,8 @@ func TestNewAgentClientUsesOnlyFixedProductionSocket(t *testing.T) {
 	if client.httpClient.Timeout != 0 {
 		t.Fatalf("http client timeout = %v, want operation-specific contexts", client.httpClient.Timeout)
 	}
-	if transport.ResponseHeaderTimeout < 65*time.Second || transport.ResponseHeaderTimeout > 2*time.Minute {
-		t.Fatalf("ResponseHeaderTimeout = %v, want finite timeout of at least 65s", transport.ResponseHeaderTimeout)
+	if transport.ResponseHeaderTimeout < 2*time.Minute || transport.ResponseHeaderTimeout > 6*time.Minute {
+		t.Fatalf("ResponseHeaderTimeout = %v, want a finite timeout covering bounded backup and release work", transport.ResponseHeaderTimeout)
 	}
 }
 
