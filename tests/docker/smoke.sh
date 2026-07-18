@@ -4,9 +4,12 @@
 
 set -eu
 
-IMAGE=${IMAGE:-nginx-uix:0.1.0-test}
+REPOSITORY_ROOT=${REPOSITORY_ROOT:-$(pwd)}
+. "${REPOSITORY_ROOT}/tests/docker/lib/image.sh"
+
+IMAGE=${IMAGE:-nginx-uix:0.2.1-test}
 PLATFORM=${PLATFORM:-}
-BUILD_IMAGE=${BUILD_IMAGE:-1}
+BUILD_IMAGE=${BUILD_IMAGE:-auto}
 SMOKE_PROFILE=${SMOKE_PROFILE:-full}
 RUN_ID="${NGINX_UIX_SMOKE_RUN_ID:-$(date -u +%Y%m%d%H%M%S)-$$-$(openssl rand -hex 4)}"
 
@@ -17,9 +20,9 @@ case "$RUN_ID" in
         ;;
 esac
 case "$BUILD_IMAGE" in
-    0|1) ;;
+    auto|0|1) ;;
     *)
-        printf '%s\n' 'FAIL: BUILD_IMAGE must be 0 or 1' >&2
+        printf '%s\n' 'FAIL: BUILD_IMAGE must be auto, 0, or 1' >&2
         exit 2
         ;;
 esac
@@ -84,6 +87,9 @@ stop_traffic() {
 
 cleanup() {
     stop_traffic
+    if [ "${BUILDX_CACHE_LOCK_OWNED:-0}" = 1 ]; then
+        release_buildx_cache_lock >/dev/null 2>&1 || true
+    fi
     if command -v docker >/dev/null 2>&1; then
         [ "$HELPER_CONTAINER_CREATED" = 0 ] || docker rm -f "$HELPER_CONTAINER" >/dev/null 2>&1 || true
         [ "$NONEMPTY_CONTAINER_CREATED" = 0 ] || docker rm -f "$NONEMPTY_CONTAINER" >/dev/null 2>&1 || true
@@ -119,7 +125,7 @@ require_command() {
     command -v "$1" >/dev/null 2>&1 || fail "required host command is unavailable: $1"
 }
 
-for required_command in docker curl openssl python3 sqlite3 awk sed grep cmp sort date; do
+for required_command in docker curl openssl python3 sqlite3 awk sed grep cmp sort date git go jq uname; do
     require_command "$required_command"
 done
 docker info >/dev/null 2>&1 || fail 'Docker daemon is unavailable'
@@ -145,22 +151,8 @@ printf '%s\n' "$ADMIN_PASSWORD" >"$WORK_DIR/admin-password"
 printf '%s\n' "$REPLACEMENT_PASSWORD" >"$WORK_DIR/replacement-password"
 chmod 0444 "$WORK_DIR/admin-password" "$WORK_DIR/replacement-password"
 
-if [ "$BUILD_IMAGE" = 1 ]; then
-    if [ -n "$PLATFORM" ]; then
-        docker build --platform "$PLATFORM" -f deploy/docker/Dockerfile -t "$IMAGE" .
-    else
-        docker build -f deploy/docker/Dockerfile -t "$IMAGE" .
-    fi
-    pass 'release image builds from the pinned Dockerfile'
-fi
-docker image inspect "$IMAGE" >/dev/null 2>&1 || fail "image does not exist: $IMAGE"
-if [ -n "$PLATFORM" ]; then
-    IMAGE_ARCH=$(docker image inspect "$IMAGE" --format '{{.Architecture}}')
-    case "$PLATFORM:$IMAGE_ARCH" in
-        linux/amd64:amd64|linux/arm64:arm64) ;;
-        *) fail 'loaded image architecture does not match PLATFORM' ;;
-    esac
-fi
+ensure_test_image "$IMAGE" "$BUILD_IMAGE" "$PLATFORM" || fail 'release image identity could not be ensured'
+pass 'release image has the exact deterministic source and platform identity'
 
 for reserved_container in "$MAIN_CONTAINER" "$NONEMPTY_CONTAINER" "$HELPER_CONTAINER"; do
     if docker container inspect "$reserved_container" >/dev/null 2>&1; then

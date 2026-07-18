@@ -16,11 +16,14 @@ import (
 	"net/http"
 	"slices"
 	"time"
+
+	"github.com/kuroky/nginx-uix/internal/config"
 )
 
 const (
-	agentClientBaseURL        = "http://nginx-uix-agent"
-	agentClientRequestTimeout = 30 * time.Second
+	agentClientBaseURL          = "http://nginx-uix-agent"
+	agentClientRequestTimeout   = 30 * time.Second
+	agentClientTransportTimeout = 65 * time.Second
 )
 
 var errAgentInvalidResponse = errors.New("invalid agent response")
@@ -37,7 +40,7 @@ func NewAgentClient() *AgentClient {
 }
 
 func newAgentClient(socketPath string) *AgentClient {
-	dialer := &net.Dialer{Timeout: agentClientRequestTimeout}
+	dialer := &net.Dialer{Timeout: agentClientTransportTimeout}
 	transport := &http.Transport{
 		Proxy: nil,
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
@@ -46,8 +49,8 @@ func newAgentClient(socketPath string) *AgentClient {
 		DisableCompression:     true,
 		MaxIdleConns:           1,
 		MaxIdleConnsPerHost:    1,
-		IdleConnTimeout:        agentClientRequestTimeout,
-		ResponseHeaderTimeout:  agentClientRequestTimeout,
+		IdleConnTimeout:        agentClientTransportTimeout,
+		ResponseHeaderTimeout:  agentClientTransportTimeout,
 		MaxResponseHeaderBytes: agentMaxHeaderBytes,
 		ForceAttemptHTTP2:      false,
 	}
@@ -55,7 +58,6 @@ func newAgentClient(socketPath string) *AgentClient {
 		socketPath: socketPath,
 		httpClient: &http.Client{
 			Transport: transport,
-			Timeout:   agentClientRequestTimeout,
 			CheckRedirect: func(*http.Request, []*http.Request) error {
 				return http.ErrUseLastResponse
 			},
@@ -111,7 +113,60 @@ func (c *AgentClient) EffectiveConfig(ctx context.Context) (EffectiveConfig, err
 	return effectiveConfigFromAgentResponse(response), nil
 }
 
+// ConfigSnapshot asks the Agent to snapshot one opaque ID beneath its fixed workspace root.
+func (c *AgentClient) ConfigSnapshot(ctx context.Context, requestID string, id config.WorkspaceID) (config.Snapshot, error) {
+	if !validAgentRequestID(requestID) {
+		return config.Snapshot{}, newAgentClientProtocolError(agentErrorCodeInvalidRequest)
+	}
+	parsedID, err := config.ParseWorkspaceID(string(id))
+	if err != nil || parsedID != id {
+		return config.Snapshot{}, newAgentClientProtocolError(agentErrorCodeInvalidRequest)
+	}
+	payload, err := json.Marshal(agentConfigSnapshotRequest{ProtocolVersion: agentProtocolVersion, WorkspaceID: string(id)})
+	if err != nil {
+		return config.Snapshot{}, newAgentClientProtocolError(agentErrorCodeInternal)
+	}
+	payload = append(payload, '\n')
+	var response agentConfigSnapshotResponse
+	if err := c.doJSON(ctx, requestID, http.MethodPost, agentProtocolConfigSnapshotPath, payload, agentSnapshotTimeout, &response); err != nil {
+		return config.Snapshot{}, fmt.Errorf("get agent config snapshot: %w", err)
+	}
+	snapshot, err := configSnapshotFromAgentResponse(response)
+	if err != nil {
+		return config.Snapshot{}, fmt.Errorf("get agent config snapshot: %w", newAgentClientProtocolError(agentErrorCodeInternal))
+	}
+	return snapshot, nil
+}
+
+// ConfigDigest asks the Agent to digest only its fixed production root.
+func (c *AgentClient) ConfigDigest(ctx context.Context, requestID string) (config.ProductionState, error) {
+	if !validAgentRequestID(requestID) {
+		return config.ProductionState{}, newAgentClientProtocolError(agentErrorCodeInvalidRequest)
+	}
+	var response agentConfigDigestResponse
+	if err := c.doJSON(ctx, requestID, http.MethodGet, agentProtocolConfigDigestPath, nil, agentDigestTimeout, &response); err != nil {
+		return config.ProductionState{}, fmt.Errorf("get agent config digest: %w", err)
+	}
+	state, err := configDigestFromAgentResponse(response)
+	if err != nil {
+		return config.ProductionState{}, fmt.Errorf("get agent config digest: %w", newAgentClientProtocolError(agentErrorCodeInternal))
+	}
+	return state, nil
+}
+
 func (c *AgentClient) get(ctx context.Context, path string, target any) error {
+	return c.doJSON(ctx, "", http.MethodGet, path, nil, agentClientRequestTimeout, target)
+}
+
+func (c *AgentClient) doJSON(
+	ctx context.Context,
+	requestID string,
+	method string,
+	path string,
+	body []byte,
+	timeout time.Duration,
+	target any,
+) error {
 	if ctx == nil {
 		return newAgentClientProtocolError(agentErrorCodeInternal)
 	}
@@ -121,18 +176,33 @@ func (c *AgentClient) get(ctx context.Context, path string, target any) error {
 	if c == nil || c.httpClient == nil {
 		return newAgentClientProtocolError(agentErrorCodeInternal)
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, agentClientBaseURL+path, nil)
+	if timeout <= 0 || (requestID != "" && !validAgentRequestID(requestID)) {
+		return newAgentClientProtocolError(agentErrorCodeInvalidRequest)
+	}
+	operationCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	var reader io.Reader
+	if body != nil {
+		reader = bytes.NewReader(body)
+	}
+	request, err := http.NewRequestWithContext(operationCtx, method, agentClientBaseURL+path, reader)
 	if err != nil {
 		return newAgentClientProtocolError(agentErrorCodeInternal)
 	}
 	request.Header.Set("Accept", agentProtocolContentType)
+	if body != nil {
+		request.Header.Set("Content-Type", agentProtocolContentType)
+	}
+	if requestID != "" {
+		request.Header.Set("X-Request-ID", requestID)
+	}
 
 	response, err := c.httpClient.Do(request)
 	if err != nil {
-		return classifyAgentClientIOError(ctx, err)
+		return classifyAgentClientIOError(operationCtx, err)
 	}
 	payload, err := readAgentClientResponse(response)
-	if ctxErr := ctx.Err(); ctxErr != nil {
+	if ctxErr := operationCtx.Err(); ctxErr != nil {
 		return ctxErr
 	}
 	if err != nil {
@@ -193,6 +263,9 @@ func decodeAgentClientJSON(payload []byte, target any) error {
 	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
 		return errAgentInvalidResponse
 	}
+	if rejectDuplicateAgentJSONFields(payload) != nil {
+		return errAgentInvalidResponse
+	}
 	decoder := json.NewDecoder(bytes.NewReader(payload))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {
@@ -200,6 +273,64 @@ func decodeAgentClientJSON(payload []byte, target any) error {
 	}
 	var trailing any
 	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return errAgentInvalidResponse
+	}
+	return nil
+}
+
+func rejectDuplicateAgentJSONFields(payload []byte) error {
+	decoder := json.NewDecoder(bytes.NewReader(payload))
+	decoder.UseNumber()
+	if err := consumeAgentJSONValue(decoder); err != nil {
+		return err
+	}
+	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
+		return errAgentInvalidResponse
+	}
+	return nil
+}
+
+func consumeAgentJSONValue(decoder *json.Decoder) error {
+	token, err := decoder.Token()
+	if err != nil {
+		return err
+	}
+	delimiter, ok := token.(json.Delim)
+	if !ok {
+		return nil
+	}
+	switch delimiter {
+	case '{':
+		seen := make(map[string]struct{})
+		for decoder.More() {
+			rawKey, err := decoder.Token()
+			key, ok := rawKey.(string)
+			if err != nil || !ok {
+				return errAgentInvalidResponse
+			}
+			if _, duplicate := seen[key]; duplicate {
+				return errAgentInvalidResponse
+			}
+			seen[key] = struct{}{}
+			if err := consumeAgentJSONValue(decoder); err != nil {
+				return err
+			}
+		}
+		closing, err := decoder.Token()
+		if err != nil || closing != json.Delim('}') {
+			return errAgentInvalidResponse
+		}
+	case '[':
+		for decoder.More() {
+			if err := consumeAgentJSONValue(decoder); err != nil {
+				return err
+			}
+		}
+		closing, err := decoder.Token()
+		if err != nil || closing != json.Delim(']') {
+			return errAgentInvalidResponse
+		}
+	default:
 		return errAgentInvalidResponse
 	}
 	return nil
@@ -231,11 +362,57 @@ func newAgentClientProtocolError(code string) *AgentProtocolError {
 		return &AgentProtocolError{Code: code, Message: "nginx operation timed out", cause: ErrCommandTimeout}
 	case agentErrorCodeCommandOutputLarge:
 		return &AgentProtocolError{Code: code, Message: "nginx output exceeded limit", cause: ErrOutputTooLarge}
+	case agentErrorCodeConfigPathInvalid:
+		return &AgentProtocolError{Code: code, Message: "configuration path is invalid", cause: config.ErrPathInvalid}
+	case agentErrorCodeConfigLimitExceeded:
+		return &AgentProtocolError{Code: code, Message: "configuration limit exceeded", cause: config.ErrLimitExceeded}
+	case agentErrorCodeConfigSnapshotChanged:
+		return &AgentProtocolError{Code: code, Message: "configuration changed during snapshot", cause: config.ErrSnapshotChanged}
+	case agentErrorCodeConfigOperationTimeout:
+		return &AgentProtocolError{Code: code, Message: "configuration operation timed out", cause: context.DeadlineExceeded}
 	case agentErrorCodeInternal:
 		return &AgentProtocolError{Code: code, Message: "agent operation failed"}
 	default:
 		return &AgentProtocolError{Code: agentErrorCodeInternal, Message: "agent operation failed"}
 	}
+}
+
+func configSnapshotFromAgentResponse(response agentConfigSnapshotResponse) (config.Snapshot, error) {
+	if !response.BaseComplete {
+		return config.Snapshot{}, errAgentInvalidResponse
+	}
+	manifest, err := config.ParseManifest(response.Manifest, config.DefaultLimits())
+	if err != nil || response.ManifestVersion != manifest.SchemaVersion || response.EntryCount != manifest.EntryCount ||
+		response.ManagedBytes != manifest.ManagedBytes {
+		return config.Snapshot{}, errAgentInvalidResponse
+	}
+	productionDigest, err := config.ParseDigest(response.ProductionDigest)
+	if err != nil {
+		return config.Snapshot{}, errAgentInvalidResponse
+	}
+	baseDigest, err := config.ParseDigest(response.BaseDigest)
+	if err != nil {
+		return config.Snapshot{}, errAgentInvalidResponse
+	}
+	manifestDigest := manifest.Digest()
+	if manifestDigest == (config.Digest{}) || productionDigest != manifestDigest || baseDigest != manifestDigest {
+		return config.Snapshot{}, errAgentInvalidResponse
+	}
+	return config.Snapshot{Manifest: manifest, ProductionDigest: productionDigest, BaseDigest: baseDigest}, nil
+}
+
+func configDigestFromAgentResponse(response agentConfigDigestResponse) (config.ProductionState, error) {
+	digest, err := config.ParseDigest(response.ProductionDigest)
+	limits := config.DefaultLimits()
+	if err != nil || digest == (config.Digest{}) || response.ManifestVersion != config.ManifestSchemaVersion ||
+		response.EntryCount <= 0 || response.EntryCount > limits.MaxEntries ||
+		response.ManagedBytes < 0 || response.ManagedBytes > limits.MaxManagedBytes {
+		return config.ProductionState{}, errAgentInvalidResponse
+	}
+	return config.ProductionState{
+		Digest: digest, ManifestVersion: response.ManifestVersion,
+		EntryCount: response.EntryCount, ManagedBytes: response.ManagedBytes,
+	}, nil
 }
 
 func buildInfoFromAgentResponse(response agentBuildInfoResponse) BuildInfo {

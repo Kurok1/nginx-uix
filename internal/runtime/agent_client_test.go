@@ -7,6 +7,7 @@ package runtime
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"io"
@@ -20,6 +21,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/kuroky/nginx-uix/internal/config"
 )
 
 func TestNewAgentClientUsesOnlyFixedProductionSocket(t *testing.T) {
@@ -39,6 +42,177 @@ func TestNewAgentClientUsesOnlyFixedProductionSocket(t *testing.T) {
 	}
 	if got := transport.MaxResponseHeaderBytes; got <= 0 || got > agentMaxHeaderBytes {
 		t.Fatalf("MaxResponseHeaderBytes = %d, want a positive limit no greater than %d", got, agentMaxHeaderBytes)
+	}
+	if client.httpClient.Timeout != 0 {
+		t.Fatalf("http client timeout = %v, want operation-specific contexts", client.httpClient.Timeout)
+	}
+	if transport.ResponseHeaderTimeout < 65*time.Second || transport.ResponseHeaderTimeout > 2*time.Minute {
+		t.Fatalf("ResponseHeaderTimeout = %v, want finite timeout of at least 65s", transport.ResponseHeaderTimeout)
+	}
+}
+
+func TestAgentClientConfigSnapshotSendsOnlyCorrelatedWorkspaceID(t *testing.T) {
+	want := testAgentConfigSnapshot(t)
+	requests := make(chan agentClientRequest, 1)
+	path := startAgentClientUnixServer(t, http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		body, err := io.ReadAll(request.Body)
+		requests <- agentClientRequest{
+			method: request.Method, path: request.URL.Path, rawQuery: request.URL.RawQuery,
+			body: body, readErr: err, accept: request.Header.Get("Accept"),
+			contentType: request.Header.Get("Content-Type"), requestIDs: request.Header.Values("X-Request-ID"),
+		}
+		response, responseErr := newAgentConfigSnapshotResponse(want)
+		if responseErr != nil {
+			t.Error(responseErr)
+			return
+		}
+		writer.Header().Set("Content-Type", agentProtocolContentType)
+		_ = json.NewEncoder(writer).Encode(response)
+	}))
+
+	got, err := newAgentClient(path).ConfigSnapshot(context.Background(), "public-request-1", testConfigWorkspaceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("ConfigSnapshot() = %#v, want %#v", got, want)
+	}
+	request := <-requests
+	if request.readErr != nil {
+		t.Fatal(request.readErr)
+	}
+	if request.method != http.MethodPost || request.path != agentProtocolConfigSnapshotPath || request.rawQuery != "" {
+		t.Fatalf("request = %s %s?%s", request.method, request.path, request.rawQuery)
+	}
+	wantBody := `{"protocol_version":1,"workspace_id":"0123456789abcdef0123456789abcdef"}` + "\n"
+	if string(request.body) != wantBody {
+		t.Fatalf("body = %q, want %q", request.body, wantBody)
+	}
+	if request.contentType != agentProtocolContentType || request.accept != agentProtocolContentType || !reflect.DeepEqual(request.requestIDs, []string{"public-request-1"}) {
+		t.Fatalf("headers = content-type %q accept %q request IDs %#v", request.contentType, request.accept, request.requestIDs)
+	}
+}
+
+func TestAgentClientConfigDigestSendsCorrelatedBodylessGET(t *testing.T) {
+	want := config.ProductionState{
+		Digest: config.Digest(sha256.Sum256([]byte("production"))), ManifestVersion: config.ManifestSchemaVersion,
+		EntryCount: 3, ManagedBytes: 128,
+	}
+	requests := make(chan agentClientRequest, 1)
+	path := startAgentClientUnixServer(t, http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		body, err := io.ReadAll(request.Body)
+		requests <- agentClientRequest{
+			method: request.Method, path: request.URL.Path, rawQuery: request.URL.RawQuery,
+			body: body, readErr: err, accept: request.Header.Get("Accept"),
+			contentType: request.Header.Get("Content-Type"), requestIDs: request.Header.Values("X-Request-ID"),
+		}
+		writer.Header().Set("Content-Type", agentProtocolContentType)
+		_ = json.NewEncoder(writer).Encode(newAgentConfigDigestResponse(want))
+	}))
+
+	got, err := newAgentClient(path).ConfigDigest(context.Background(), "public-request-2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Fatalf("ConfigDigest() = %#v, want %#v", got, want)
+	}
+	request := <-requests
+	if request.readErr != nil || request.method != http.MethodGet || request.path != agentProtocolConfigDigestPath || request.rawQuery != "" || len(request.body) != 0 {
+		t.Fatalf("request = %#v", request)
+	}
+	if request.contentType != "" || request.accept != agentProtocolContentType || !reflect.DeepEqual(request.requestIDs, []string{"public-request-2"}) {
+		t.Fatalf("headers = content-type %q accept %q request IDs %#v", request.contentType, request.accept, request.requestIDs)
+	}
+}
+
+func TestAgentClientConfigSnapshotRejectsInconsistentManifestResponse(t *testing.T) {
+	snapshot := testAgentConfigSnapshot(t)
+	valid, err := newAgentConfigSnapshotResponse(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name    string
+		payload func(agentConfigSnapshotResponse) string
+	}{
+		{name: "base incomplete", payload: func(response agentConfigSnapshotResponse) string {
+			response.BaseComplete = false
+			return mustAgentClientJSON(t, response)
+		}},
+		{name: "manifest version", payload: func(response agentConfigSnapshotResponse) string {
+			response.ManifestVersion++
+			return mustAgentClientJSON(t, response)
+		}},
+		{name: "entry count", payload: func(response agentConfigSnapshotResponse) string {
+			response.EntryCount++
+			return mustAgentClientJSON(t, response)
+		}},
+		{name: "managed bytes", payload: func(response agentConfigSnapshotResponse) string {
+			response.ManagedBytes++
+			return mustAgentClientJSON(t, response)
+		}},
+		{name: "production digest", payload: func(response agentConfigSnapshotResponse) string {
+			response.ProductionDigest = strings.Repeat("0", 64)
+			return mustAgentClientJSON(t, response)
+		}},
+		{name: "base digest", payload: func(response agentConfigSnapshotResponse) string {
+			response.BaseDigest = "invalid"
+			return mustAgentClientJSON(t, response)
+		}},
+		{name: "manifest", payload: func(response agentConfigSnapshotResponse) string {
+			response.Manifest = []byte("not a manifest")
+			return mustAgentClientJSON(t, response)
+		}},
+		{name: "unknown field", payload: func(response agentConfigSnapshotResponse) string {
+			return strings.TrimSuffix(mustAgentClientJSON(t, response), "}") + `,"secret":"value"}`
+		}},
+		{name: "duplicate field", payload: func(response agentConfigSnapshotResponse) string {
+			return strings.TrimSuffix(mustAgentClientJSON(t, response), "}") + `,"entry_count":1}`
+		}},
+		{name: "trailing JSON", payload: func(response agentConfigSnapshotResponse) string { return mustAgentClientJSON(t, response) + `{}` }},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			path := startAgentClientUnixServer(t, http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				writer.Header().Set("Content-Type", agentProtocolContentType)
+				_, _ = io.WriteString(writer, test.payload(valid))
+			}))
+			got, err := newAgentClient(path).ConfigSnapshot(context.Background(), "request-1", testConfigWorkspaceID)
+			if !reflect.DeepEqual(got, config.Snapshot{}) {
+				t.Fatalf("ConfigSnapshot() = %#v, want zero value", got)
+			}
+			assertAgentClientError(t, err, agentErrorCodeInternal, nil)
+			if strings.Contains(err.Error(), "secret") || strings.Contains(err.Error(), "manifest") {
+				t.Fatalf("ConfigSnapshot() error leaked response: %v", err)
+			}
+		})
+	}
+}
+
+func TestAgentClientConfigOperationsRejectInvalidCorrelationBeforeDial(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		requestID string
+		id        config.WorkspaceID
+	}{
+		{name: "missing request ID", id: testConfigWorkspaceID},
+		{name: "invalid request ID", requestID: "request id", id: testConfigWorkspaceID},
+		{name: "invalid workspace ID", requestID: "request-1", id: "/etc/nginx"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			hits := atomic.Int32{}
+			client := &AgentClient{httpClient: &http.Client{Transport: agentClientRoundTripper(func(*http.Request) (*http.Response, error) {
+				hits.Add(1)
+				return nil, errors.New("unexpected dial")
+			})}}
+			_, err := client.ConfigSnapshot(context.Background(), test.requestID, test.id)
+			assertAgentClientError(t, err, agentErrorCodeInvalidRequest, nil)
+			if hits.Load() != 0 {
+				t.Fatalf("transport hits = %d, want 0", hits.Load())
+			}
+		})
 	}
 }
 
@@ -180,6 +354,14 @@ func TestAgentClientCancelsEveryCallContext(t *testing.T) {
 			_, err := client.EffectiveConfig(ctx)
 			return err
 		}},
+		{name: "config snapshot", call: func(ctx context.Context, client *AgentClient) error {
+			_, err := client.ConfigSnapshot(ctx, "request-cancel", testConfigWorkspaceID)
+			return err
+		}},
+		{name: "config digest", call: func(ctx context.Context, client *AgentClient) error {
+			_, err := client.ConfigDigest(ctx, "request-cancel")
+			return err
+		}},
 	}
 
 	for _, test := range tests {
@@ -187,6 +369,12 @@ func TestAgentClientCancelsEveryCallContext(t *testing.T) {
 			started := make(chan struct{})
 			serverCanceled := make(chan struct{})
 			path := startAgentClientUnixServer(t, http.HandlerFunc(func(_ http.ResponseWriter, request *http.Request) {
+				if _, err := io.Copy(io.Discard, request.Body); err != nil {
+					t.Errorf("read request body: %v", err)
+				}
+				if err := request.Body.Close(); err != nil {
+					t.Errorf("close request body: %v", err)
+				}
 				close(started)
 				<-request.Context().Done()
 				close(serverCanceled)
@@ -310,6 +498,10 @@ func TestAgentClientMapsStableErrorsWithoutServerDiagnostics(t *testing.T) {
 		{name: "command timeout", status: http.StatusGatewayTimeout, code: agentErrorCodeCommandTimeout, want: ErrCommandTimeout, wantMessage: "nginx operation timed out"},
 		{name: "command output", status: http.StatusBadGateway, code: agentErrorCodeCommandOutputLarge, want: ErrOutputTooLarge, wantMessage: "nginx output exceeded limit"},
 		{name: "encoded response", status: http.StatusInternalServerError, code: agentErrorCodeResponseTooLarge, want: errAgentResponseTooLarge, wantMessage: "agent response exceeded limit"},
+		{name: "config path", status: http.StatusBadRequest, code: agentErrorCodeConfigPathInvalid, want: config.ErrPathInvalid, wantMessage: "configuration path is invalid"},
+		{name: "config limit", status: http.StatusRequestEntityTooLarge, code: agentErrorCodeConfigLimitExceeded, want: config.ErrLimitExceeded, wantMessage: "configuration limit exceeded"},
+		{name: "config changed", status: http.StatusConflict, code: agentErrorCodeConfigSnapshotChanged, want: config.ErrSnapshotChanged, wantMessage: "configuration changed during snapshot"},
+		{name: "config timeout", status: http.StatusGatewayTimeout, code: agentErrorCodeConfigOperationTimeout, want: context.DeadlineExceeded, wantMessage: "configuration operation timed out"},
 		{name: "internal", status: http.StatusInternalServerError, code: agentErrorCodeInternal, wantMessage: "agent operation failed"},
 	}
 
@@ -364,12 +556,29 @@ func TestAgentClientDoesNotUseProxyOrTCPFallback(t *testing.T) {
 }
 
 type agentClientRequest struct {
-	method   string
-	path     string
-	rawQuery string
-	body     []byte
-	readErr  error
-	accept   string
+	method      string
+	path        string
+	rawQuery    string
+	body        []byte
+	readErr     error
+	accept      string
+	contentType string
+	requestIDs  []string
+}
+
+type agentClientRoundTripper func(*http.Request) (*http.Response, error)
+
+func (roundTripper agentClientRoundTripper) RoundTrip(request *http.Request) (*http.Response, error) {
+	return roundTripper(request)
+}
+
+func mustAgentClientJSON(t *testing.T, value any) string {
+	t.Helper()
+	payload, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(payload)
 }
 
 func assertAgentClientError(t *testing.T, err error, wantCode string, wantCause error) {

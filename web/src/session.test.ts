@@ -7,8 +7,10 @@ import type { LoginRequest, SessionResponse } from './api/types'
 import { createSessionStore, type SessionClient } from './session'
 
 const currentSession: SessionResponse = {
-  user: { id: 7, username: 'operator' },
+  user: { id: 7, username: 'operator', created_at: '2026-07-14T11:00:00Z' },
   csrf_token: 'csrf-token',
+  created_at: '2026-07-14T12:00:00Z',
+  last_seen_at: '2026-07-14T12:30:00Z',
   idle_expires_at: '2026-07-14T20:00:00Z',
   absolute_expires_at: '2026-07-15T12:00:00Z',
 }
@@ -114,5 +116,27 @@ describe('in-memory session store', () => {
     expect(storageWrite).not.toHaveBeenCalled()
     expect(localStorage.length).toBe(0)
     expect(sessionStorage.length).toBe(0)
+  })
+
+  it('notifies in-memory subscribers once when an authenticated session expires', async () => {
+    const store = createSessionStore(createClient())
+    const expired = vi.fn()
+    const unsubscribe = store.onExpired(expired)
+    await store.restore()
+
+    const error = new APIRequestError({
+      kind: 'api',
+      message: 'session expired',
+      status: 401,
+      apiError: { code: 'AUTH_SESSION_EXPIRED', message: 'session expired', request_id: 'request-3' },
+    })
+    expect(store.handleAPIError(error)).toBe(true)
+    expect(store.handleAPIError(error)).toBe(true)
+
+    expect(expired).toHaveBeenCalledTimes(1)
+    unsubscribe()
+    await store.login({ username: 'operator', password: 'correct horse battery staple' })
+    expect(store.handleAPIError(error)).toBe(true)
+    expect(expired).toHaveBeenCalledTimes(1)
   })
 })

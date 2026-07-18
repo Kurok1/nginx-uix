@@ -3,7 +3,7 @@
 openapi: 3.1.0
 info:
   title: Nginx UIX API
-  version: 0.1.0
+  version: 0.2.1
 servers:
   - url: /
 paths:
@@ -172,12 +172,861 @@ paths:
           $ref: "#/components/responses/APIError"
         "504":
           $ref: "#/components/responses/APIError"
+  /api/v1/config/workspaces:
+    get:
+      operationId: listConfigWorkspaces
+      summary: List bounded configuration workspaces
+      description: Returns at most eight workspaces ordered by updated_at descending and id ascending. Unknown query parameters are rejected.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/RequestID"
+      responses:
+        "200":
+          description: Stable workspace list
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestID"
+            Cache-Control:
+              schema:
+                type: string
+                enum: [no-store]
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceList"
+        "400":
+          $ref: "#/components/responses/ConfigAPIError"
+        "401":
+          $ref: "#/components/responses/ConfigAPIError"
+        "413":
+          $ref: "#/components/responses/ConfigAPIError"
+        "500":
+          $ref: "#/components/responses/ConfigAPIError"
+        "503":
+          $ref: "#/components/responses/ConfigAPIError"
+        "504":
+          $ref: "#/components/responses/ConfigAPIError"
+    post:
+      operationId: createConfigWorkspace
+      summary: Create a persistent configuration workspace
+      description: Creates a bounded workspace from a stable production snapshot. Unknown query parameters are rejected.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/Origin"
+        - $ref: "#/components/parameters/CSRFToken"
+        - $ref: "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        description: Strict JSON object limited to 4096 bytes.
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateWorkspaceRequest"
+      responses:
+        "201":
+          description: Ready workspace
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestID"
+            Cache-Control:
+              schema:
+                type: string
+                enum: [no-store]
+            ETag:
+              schema:
+                type: string
+                pattern: '^"draft-v1:[0-9a-f]{64}"$'
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceDetail"
+        "400":
+          $ref: "#/components/responses/ConfigAPIError"
+        "401":
+          $ref: "#/components/responses/ConfigAPIError"
+        "403":
+          $ref: "#/components/responses/ConfigAPIError"
+        "409":
+          $ref: "#/components/responses/ConfigAPIError"
+        "413":
+          $ref: "#/components/responses/ConfigAPIError"
+        "415":
+          $ref: "#/components/responses/ConfigAPIError"
+        "422":
+          $ref: "#/components/responses/ConfigAPIError"
+        "500":
+          $ref: "#/components/responses/ConfigAPIError"
+        "503":
+          $ref: "#/components/responses/ConfigAPIError"
+        "504":
+          $ref: "#/components/responses/ConfigAPIError"
+  /api/v1/config/workspaces/{workspace_id}:
+    get:
+      operationId: getConfigWorkspace
+      summary: Get one configuration workspace
+      description: Returns current bounded workspace metadata. Unknown query parameters are rejected.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - $ref: "#/components/parameters/RequestID"
+      responses:
+        "200":
+          description: Current workspace metadata
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestID"
+            Cache-Control:
+              schema:
+                type: string
+                enum: [no-store]
+            ETag:
+              schema:
+                type: string
+                pattern: '^"draft-v1:[0-9a-f]{64}"$'
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceDetail"
+        "400":
+          $ref: "#/components/responses/ConfigAPIError"
+        "401":
+          $ref: "#/components/responses/ConfigAPIError"
+        "404":
+          $ref: "#/components/responses/ConfigAPIError"
+        "500":
+          $ref: "#/components/responses/ConfigAPIError"
+        "503":
+          $ref: "#/components/responses/ConfigAPIError"
+        "504":
+          $ref: "#/components/responses/ConfigAPIError"
+    delete:
+      operationId: deleteConfigWorkspace
+      summary: Delete one named configuration workspace
+      description: Deletes only the selected persistent workspace after exact name and strong workspace identity confirmation. Unknown query parameters are rejected.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - $ref: "#/components/parameters/Origin"
+        - $ref: "#/components/parameters/CSRFToken"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        description: Strict JSON object limited to 262144 bytes.
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeleteWorkspaceRequest"
+      responses:
+        "204":
+          description: Workspace deleted
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestID"
+            Cache-Control:
+              schema:
+                type: string
+                enum: [no-store]
+        "400":
+          $ref: "#/components/responses/ConfigAPIError"
+        "401":
+          $ref: "#/components/responses/ConfigAPIError"
+        "403":
+          $ref: "#/components/responses/ConfigAPIError"
+        "404":
+          $ref: "#/components/responses/ConfigAPIError"
+        "409":
+          $ref: "#/components/responses/ConfigAPIError"
+        "413":
+          $ref: "#/components/responses/ConfigAPIError"
+        "415":
+          $ref: "#/components/responses/ConfigAPIError"
+        "422":
+          $ref: "#/components/responses/ConfigAPIError"
+        "500":
+          $ref: "#/components/responses/ConfigAPIError"
+        "503":
+          $ref: "#/components/responses/ConfigAPIError"
+        "504":
+          $ref: "#/components/responses/ConfigAPIError"
+  /api/v1/config/workspaces/{workspace_id}/files:
+    get:
+      operationId: getConfigWorkspaceFiles
+      summary: Get the configuration tree or one explicit managed file
+      description: Without path returns the complete bounded tree; with path returns only that managed text file. Unknown or repeated query parameters are rejected.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - name: path
+          in: query
+          required: false
+          description: Optional relative path accepted exactly once when present; 1024 UTF-8 bytes maximum.
+          schema:
+            type: string
+        - $ref: "#/components/parameters/RequestID"
+      responses:
+        "200":
+          description: Configuration tree or explicit file
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestID"
+            Cache-Control:
+              schema:
+                type: string
+                enum: [no-store]
+            ETag:
+              schema:
+                type: string
+                pattern: '^"draft-v1:[0-9a-f]{64}"$'
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/ConfigTree"
+                  - $ref: "#/components/schemas/ConfigFile"
+        "400":
+          $ref: "#/components/responses/ConfigAPIError"
+        "401":
+          $ref: "#/components/responses/ConfigAPIError"
+        "404":
+          $ref: "#/components/responses/ConfigAPIError"
+        "413":
+          $ref: "#/components/responses/ConfigAPIError"
+        "422":
+          $ref: "#/components/responses/ConfigAPIError"
+        "500":
+          $ref: "#/components/responses/ConfigAPIError"
+        "503":
+          $ref: "#/components/responses/ConfigAPIError"
+        "504":
+          $ref: "#/components/responses/ConfigAPIError"
+    post:
+      operationId: createConfigFile
+      summary: Create one managed text file
+      description: Creates a new relative path without replacing an existing entry. Unknown query parameters are rejected.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - $ref: "#/components/parameters/Origin"
+        - $ref: "#/components/parameters/CSRFToken"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        description: Strict JSON envelope limited to 2162688 bytes, containing at most 2097152 UTF-8 content bytes.
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateFileRequest"
+      responses:
+        "201":
+          description: File created and workspace identity rotated
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestID"
+            Cache-Control:
+              schema:
+                type: string
+                enum: [no-store]
+            ETag:
+              schema:
+                type: string
+                pattern: '^"draft-v1:[0-9a-f]{64}"$'
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FileMutationResponse"
+        "400":
+          $ref: "#/components/responses/ConfigAPIError"
+        "401":
+          $ref: "#/components/responses/ConfigAPIError"
+        "403":
+          $ref: "#/components/responses/ConfigAPIError"
+        "404":
+          $ref: "#/components/responses/ConfigAPIError"
+        "409":
+          $ref: "#/components/responses/ConfigAPIError"
+        "413":
+          $ref: "#/components/responses/ConfigAPIError"
+        "415":
+          $ref: "#/components/responses/ConfigAPIError"
+        "422":
+          $ref: "#/components/responses/ConfigAPIError"
+        "500":
+          $ref: "#/components/responses/ConfigAPIError"
+        "503":
+          $ref: "#/components/responses/ConfigAPIError"
+        "504":
+          $ref: "#/components/responses/ConfigAPIError"
+    put:
+      operationId: replaceConfigFile
+      summary: Replace one managed text file
+      description: Replaces the file selected by the required path query. Unknown or repeated query parameters are rejected.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - $ref: "#/components/parameters/RequiredConfigPath"
+        - $ref: "#/components/parameters/Origin"
+        - $ref: "#/components/parameters/CSRFToken"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        description: Strict JSON envelope limited to 2162688 bytes, containing at most 2097152 UTF-8 content bytes.
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReplaceFileRequest"
+      responses:
+        "200":
+          description: File replaced and workspace identity rotated
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestID"
+            Cache-Control:
+              schema:
+                type: string
+                enum: [no-store]
+            ETag:
+              schema:
+                type: string
+                pattern: '^"draft-v1:[0-9a-f]{64}"$'
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FileMutationResponse"
+        "400":
+          $ref: "#/components/responses/ConfigAPIError"
+        "401":
+          $ref: "#/components/responses/ConfigAPIError"
+        "403":
+          $ref: "#/components/responses/ConfigAPIError"
+        "404":
+          $ref: "#/components/responses/ConfigAPIError"
+        "409":
+          $ref: "#/components/responses/ConfigAPIError"
+        "413":
+          $ref: "#/components/responses/ConfigAPIError"
+        "415":
+          $ref: "#/components/responses/ConfigAPIError"
+        "422":
+          $ref: "#/components/responses/ConfigAPIError"
+        "500":
+          $ref: "#/components/responses/ConfigAPIError"
+        "503":
+          $ref: "#/components/responses/ConfigAPIError"
+        "504":
+          $ref: "#/components/responses/ConfigAPIError"
+    patch:
+      operationId: renameConfigFile
+      summary: Rename one managed text file
+      description: Moves the file selected by the required path query to a new non-existing relative path. Unknown or repeated query parameters are rejected.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - $ref: "#/components/parameters/RequiredConfigPath"
+        - $ref: "#/components/parameters/Origin"
+        - $ref: "#/components/parameters/CSRFToken"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        description: Strict JSON object limited to 262144 bytes.
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RenameFileRequest"
+      responses:
+        "200":
+          description: File renamed and workspace identity rotated
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestID"
+            Cache-Control:
+              schema:
+                type: string
+                enum: [no-store]
+            ETag:
+              schema:
+                type: string
+                pattern: '^"draft-v1:[0-9a-f]{64}"$'
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FileMutationResponse"
+        "400":
+          $ref: "#/components/responses/ConfigAPIError"
+        "401":
+          $ref: "#/components/responses/ConfigAPIError"
+        "403":
+          $ref: "#/components/responses/ConfigAPIError"
+        "404":
+          $ref: "#/components/responses/ConfigAPIError"
+        "409":
+          $ref: "#/components/responses/ConfigAPIError"
+        "413":
+          $ref: "#/components/responses/ConfigAPIError"
+        "415":
+          $ref: "#/components/responses/ConfigAPIError"
+        "422":
+          $ref: "#/components/responses/ConfigAPIError"
+        "500":
+          $ref: "#/components/responses/ConfigAPIError"
+        "503":
+          $ref: "#/components/responses/ConfigAPIError"
+        "504":
+          $ref: "#/components/responses/ConfigAPIError"
+    delete:
+      operationId: deleteConfigFile
+      summary: Delete one confirmed managed text file
+      description: Deletes the file selected by the required path query after exact path confirmation. Unknown or repeated query parameters are rejected.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - $ref: "#/components/parameters/RequiredConfigPath"
+        - $ref: "#/components/parameters/Origin"
+        - $ref: "#/components/parameters/CSRFToken"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        description: Strict JSON object limited to 262144 bytes.
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeleteFileRequest"
+      responses:
+        "200":
+          description: File deleted and workspace identity rotated
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestID"
+            Cache-Control:
+              schema:
+                type: string
+                enum: [no-store]
+            ETag:
+              schema:
+                type: string
+                pattern: '^"draft-v1:[0-9a-f]{64}"$'
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FileMutationResponse"
+        "400":
+          $ref: "#/components/responses/ConfigAPIError"
+        "401":
+          $ref: "#/components/responses/ConfigAPIError"
+        "403":
+          $ref: "#/components/responses/ConfigAPIError"
+        "404":
+          $ref: "#/components/responses/ConfigAPIError"
+        "409":
+          $ref: "#/components/responses/ConfigAPIError"
+        "413":
+          $ref: "#/components/responses/ConfigAPIError"
+        "415":
+          $ref: "#/components/responses/ConfigAPIError"
+        "422":
+          $ref: "#/components/responses/ConfigAPIError"
+        "500":
+          $ref: "#/components/responses/ConfigAPIError"
+        "503":
+          $ref: "#/components/responses/ConfigAPIError"
+        "504":
+          $ref: "#/components/responses/ConfigAPIError"
+  /api/v1/config/workspaces/{workspace_id}/files/copies:
+    post:
+      operationId: copyConfigFile
+      summary: Copy one managed text file
+      description: Copies one relative source path to a new non-existing relative destination. Unknown query parameters are rejected.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - $ref: "#/components/parameters/Origin"
+        - $ref: "#/components/parameters/CSRFToken"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        description: Strict JSON object limited to 262144 bytes.
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CopyFileRequest"
+      responses:
+        "201":
+          description: File copied and workspace identity rotated
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestID"
+            Cache-Control:
+              schema:
+                type: string
+                enum: [no-store]
+            ETag:
+              schema:
+                type: string
+                pattern: '^"draft-v1:[0-9a-f]{64}"$'
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FileMutationResponse"
+        "400":
+          $ref: "#/components/responses/ConfigAPIError"
+        "401":
+          $ref: "#/components/responses/ConfigAPIError"
+        "403":
+          $ref: "#/components/responses/ConfigAPIError"
+        "404":
+          $ref: "#/components/responses/ConfigAPIError"
+        "409":
+          $ref: "#/components/responses/ConfigAPIError"
+        "413":
+          $ref: "#/components/responses/ConfigAPIError"
+        "415":
+          $ref: "#/components/responses/ConfigAPIError"
+        "422":
+          $ref: "#/components/responses/ConfigAPIError"
+        "500":
+          $ref: "#/components/responses/ConfigAPIError"
+        "503":
+          $ref: "#/components/responses/ConfigAPIError"
+        "504":
+          $ref: "#/components/responses/ConfigAPIError"
+  /api/v1/config/workspaces/{workspace_id}/files/search:
+    get:
+      operationId: searchConfigFiles
+      summary: Search managed draft text literally
+      description: Returns at most 500 matches in stable path, line and column order. Unknown or repeated query parameters are rejected.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - name: query
+          in: query
+          required: true
+          description: Non-empty literal UTF-8 query required exactly once and limited to 256 UTF-8 bytes.
+          schema:
+            type: string
+        - $ref: "#/components/parameters/RequestID"
+      responses:
+        "200":
+          description: Bounded literal matches
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestID"
+            Cache-Control:
+              schema:
+                type: string
+                enum: [no-store]
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SearchResponse"
+        "400":
+          $ref: "#/components/responses/ConfigAPIError"
+        "401":
+          $ref: "#/components/responses/ConfigAPIError"
+        "404":
+          $ref: "#/components/responses/ConfigAPIError"
+        "413":
+          $ref: "#/components/responses/ConfigAPIError"
+        "422":
+          $ref: "#/components/responses/ConfigAPIError"
+        "500":
+          $ref: "#/components/responses/ConfigAPIError"
+        "503":
+          $ref: "#/components/responses/ConfigAPIError"
+        "504":
+          $ref: "#/components/responses/ConfigAPIError"
+  /api/v1/config/workspaces/{workspace_id}/diff:
+    get:
+      operationId: getConfigDiff
+      summary: Get bounded base-to-draft differences
+      description: Without path compares the complete workspace; with path compares exactly one managed file. Unknown or repeated query parameters are rejected.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - name: path
+          in: query
+          required: false
+          description: Optional relative path accepted exactly once when present; 1024 UTF-8 bytes maximum.
+          schema:
+            type: string
+        - $ref: "#/components/parameters/RequestID"
+      responses:
+        "200":
+          description: Complete diff or complete summaries without a patch when the response limit is reached
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestID"
+            Cache-Control:
+              schema:
+                type: string
+                enum: [no-store]
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DiffResponse"
+        "400":
+          $ref: "#/components/responses/ConfigAPIError"
+        "401":
+          $ref: "#/components/responses/ConfigAPIError"
+        "404":
+          $ref: "#/components/responses/ConfigAPIError"
+        "413":
+          $ref: "#/components/responses/ConfigAPIError"
+        "422":
+          $ref: "#/components/responses/ConfigAPIError"
+        "500":
+          $ref: "#/components/responses/ConfigAPIError"
+        "503":
+          $ref: "#/components/responses/ConfigAPIError"
+        "504":
+          $ref: "#/components/responses/ConfigAPIError"
+  /api/v1/config/groups:
+    get:
+      operationId: listConfigGroups
+      summary: List bounded logical configuration groups
+      description: Optionally marks members missing from one workspace. Unknown or repeated query parameters are rejected.
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: workspace_id
+          in: query
+          required: false
+          description: Optional workspace identifier accepted exactly once when present.
+          schema:
+            type: string
+            pattern: "^[0-9a-f]{32}$"
+        - $ref: "#/components/parameters/RequestID"
+      responses:
+        "200":
+          description: Current logical group collection
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestID"
+            Cache-Control:
+              schema:
+                type: string
+                enum: [no-store]
+            ETag:
+              schema:
+                type: string
+                pattern: '^"groups-v1:[0-9a-f]{64}"$'
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GroupCollection"
+        "400":
+          $ref: "#/components/responses/ConfigAPIError"
+        "401":
+          $ref: "#/components/responses/ConfigAPIError"
+        "404":
+          $ref: "#/components/responses/ConfigAPIError"
+        "500":
+          $ref: "#/components/responses/ConfigAPIError"
+        "503":
+          $ref: "#/components/responses/ConfigAPIError"
+    post:
+      operationId: createConfigGroup
+      summary: Create one logical configuration group
+      description: Creates an ordered named group without changing workspace files. Unknown query parameters are rejected.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/Origin"
+        - $ref: "#/components/parameters/CSRFToken"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        description: Strict JSON object limited to 262144 bytes.
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GroupMutationRequest"
+      responses:
+        "201":
+          description: Group created and collection identity rotated
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestID"
+            Cache-Control:
+              schema:
+                type: string
+                enum: [no-store]
+            ETag:
+              schema:
+                type: string
+                pattern: '^"groups-v1:[0-9a-f]{64}"$'
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GroupCollection"
+        "400":
+          $ref: "#/components/responses/ConfigAPIError"
+        "401":
+          $ref: "#/components/responses/ConfigAPIError"
+        "403":
+          $ref: "#/components/responses/ConfigAPIError"
+        "409":
+          $ref: "#/components/responses/ConfigAPIError"
+        "413":
+          $ref: "#/components/responses/ConfigAPIError"
+        "415":
+          $ref: "#/components/responses/ConfigAPIError"
+        "422":
+          $ref: "#/components/responses/ConfigAPIError"
+        "500":
+          $ref: "#/components/responses/ConfigAPIError"
+        "503":
+          $ref: "#/components/responses/ConfigAPIError"
+        "504":
+          $ref: "#/components/responses/ConfigAPIError"
+  /api/v1/config/groups/{group_id}:
+    put:
+      operationId: replaceConfigGroup
+      summary: Replace one logical configuration group
+      description: Replaces name, order and relative members without changing workspace files. Unknown query parameters are rejected.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/GroupID"
+        - $ref: "#/components/parameters/Origin"
+        - $ref: "#/components/parameters/CSRFToken"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        description: Strict JSON object limited to 262144 bytes.
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GroupMutationRequest"
+      responses:
+        "200":
+          description: Group replaced and collection identity rotated
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestID"
+            Cache-Control:
+              schema:
+                type: string
+                enum: [no-store]
+            ETag:
+              schema:
+                type: string
+                pattern: '^"groups-v1:[0-9a-f]{64}"$'
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GroupCollection"
+        "400":
+          $ref: "#/components/responses/ConfigAPIError"
+        "401":
+          $ref: "#/components/responses/ConfigAPIError"
+        "403":
+          $ref: "#/components/responses/ConfigAPIError"
+        "404":
+          $ref: "#/components/responses/ConfigAPIError"
+        "409":
+          $ref: "#/components/responses/ConfigAPIError"
+        "413":
+          $ref: "#/components/responses/ConfigAPIError"
+        "415":
+          $ref: "#/components/responses/ConfigAPIError"
+        "422":
+          $ref: "#/components/responses/ConfigAPIError"
+        "500":
+          $ref: "#/components/responses/ConfigAPIError"
+        "503":
+          $ref: "#/components/responses/ConfigAPIError"
+        "504":
+          $ref: "#/components/responses/ConfigAPIError"
+    delete:
+      operationId: deleteConfigGroup
+      summary: Delete one named logical configuration group
+      description: Deletes only group metadata after exact name confirmation. Unknown query parameters are rejected.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/GroupID"
+        - $ref: "#/components/parameters/Origin"
+        - $ref: "#/components/parameters/CSRFToken"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        description: Strict JSON object limited to 262144 bytes.
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeleteGroupRequest"
+      responses:
+        "200":
+          description: Group deleted and collection identity rotated
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestID"
+            Cache-Control:
+              schema:
+                type: string
+                enum: [no-store]
+            ETag:
+              schema:
+                type: string
+                pattern: '^"groups-v1:[0-9a-f]{64}"$'
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GroupCollection"
+        "400":
+          $ref: "#/components/responses/ConfigAPIError"
+        "401":
+          $ref: "#/components/responses/ConfigAPIError"
+        "403":
+          $ref: "#/components/responses/ConfigAPIError"
+        "404":
+          $ref: "#/components/responses/ConfigAPIError"
+        "409":
+          $ref: "#/components/responses/ConfigAPIError"
+        "413":
+          $ref: "#/components/responses/ConfigAPIError"
+        "415":
+          $ref: "#/components/responses/ConfigAPIError"
+        "422":
+          $ref: "#/components/responses/ConfigAPIError"
+        "500":
+          $ref: "#/components/responses/ConfigAPIError"
+        "503":
+          $ref: "#/components/responses/ConfigAPIError"
+        "504":
+          $ref: "#/components/responses/ConfigAPIError"
 components:
   securitySchemes:
     sessionCookie:
       type: apiKey
       in: cookie
       name: nginx_uix_session
+  headers:
+    RequestID:
+      description: Correlation identifier generated or accepted by the request boundary.
+      schema:
+        type: string
+        pattern: "^[A-Za-z0-9._-]{1,64}$"
   parameters:
     Origin:
       name: Origin
@@ -198,6 +1047,37 @@ components:
       schema:
         type: string
         pattern: "^[A-Za-z0-9._-]{1,64}$"
+    WorkspaceID:
+      name: workspace_id
+      in: path
+      required: true
+      description: Opaque workspace identifier.
+      schema:
+        type: string
+        pattern: "^[0-9a-f]{32}$"
+    GroupID:
+      name: group_id
+      in: path
+      required: true
+      description: Opaque logical group identifier.
+      schema:
+        type: string
+        pattern: "^[0-9a-f]{32}$"
+    RequiredConfigPath:
+      name: path
+      in: query
+      required: true
+      description: Relative configuration path required exactly once; 1024 UTF-8 bytes maximum.
+      schema:
+        type: string
+    IfMatch:
+      name: If-Match
+      in: header
+      required: true
+      description: Exactly one quoted strong workspace or group collection identity; weak and comma-separated values are rejected.
+      schema:
+        type: string
+        pattern: '^"(?:draft|groups)-v1:[0-9a-f]{64}"$'
   responses:
     APIError:
       description: Stable API error
@@ -205,6 +1085,19 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/ErrorEnvelope"
+    ConfigAPIError:
+      description: Stable configuration API error
+      headers:
+        Cache-Control:
+          schema:
+            type: string
+            enum: [no-store]
+        X-Request-ID:
+          $ref: "#/components/headers/RequestID"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/APIErrorEnvelope"
   schemas:
     LivenessStatus:
       type: object
@@ -424,3 +1317,523 @@ components:
         details:
           type: object
           additionalProperties: true
+    WorkspaceSummary:
+      type: object
+      additionalProperties: false
+      required: [id, name, state, production_digest, base_digest, draft_etag, entry_count, managed_bytes, workspace_bytes, created_by, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          pattern: "^[0-9a-f]{32}$"
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        state:
+          type: string
+          enum: [preparing, ready, stale, needs_attention]
+        state_reason_code:
+          type: string
+          pattern: "^[a-z0-9_]*$"
+        production_digest:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+        base_digest:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+        draft_etag:
+          type: string
+          description: Quoted strong workspace identity using the draft-v1 canonical digest algorithm.
+          pattern: '^"draft-v1:[0-9a-f]{64}"$'
+        entry_count:
+          type: integer
+          minimum: 0
+          maximum: 4096
+        managed_bytes:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 33554432
+        workspace_bytes:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 536870912
+        created_by:
+          type: integer
+          format: int64
+          minimum: 1
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    WorkspaceDetail:
+      type: object
+      additionalProperties: false
+      required: [id, name, state, production_digest, base_digest, draft_etag, entry_count, managed_bytes, workspace_bytes, created_by, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          pattern: "^[0-9a-f]{32}$"
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        state:
+          type: string
+          enum: [preparing, ready, stale, needs_attention]
+        state_reason_code:
+          type: string
+          pattern: "^[a-z0-9_]*$"
+        production_digest:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+        base_digest:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+        draft_etag:
+          type: string
+          description: Quoted strong workspace identity using the draft-v1 canonical digest algorithm.
+          pattern: '^"draft-v1:[0-9a-f]{64}"$'
+        entry_count:
+          type: integer
+          minimum: 0
+          maximum: 4096
+        managed_bytes:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 33554432
+        workspace_bytes:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 536870912
+        created_by:
+          type: integer
+          format: int64
+          minimum: 1
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    WorkspaceList:
+      type: object
+      additionalProperties: false
+      required: [workspaces]
+      properties:
+        workspaces:
+          type: array
+          minItems: 0
+          maxItems: 8
+          items:
+            $ref: "#/components/schemas/WorkspaceSummary"
+    ConfigTree:
+      type: object
+      additionalProperties: false
+      required: [entries, dependencies, draft_etag]
+      properties:
+        entries:
+          type: array
+          minItems: 0
+          maxItems: 4096
+          items:
+            $ref: "#/components/schemas/ConfigTreeNode"
+        dependencies:
+          type: array
+          minItems: 0
+          maxItems: 16384
+          items:
+            $ref: "#/components/schemas/ConfigDependency"
+        draft_etag:
+          type: string
+          description: Quoted strong workspace identity.
+          pattern: '^"draft-v1:[0-9a-f]{64}"$'
+    ConfigTreeNode:
+      type: object
+      additionalProperties: false
+      required: [path, name, entry_type, managed, read_only, status_reason_code]
+      properties:
+        path:
+          type: string
+          description: Configuration-root relative path; semantic limit is 1024 UTF-8 bytes and 64 components.
+        name:
+          type: string
+          description: Final relative path component, at most 255 UTF-8 bytes subject to the filesystem name limit.
+        entry_type:
+          type: string
+          enum: [regular, directory, symlink, special]
+        managed:
+          type: boolean
+        read_only:
+          type: boolean
+        status_reason_code:
+          type: string
+          enum: [managed_text, sensitive_material, not_candidate, invalid_text, file_limit, directory, symlink_internal, symlink_external, symlink_unavailable, special]
+        size_bytes:
+          type: integer
+          format: int64
+          minimum: 0
+        content_digest:
+          type: string
+          description: Present only for managed text; omitted for sensitive and all other unmanaged nodes.
+          pattern: "^[0-9a-f]{64}$"
+        diff_status:
+          type: string
+          description: Optional base-to-draft status for a regular file; deleted paths are normally reported by DiffResponse.
+          enum: [unchanged, created, modified, deleted]
+        dependency_status:
+          type: string
+          enum: [resolved, missing, external, unresolved, symlink, special, cycle]
+        dependency_target_count:
+          type: integer
+          minimum: 0
+          maximum: 16384
+        dependency_cycle:
+          type: boolean
+    ConfigDependency:
+      type: object
+      additionalProperties: false
+      required: [source, line, column, display_value, status, cycle]
+      properties:
+        source:
+          type: string
+          description: Configuration-root relative source path; semantic limit is 1024 UTF-8 bytes and 64 components.
+        line:
+          type: integer
+          minimum: 1
+        column:
+          type: integer
+          minimum: 1
+        display_value:
+          type: string
+          maxLength: 262144
+        target:
+          type: string
+          description: Optional safe configuration-root relative target path; semantic limit is 1024 UTF-8 bytes and 64 components.
+        status:
+          type: string
+          enum: [resolved, missing, external, unresolved, symlink, special, cycle]
+        cycle:
+          type: boolean
+    ConfigFile:
+      type: object
+      additionalProperties: false
+      required: [path, content, size_bytes, content_digest, line_ending, draft_etag]
+      properties:
+        path:
+          type: string
+          description: Configuration-root relative path; semantic limit is 1024 UTF-8 bytes and 64 components.
+        content:
+          type: string
+          description: Explicitly requested managed UTF-8 file content, semantically limited to 2097152 UTF-8 bytes.
+        size_bytes:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 2097152
+        content_digest:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+        line_ending:
+          type: string
+          enum: [none, lf, crlf, mixed]
+        draft_etag:
+          type: string
+          description: Quoted strong workspace identity.
+          pattern: '^"draft-v1:[0-9a-f]{64}"$'
+    CreateWorkspaceRequest:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+          description: Trimmed display name; control and bidirectional control characters are rejected.
+    CreateFileRequest:
+      type: object
+      additionalProperties: false
+      required: [path, content]
+      properties:
+        path:
+          type: string
+          description: New configuration-root relative path; semantic limit is 1024 UTF-8 bytes and 64 components.
+        content:
+          type: string
+          description: Managed UTF-8 content, semantically limited to 2097152 UTF-8 bytes and containing no NUL.
+    ReplaceFileRequest:
+      type: object
+      additionalProperties: false
+      required: [content]
+      properties:
+        content:
+          type: string
+          description: Complete managed UTF-8 replacement, semantically limited to 2097152 UTF-8 bytes and containing no NUL.
+    RenameFileRequest:
+      type: object
+      additionalProperties: false
+      required: [destination_path]
+      properties:
+        destination_path:
+          type: string
+          description: New non-existing configuration-root relative path; semantic limit is 1024 UTF-8 bytes and 64 components.
+    CopyFileRequest:
+      type: object
+      additionalProperties: false
+      required: [source_path, destination_path]
+      properties:
+        source_path:
+          type: string
+          description: Existing managed configuration-root relative path; semantic limit is 1024 UTF-8 bytes and 64 components.
+        destination_path:
+          type: string
+          description: New non-existing configuration-root relative path; semantic limit is 1024 UTF-8 bytes and 64 components.
+    DeleteWorkspaceRequest:
+      type: object
+      additionalProperties: false
+      required: [confirm_name]
+      properties:
+        confirm_name:
+          type: string
+          minLength: 1
+          maxLength: 80
+    DeleteFileRequest:
+      type: object
+      additionalProperties: false
+      required: [confirm_path]
+      properties:
+        confirm_path:
+          type: string
+          description: Exact configuration-root relative path confirmation; semantic limit is 1024 UTF-8 bytes and 64 components.
+    FileMutationResponse:
+      type: object
+      additionalProperties: false
+      required: [workspace, draft_etag]
+      properties:
+        workspace:
+          $ref: "#/components/schemas/WorkspaceDetail"
+        entry:
+          $ref: "#/components/schemas/ConfigTreeNode"
+        draft_etag:
+          type: string
+          description: Same quoted strong workspace identity returned in the ETag header.
+          pattern: '^"draft-v1:[0-9a-f]{64}"$'
+    DiffResponse:
+      type: object
+      additionalProperties: false
+      required: [files, complete, reason, patch]
+      properties:
+        files:
+          type: array
+          minItems: 0
+          maxItems: 4096
+          items:
+            $ref: "#/components/schemas/FileDiffSummary"
+        complete:
+          type: boolean
+        reason:
+          type: string
+          enum: ["", response_limit]
+        patch:
+          type: string
+          description: Complete unified text when complete is true; empty when the bounded response cannot carry it.
+    FileDiffSummary:
+      type: object
+      additionalProperties: false
+      required: [path, status, added_lines, removed_lines]
+      properties:
+        path:
+          type: string
+          description: Configuration-root relative path; semantic limit is 1024 UTF-8 bytes and 64 components.
+        status:
+          type: string
+          enum: [unchanged, created, deleted, modified]
+        added_lines:
+          type: integer
+          minimum: 0
+        removed_lines:
+          type: integer
+          minimum: 0
+    SearchResponse:
+      type: object
+      additionalProperties: false
+      required: [matches, complete]
+      properties:
+        matches:
+          type: array
+          minItems: 0
+          maxItems: 500
+          items:
+            $ref: "#/components/schemas/SearchMatch"
+        complete:
+          type: boolean
+    SearchMatch:
+      type: object
+      additionalProperties: false
+      required: [path, line, column, snippet]
+      properties:
+        path:
+          type: string
+          description: Configuration-root relative path; semantic limit is 1024 UTF-8 bytes and 64 components.
+        line:
+          type: integer
+          minimum: 1
+        column:
+          type: integer
+          minimum: 1
+        snippet:
+          type: string
+          maxLength: 240
+          description: Bounded single-line text returned only by an explicit search response.
+    GroupCollection:
+      type: object
+      additionalProperties: false
+      required: [groups, groups_etag]
+      properties:
+        groups:
+          type: array
+          minItems: 0
+          maxItems: 128
+          items:
+            $ref: "#/components/schemas/ConfigGroup"
+        groups_etag:
+          type: string
+          description: Same quoted strong group collection identity returned in the ETag header.
+          pattern: '^"groups-v1:[0-9a-f]{64}"$'
+    ConfigGroup:
+      type: object
+      additionalProperties: false
+      required: [id, name, sort_order, members, missing, created_by, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          pattern: "^[0-9a-f]{32}$"
+        name:
+          type: string
+          minLength: 1
+          maxLength: 64
+        sort_order:
+          type: integer
+        members:
+          type: array
+          minItems: 0
+          maxItems: 1024
+          uniqueItems: true
+          items:
+            type: string
+            description: Configuration-root relative member path; semantic limit is 1024 UTF-8 bytes and 64 components.
+        missing:
+          type: array
+          minItems: 0
+          maxItems: 1024
+          uniqueItems: true
+          items:
+            type: string
+            description: Member absent from the optional workspace view; semantic limit is 1024 UTF-8 bytes and 64 components.
+        created_by:
+          type: integer
+          format: int64
+          minimum: 1
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    GroupMutationRequest:
+      type: object
+      additionalProperties: false
+      required: [name, sort_order, members]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 64
+        sort_order:
+          type: integer
+        members:
+          type: array
+          minItems: 0
+          maxItems: 1024
+          uniqueItems: true
+          items:
+            type: string
+            description: Configuration-root relative member path; semantic limit is 1024 UTF-8 bytes and 64 components.
+    DeleteGroupRequest:
+      type: object
+      additionalProperties: false
+      required: [confirm_name]
+      properties:
+        confirm_name:
+          type: string
+          minLength: 1
+          maxLength: 64
+    ConfigErrorCode:
+      type: string
+      enum:
+        - CONFIG_PATH_INVALID
+        - CONFIG_ENTRY_NOT_MANAGED
+        - CONFIG_LIMIT_EXCEEDED
+        - CONFIG_WORKSPACE_NOT_FOUND
+        - CONFIG_WORKSPACE_CONFLICT
+        - CONFIG_WORKSPACE_STALE
+        - CONFIG_WORKSPACE_NEEDS_ATTENTION
+        - CONFIG_SNAPSHOT_CHANGED
+        - AGENT_UNAVAILABLE
+        - CONFIG_OPERATION_TIMEOUT
+    ConfigAPIErrorCode:
+      oneOf:
+        - $ref: "#/components/schemas/ConfigErrorCode"
+        - type: string
+          enum: [invalid_request, unauthenticated, origin_rejected, csrf_rejected, unsupported_media_type, service_unavailable, internal_error]
+    ConfigAPIErrorDetails:
+      type: object
+      additionalProperties: false
+      properties:
+        path:
+          type: string
+          description: Safe configuration-root relative path; semantic limit is 1024 UTF-8 bytes and 64 components.
+        field:
+          type: string
+          enum: [body, confirm_name, confirm_path, content, destination_path, group_id, members, name, path, query, source_path, workspace_id]
+        current_etag:
+          type: string
+          pattern: '^"(?:draft|groups)-v1:[0-9a-f]{64}"$'
+        limit_name:
+          type: string
+          enum: [request_body_bytes, file_bytes, entries, managed_bytes, workspaces, workspace_bytes, groups, group_members, total_group_members, diff_response_bytes, search_matches, search_query_bytes, include_token_bytes, include_directive_bytes, include_edges, include_depth]
+        limit_value:
+          type: integer
+          format: int64
+          minimum: 0
+        actual:
+          type: integer
+          format: int64
+          minimum: 0
+    ConfigAPIErrorBody:
+      type: object
+      additionalProperties: false
+      required: [code, message, request_id]
+      properties:
+        code:
+          $ref: "#/components/schemas/ConfigAPIErrorCode"
+        message:
+          type: string
+        request_id:
+          type: string
+          pattern: "^[A-Za-z0-9._-]{1,64}$"
+        details:
+          $ref: "#/components/schemas/ConfigAPIErrorDetails"
+    APIErrorEnvelope:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          $ref: "#/components/schemas/ConfigAPIErrorBody"

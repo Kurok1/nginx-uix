@@ -42,6 +42,7 @@ type Service struct {
 	readPIDFile          pidFileReader
 	readStartupState     startupStateReader
 	now                  func() time.Time
+	configSnapshot       configSnapshotOptions
 }
 
 // NewService creates the production fixed-command service.
@@ -57,6 +58,7 @@ func newServiceWithExecutor(executor commandExecutor) *Service {
 		readPIDFile:      readPIDFile,
 		readStartupState: readStartupState,
 		now:              func() time.Time { return time.Now().UTC() },
+		configSnapshot:   defaultConfigSnapshotOptions(),
 	}
 }
 

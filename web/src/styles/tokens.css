@@ -27,6 +27,25 @@
   --color-status-error-surface: #fef0ef;
   --color-status-unknown-foreground: #515154;
   --color-status-unknown-surface: #eeeeef;
+  --color-state-success: var(--color-status-success-surface);
+  --color-state-success-foreground: var(--color-status-success-foreground);
+  --color-state-warning: var(--color-status-warning-surface);
+  --color-state-warning-foreground: var(--color-status-warning-foreground);
+  --color-state-danger: var(--color-status-error-surface);
+  --color-state-danger-foreground: var(--color-status-error-foreground);
+  --color-state-info: var(--color-status-unknown-surface);
+  --color-state-info-foreground: var(--color-status-unknown-foreground);
+  --color-diff-added: var(--color-status-success-surface);
+  --color-diff-added-foreground: var(--color-status-success-foreground);
+  --color-diff-removed: var(--color-status-error-surface);
+  --color-diff-removed-foreground: var(--color-status-error-foreground);
+  --color-diff-context: var(--color-canvas-parchment);
+  --color-diff-context-foreground: var(--color-ink-muted-80);
+  --color-workspace-backdrop: color-mix(
+    in srgb,
+    var(--color-ink) 48%,
+    transparent
+  );
 
   --font-ui: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-code: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
@@ -63,9 +82,18 @@
   --component-content-max-width: 1440px;
   --component-page-gutter: 24px;
   --component-page-gutter-compact: 16px;
+  --component-workspace-tree-width: 240px;
+  --component-workspace-tree-width-narrow: 208px;
+  --component-workspace-review-width: 360px;
+  --component-workspace-header-min-height: 56px;
+  --component-editor-min-height: 480px;
+  --component-drawer-width: min(92vw, 520px);
+  --component-modal-width: min(calc(100vw - 32px), 480px);
 
   --focus-outline: 2px solid var(--color-primary-focus);
   --focus-offset: 2px;
   --z-index-global-nav: 30;
   --z-index-sub-nav: 20;
+  --z-index-workspace-overlay: 40;
+  --z-index-workspace-toast: 50;
 }

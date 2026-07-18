@@ -36,6 +36,7 @@ import SubNav from './SubNav.vue'
 
 .app-shell {
   min-height: 100vh;
+  overflow-x: hidden;
   background: var(--color-canvas-parchment);
 }
 

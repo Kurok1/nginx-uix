@@ -27,7 +27,7 @@ test('anonymous users are redirected to the accessible Login page', async ({ pag
 
   await page.goto('/')
 
-  await expect(page).toHaveURL(`${appOrigin}/login`)
+  await expect(page).toHaveURL(`${appOrigin}/login?redirect=/`)
   await expect(page.getByRole('main')).toHaveCount(1)
   await expect(page.getByRole('heading', { level: 1, name: '登录 Nginx UIX' })).toBeVisible()
   await expect(page.getByLabel('用户名')).toHaveAttribute('autocomplete', 'username')

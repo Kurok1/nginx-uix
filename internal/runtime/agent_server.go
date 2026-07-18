@@ -239,7 +239,7 @@ func newAgentHTTPServer(handler http.Handler) *http.Server {
 		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
-		WriteTimeout:      30 * time.Second,
+		WriteTimeout:      65 * time.Second,
 		IdleTimeout:       60 * time.Second,
 		MaxHeaderBytes:    agentMaxHeaderBytes,
 	}

@@ -16,11 +16,16 @@
           </RouterLink>
         </li>
         <li>
+          <RouterLink to="/configuration">
+            Configuration
+          </RouterLink>
+        </li>
+        <li>
           <RouterLink
             class="sub-nav__primary"
-            to="/configuration"
+            to="/config/workspaces"
           >
-            Configure
+            Workspaces
           </RouterLink>
         </li>
       </ul>

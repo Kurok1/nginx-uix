@@ -222,12 +222,14 @@ func TestAgentServerUsesBoundedHTTPHeadersAndTimeouts(t *testing.T) {
 	for name, timeout := range map[string]time.Duration{
 		"ReadHeaderTimeout": server.ReadHeaderTimeout,
 		"ReadTimeout":       server.ReadTimeout,
-		"WriteTimeout":      server.WriteTimeout,
 		"IdleTimeout":       server.IdleTimeout,
 	} {
 		if timeout <= 0 || timeout > time.Minute {
 			t.Fatalf("%s = %v, want a positive timeout no greater than one minute", name, timeout)
 		}
+	}
+	if server.WriteTimeout < 65*time.Second || server.WriteTimeout > 2*time.Minute {
+		t.Fatalf("WriteTimeout = %v, want finite snapshot-safe timeout of at least 65s", server.WriteTimeout)
 	}
 }
 

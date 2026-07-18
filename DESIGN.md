@@ -621,6 +621,77 @@ Static badges need no live-region role. For asynchronous status changes, put one
 - Make the scroll container keyboard-focusable and preserve native Arrow, Page Up/Down, Home/End, and horizontal scrolling behavior. Its focus ring must remain visible when content is scrolled.
 - With wrapping off, long code lines scroll horizontally inside the viewer. The viewer may also scroll vertically within a bounded height; neither axis may create horizontal page overflow.
 
+### Configuration Workspace
+
+The configuration workspace extends the read-only configuration surface for v0.2.1. It edits only a workspace draft: it does not validate, publish, reload, restart, or otherwise change production configuration. Use the existing system font, spacing, radii, neutral borders, and Action Blue focus treatment; do not introduce a gradient, decorative shadow, second accent color, or a business-component hex value.
+
+#### Operational Tokens
+
+The following literal token contract is stable for CSS and tests:
+
+```text
+--color-state-success / warning / danger / info: semantic status only, never brand emphasis
+--color-diff-added / removed / context: status surfaces with non-color +/−/line labels
+--component-workspace-tree-width: 240px
+--component-workspace-tree-width-narrow: 208px
+--component-workspace-review-width: 360px
+--component-workspace-header-min-height: 56px
+--component-editor-min-height: 480px
+--component-drawer-width: min(92vw, 520px)
+--component-modal-width: min(calc(100vw - 32px), 480px)
+```
+
+`--color-state-success`, `--color-state-warning`, `--color-state-danger`, and `--color-state-info` are semantic status tokens only, never brand emphasis. `--color-diff-added`, `--color-diff-removed`, and `--color-diff-context` are status surfaces only; every added, removed, and context line also has its visible `+`, `−`, or context-line label. These tokens inherit the existing semantic foreground/surface approach and must never make a colored surface the sole state signal.
+
+#### Workspace Layout and Components
+
+At desktop width, the workspace is a continuous three-pane review: tree, editor, and review. The tree uses `--component-workspace-tree-width`; the review pane uses `--component-workspace-review-width`; the editor is the flexible middle pane with `min-width: 0` and at least `--component-editor-min-height`. The workspace header is at least `--component-workspace-header-min-height`. Preserve all pane-level scrolling inside the pane rather than creating horizontal page overflow.
+
+**`workspace-tree`** — tree: ARIA tree/treeitem, arrows, Home/End, text+icon state, 44px target. Use the semantic `tree` and `treeitem` roles with the expected parent/child levels and expanded state. Arrow keys move, expand, and collapse according to the ARIA tree pattern; Home and End move to the first and last visible item. Each physical file, logical group, external/missing entry, and read-only reason combines visible text with its icon, and every interactive row or disclosure has a 44 × 44px minimum target and visible keyboard focus.
+
+**`workspace-editor`** — editor: explicit Save, dirty text marker, internal horizontal scroll, no autosave/persistence. The header has a visible file name, a text dirty marker such as “Unsaved changes”, and an explicit “Save” action. A Save action is disabled with its reason when there is no change, a request is in progress, or the workspace is read-only. Browser memory may retain the current unsubmitted text during the active session only: do not autosave or persist it to `localStorage`, IndexedDB, Cache Storage, Service Worker cache, or the URL. Long code lines scroll horizontally inside the editor; they never cause page-level horizontal scrolling.
+
+**`workspace-diff`** — diff: unified lines, line numbers, +/- labels, per-file summary, response-limit incomplete state. Show a per-file summary before its unified lines, preserve line numbers, and give each added or removed line a visible `+` or `−` label in addition to its semantic surface. If a diff response reaches `response_limit`, render the persistent incomplete state “Diff incomplete: response limit reached”; do not imply that omitted lines are unchanged or that the review is complete.
+
+**`workspace-drawer`** and **`workspace-modal`** — drawer/modal: focus trap, Escape, background inert, trigger focus restoration. A drawer contains the review pane at `--component-drawer-width`; a modal uses `--component-modal-width`. Both have a visible accessible name, trap focus while open, close on Escape, make the background inert, and restore focus to their invoking trigger after close. The drawer is the review surface at intermediate widths; the modal is reserved for named confirmation and never hides critical conflict, stale, or needs-attention information.
+
+**`workspace-toast`** — toast: non-critical success only; conflict/stale/needs_attention stay inline. Toasts may announce a completed non-critical action once through the nearest restrained polite live region. Conflict, stale, `needs_attention`, capacity failures, and Agent-unavailable states remain persistently visible inline with their context, action, and non-color status cue; they are never reduced to a transient toast.
+
+#### Operational State Examples
+
+All workspace state includes visible text plus its status icon/shape; no state relies on color alone. Keep each state local to the affected panel and use the smallest appropriate `aria-live` region.
+
+| State | Required visible example and behavior |
+| --- | --- |
+| Loading | “Loading workspace files…” with a progress glyph; keep the affected pane’s dimensions, set `aria-busy="true"` on that pane, and preserve already loaded content. |
+| Empty | “No managed configuration files are available in this workspace.” Explain the empty result and offer only the applicable next action. |
+| Error | “Could not save this file. Your local changes are still available.” Keep the editor text and provide a retry or copy action without exposing internal details. |
+| Conflict | “This file changed on the server. Your local text has not been overwritten.” Keep a persistent inline banner with “Copy local content”, “Read server version”, and “View server diff”; do not retry or overwrite automatically. |
+| Stale | “Production configuration changed. Create a new workspace to continue.” The old workspace is read-only and the message remains inline. |
+| needs-attention (`needs_attention`) | “Workspace consistency cannot be confirmed.” Show the workspace ID, make ordinary saving unavailable, and permit only viewing or named deletion. |
+| Agent-unavailable | “Configuration Agent is unavailable. Production configuration and files are unaffected.” Keep the workspace inline state visible and do not fall back to direct production-file access. |
+| Diff incomplete | “Diff incomplete: response limit reached.” Retain the per-file `response_limit` state and do not present the available portion as a complete review. |
+
+Named confirmation modals state their actual scope and whether production configuration or files are unaffected:
+
+- **Delete file “`<filename>`”?** “This deletes `'<filename>'` only from this workspace draft. Production configuration and files are unaffected.”
+- **Delete workspace “`<workspace name>`”?** “This removes the workspace draft and its metadata. Production configuration and files are unaffected.”
+- **Delete logical group “`<group name>`”?** “This removes only the logical group. It does not delete files, and production configuration is unaffected.”
+
+#### Configuration Workspace Responsive Behavior
+
+breakpoints: 1069 / 1068 / 834 / 833 / 735 / 734 / 640 CSS px
+
+| Width | Required workspace layout |
+| --- | --- |
+| `>= 1069px` | Show tree, editor, and review together. Use `--component-workspace-tree-width` for the tree and `--component-workspace-review-width` for review. |
+| `834–1068px` | Show tree and editor. Move review into `workspace-drawer`. |
+| `735–833px` | Show the narrowed tree at `--component-workspace-tree-width-narrow` with the editor. Keep review in `workspace-drawer`. |
+| `<= 734px` | Replace the persistent tree with a full-width labelled file selector; the editor fills the content width and review remains in `workspace-drawer`. |
+| `<= 640px` | Use file, edit, and review task tabs; show one task panel at a time without destroying the current file or unsaved editor text. |
+
+At 320 CSS px and at every listed threshold, the page shell and workspace children use `min-width: 0`; tree labels wrap or truncate with an accessible full name, while code and diff retain horizontal scrolling inside their own labelled panes only. Drawer opening locks background interaction, and task-tab switching preserves visible dirty state and keyboard focus order.
+
 ### Footer
 
 **`footer`** — Background `{colors.canvas-parchment}` (#f5f5f7), text `{colors.ink-muted-80}`. Link columns in `{typography.dense-link}` (17px / 400 / 2.41 line-height — the relaxed leading is what makes the dense columns scannable). Column headings in `{typography.caption-strong}` (14px / 600). Legal row at the very bottom in `{typography.fine-print}` (12px / 400) with `{colors.ink-muted-48}` text. Vertical padding 64px.
@@ -725,7 +796,7 @@ Operational primitives must meet **WCAG 2.2 AA** before implementation is accept
 
 ## Known Gaps
 
-- Editable configuration, syntax highlighting, diff, tree, table, modal, and toast semantics are outside this v0.1 read-only extension. Each still requires a compatible token/component contract before implementation.
+- The v0.1 read-only configuration page does not use editable workspace controls. The v0.2.1 Configuration Workspace section above defines the compatible tree, editor, diff, drawer, modal, toast, and state contracts that must be used before those controls ship.
 - The homepage's embedded video/player frame uses `{colors.surface-black}`; interior player controls are not documented (they're a platform widget, not a web-design token).
 - Some component imagery is dynamic (rotating product hero) and its specific copy varies per surface — component specs name the structure, not the rotating content.
 - Dark-mode counterparts for store and accessories utility cards were not surfaced on the analyzed pages; the system documented is the daytime/light-dominant variant Apple ships by default.
