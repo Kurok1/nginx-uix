@@ -645,6 +645,11 @@ The following literal token contract is stable for CSS and tests:
 --component-operations-table-min-width: 720px
 --component-operations-detail-width: min(92vw, 640px)
 --component-attention-panel-border-width: 2px
+--component-structured-list-width: 280px
+--component-structured-detail-min-width: 360px
+--component-structured-review-width: 420px
+--component-structured-tree-indent: 20px
+--component-structured-diagnostic-max-height: 240px
 ```
 
 `--color-state-success`, `--color-state-warning`, `--color-state-danger`, and `--color-state-info` are semantic status tokens only, never brand emphasis. `--color-diff-added`, `--color-diff-removed`, and `--color-diff-context` are status surfaces only; every added, removed, and context line also has its visible `+`, `−`, or context-line label. These tokens inherit the existing semantic foreground/surface approach and must never make a colored surface the sole state signal.
@@ -668,6 +673,36 @@ At desktop width, the workspace is a continuous three-pane review: tree, editor,
 **`release-confirmation-modal`** — A named confirmation modal at `--component-modal-width`. It states that the system will recheck production and the draft, create a complete backup, update production files, run full validation, reload Nginx, and automatically roll back when the result is safely knowable. The confirmation input must exactly equal the visible workspace name before the primary action is enabled. It follows `workspace-modal` focus trap, Escape, inert background, 44px target, and trigger-focus restoration rules. Closing it before submission has no effect; after a task is queued, closing it or leaving the page does not cancel the task.
 
 **`release-stage-timeline`** — An ordered list of persisted release stages. Each row contains a `--component-release-timeline-marker` icon/shape, visible stage name, visible status word, and timestamp; the connecting hairline is neutral and never a progress gradient. Only the current concise stage phrase uses a local `aria-live="polite"`/`aria-atomic="true"`; historical rows and SSE heartbeats are not live. Refresh and reconnect rebuild the list from the release resource and `Last-Event-ID`, never from elapsed browser time. Terminal panels remain inline and distinguish: published and healthy; failed before production changed; failed but rolled back and healthy; or `needs_attention`. The last case is a blocking alert; the workspace remains evidence-only and may link to the separate v0.2.3 Recovery & History route, but never embeds restore or restart controls.
+
+#### Structured Upstream and Location Workbench
+
+v0.3 adds two draft-only projections of the current workspace: Upstreams and Servers & Locations. They share the workspace identity and revision but do not replace the raw editor, hide parser uncertainty, run full Nginx validation, publish, or reload. Every page keeps the visible sentence “Draft only — full Nginx validation has not run”, exposes incomplete and raw-only states inline, and provides an ordinary “Open raw editor” link back to the same workspace. Route changes and ETag changes discard any preview and cancel stale reads; form values remain browser-memory-only and are never persisted in URL or storage.
+
+**`structured-workbench`** — At desktop width this is a continuous master/detail/review layout with `min-width: 0` on every pane. The bounded resource list uses `--component-structured-list-width`, the detail pane flexes but never drops below `--component-structured-detail-min-width`, and review uses `--component-structured-review-width`. At intermediate widths, review becomes a `workspace-drawer`; at mobile widths Browse, Edit, and Review are task tabs showing one pane without destroying dirty form values. A target switch with dirty values requires explicit discard; it never auto-saves or silently resets.
+
+**`structured-resource-list`** — A semantic list or listbox of upstreams or HTTP servers. Each row is at least 44px high and combines the visible resource name or safe summary with a text status and shape/icon. Selection, editable/read-only state, reference count, and blocking diagnostics never rely on color alone. Arrow-key behavior follows the chosen native list/listbox pattern, and the selected row has a visible Action Blue focus outline.
+
+**`location-tree`** — An ARIA `tree`/`treeitem` projection of the selected server's nested locations. Its accessible name contains the complete matcher type and matcher even when the visible label truncates. `ArrowUp`/`ArrowDown` move between visible items, `ArrowRight` expands or enters children, `ArrowLeft` collapses or moves to the parent, and `Home`/`End` move to the first/last visible item. Each level uses `--component-structured-tree-indent`; disclosure and row controls maintain a 44 × 44px target.
+
+**`structured-field-grid`** — A responsive form grid whose labels, help text, and errors are associated using native labels and `aria-describedby`. Boolean parameters use native checkboxes. Endpoint, matcher, proxy mode, scheme, port, and URI controls accept only the API's explicit typed values. Preserved unknown directives and parameters are named read-only items with `editable:false`; the UI never reconstructs or copies their raw arguments.
+
+**`structured-diagnostic-list`** — A bounded, selectable list no taller than `--component-structured-diagnostic-max-height`. Every item includes the visible severity word, a shape/icon, stable code, relative path, line and column, plus the related resource when present. Its source position links to that relative file in the same workspace's raw editor. A blocking diagnostic remains persistent near its affected resource and prevents review/application of operations that touch that resource with an explicit reason; unrelated complete resources remain operable, and the diagnostic is not reduced to a toast.
+
+**`structured-change-review`** — A named drawer/modal-compatible review that shows each changed relative file, before/after digest abbreviations, added/removed counts, and the complete selectable unified diff. Added and removed lines retain visible `+`/`−` labels as well as semantic status surfaces. The panel states “Only the workspace draft will be updated. Production configuration and Nginx are unaffected.” Apply is unavailable when `complete:false`, the workspace ETag changed, a blocking diagnostic affects the operation, or required named confirmation is missing. Upstream rename and upstream/location deletion require the currently visible name or matcher. Close/Escape restores focus to the invoking control and has no effect before application.
+
+**`raw-edit-fallback`** — A normal link to `/config/workspaces/:workspaceId` labelled “Open raw editor”. It carries only the opaque workspace ID; no configuration text, matcher, endpoint, URI, preview, or confirmation is copied into URL state or browser persistence.
+
+Structured workbench breakpoints use the existing workspace thresholds:
+
+| Width | Required structured layout |
+| --- | --- |
+| `>= 1069px` | Resource list, detail, and review may be visible together. |
+| `834–1068px` | Resource list and detail remain visible; review uses a drawer. |
+| `735–833px` | Resource list narrows without reducing target size; review remains a drawer. |
+| `<= 734px` | Replace the persistent resource list with a full-width labelled selector. |
+| `<= 640px` | Use Browse, Edit, and Review task tabs and show one task panel at a time. |
+
+At 320 CSS px there is no page-level horizontal overflow. Only the bounded diff pane may scroll horizontally. All mutation buttons, selectors, tree rows, drawer controls, and confirmation controls keep a 44 × 44px minimum target. Drawers and modals reuse the existing focus trap, Escape, inert-background, and trigger-focus-restoration rules.
 
 #### Configuration Recovery and History
 

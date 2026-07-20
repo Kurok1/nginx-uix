@@ -20,6 +20,7 @@ import (
 	"github.com/kuroky/nginx-uix/internal/httpapi/uiassets"
 	nginxruntime "github.com/kuroky/nginx-uix/internal/runtime"
 	"github.com/kuroky/nginx-uix/internal/store"
+	"github.com/kuroky/nginx-uix/internal/structuredconfig"
 )
 
 const (
@@ -137,6 +138,17 @@ func runUI(ctx context.Context, applicationConfig Config, operations uiOperation
 	var releases httpapi.ReleaseAPI
 	var releaseTasks *releaseTaskOwner
 	workspaceService, workspaceOK := configurationService.(*configservice.Service)
+	var structured httpapi.StructuredAPI
+	if workspaceOK {
+		structuredService, structuredErr := structuredconfig.NewService(workspaceService)
+		if structuredErr != nil {
+			if closeErr := database.Close(); closeErr != nil {
+				return errors.Join(fmt.Errorf("create structured configuration service: %w", structuredErr), closeErr)
+			}
+			return fmt.Errorf("create structured configuration service: %w", structuredErr)
+		}
+		structured = structuredService
+	}
 	releaseRepository, repositoryOK := database.(configservice.ReleaseRepository)
 	releaseAgent, agentOK := agent.(configservice.ReleaseAgent)
 	if workspaceOK && repositoryOK && agentOK {
@@ -189,7 +201,7 @@ func runUI(ctx context.Context, applicationConfig Config, operations uiOperation
 		Addr: applicationConfig.ListenAddr,
 		Handler: httpapi.NewHandler(httpapi.Dependencies{
 			Assets: uiassets.FS(), Sessions: sessions, PublicURL: applicationConfig.PublicURL,
-			Workspaces: workspaces, Groups: groups, Releases: releases, ReleaseTasks: releaseTasks,
+			Workspaces: workspaces, Structured: structured, Groups: groups, Releases: releases, ReleaseTasks: releaseTasks,
 			Recovery: recovery, RecoveryTasks: recoveryTasks,
 			Agent: agent, Database: databasePingProbe(database.Ping), Logger: logger,
 		}),

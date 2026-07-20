@@ -44,6 +44,15 @@ import type {
   WorkspaceDetail,
   WorkspaceSummary,
 } from './types'
+import {
+  parseStructuredChangePreview,
+  parseStructuredChangeResult,
+  parseStructuredConfig,
+  type StructuredChangePreview,
+  type StructuredChangeResult,
+  type StructuredConfig,
+  type StructuredOperation,
+} from './structured'
 
 const sessionPath = '/api/v1/auth/session'
 const systemStatusPath = '/api/v1/system/status'
@@ -283,6 +292,74 @@ export class APIClient {
       signal,
     })
     return parseDiffResponse(await readJSON(response), response.status)
+  }
+
+  async getStructuredConfig(
+    id: string,
+    signal?: AbortSignal,
+  ): Promise<StructuredConfig> {
+    const response = await this.send(`${workspacePath(id)}/structured-config`, {
+      method: 'GET',
+      signal,
+    })
+    let result: StructuredConfig
+    try {
+      result = parseStructuredConfig(await readJSON(response), response.status)
+    } catch {
+      throw malformedResponse(response.status)
+    }
+    requireMatchingETag(response, result.draft_etag)
+    return result
+  }
+
+  async previewStructuredChange(
+    id: string,
+    operation: StructuredOperation,
+    csrfToken: string,
+    signal?: AbortSignal,
+  ): Promise<StructuredChangePreview> {
+    const response = await this.send(`${workspacePath(id)}/structured-change-previews`, {
+      method: 'POST',
+      headers: jsonMutationHeaders(csrfToken),
+      body: JSON.stringify(operation),
+      signal,
+    })
+    let result: StructuredChangePreview
+    try {
+      result = parseStructuredChangePreview(await readJSON(response), response.status)
+    } catch {
+      throw malformedResponse(response.status)
+    }
+    requireMatchingETag(response, result.draft_etag)
+    return result
+  }
+
+  async applyStructuredChange(
+    id: string,
+    operation: StructuredOperation,
+    previewID: string,
+    etag: string,
+    csrfToken: string,
+    signal?: AbortSignal,
+  ): Promise<StructuredChangeResult> {
+    const response = await this.send(`${workspacePath(id)}/structured-changes`, {
+      method: 'POST',
+      headers: jsonMutationHeaders(csrfToken, etag),
+      body: JSON.stringify({ preview_id: previewID, ...operation }),
+      signal,
+    })
+    let result: StructuredChangeResult
+    try {
+      result = parseStructuredChangeResult(
+        await readJSON(response),
+        response.status,
+        parseWorkspace,
+      )
+    } catch {
+      throw malformedResponse(response.status)
+    }
+    requireMatchingETag(response, result.draft_etag)
+    return result
   }
 
 	async createPublishCheck(
@@ -1952,6 +2029,18 @@ const apiErrorCodes = [
 	'CONFIG_RESTORE_NOT_FOUND',
 	'NGINX_RESTART_NOT_FOUND',
 	'CONFIG_ATTENTION_CASE_NOT_FOUND',
+	'STRUCTURED_PARSE_FAILED',
+	'STRUCTURED_LIMIT_EXCEEDED',
+	'STRUCTURED_PREVIEW_STALE',
+	'STRUCTURED_CONTEXT_AMBIGUOUS',
+	'STRUCTURED_EDIT_CONFLICT',
+	'UPSTREAM_INVALID',
+	'UPSTREAM_DUPLICATE',
+	'UPSTREAM_REFERENCED',
+	'UPSTREAM_REFERENCE_INCOMPLETE',
+	'LOCATION_INVALID',
+	'LOCATION_DUPLICATE',
+	'PROXY_PASS_INVALID',
 ] as const satisfies readonly APIErrorCode[]
 
 function isAPIErrorCode(value: unknown): value is APIErrorCode {

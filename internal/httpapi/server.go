@@ -20,6 +20,7 @@ type Dependencies struct {
 	Assets          fs.FS
 	Sessions        SessionService
 	Workspaces      WorkspaceAPI
+	Structured      StructuredAPI
 	Groups          GroupAPI
 	Releases        ReleaseAPI
 	ReleaseTasks    ReleaseTaskStarter
@@ -44,7 +45,7 @@ func NewHandler(dependencies Dependencies) http.Handler {
 	mux.HandleFunc("GET /api/v1/system/status", systemStatus(dependencies.Sessions, dependencies.Agent))
 	mux.HandleFunc("GET /api/v1/nginx/effective-config", effectiveConfig(dependencies.Sessions, dependencies.Agent))
 	configuration := &configHandler{
-		workspaces: dependencies.Workspaces, groups: dependencies.Groups,
+		workspaces: dependencies.Workspaces, structured: dependencies.Structured, groups: dependencies.Groups,
 		sessions: dependencies.Sessions, publicURL: dependencies.PublicURL,
 	}
 	releases := &releaseHandler{
@@ -67,6 +68,9 @@ func NewHandler(dependencies Dependencies) http.Handler {
 	mux.HandleFunc("POST /api/v1/config/workspaces/{workspace_id}/files/copies", configuration.copies)
 	mux.HandleFunc("GET /api/v1/config/workspaces/{workspace_id}/files/search", configuration.search)
 	mux.HandleFunc("GET /api/v1/config/workspaces/{workspace_id}/diff", configuration.diff)
+	mux.HandleFunc("GET /api/v1/config/workspaces/{workspace_id}/structured-config", configuration.structuredCatalog)
+	mux.HandleFunc("POST /api/v1/config/workspaces/{workspace_id}/structured-change-previews", configuration.structuredPreview)
+	mux.HandleFunc("POST /api/v1/config/workspaces/{workspace_id}/structured-changes", configuration.structuredApply)
 	mux.HandleFunc("POST /api/v1/config/workspaces/{workspace_id}/publish-checks", releases.checkWorkspace)
 	mux.HandleFunc("GET /api/v1/config/publish-checks/{check_id}", releases.check)
 	mux.HandleFunc("POST /api/v1/config/workspaces/{workspace_id}/releases", releases.queue)
@@ -157,8 +161,12 @@ func isKnownSPANavigation(path string) bool {
 		return true
 	}
 	const workspacePrefix = "/config/workspaces/"
-	workspaceID, found := strings.CutPrefix(path, workspacePrefix)
-	if !found || len(workspaceID) != 32 {
+	workspaceRoute, found := strings.CutPrefix(path, workspacePrefix)
+	if !found {
+		return false
+	}
+	workspaceID, child, hasChild := strings.Cut(workspaceRoute, "/")
+	if len(workspaceID) != 32 {
 		return false
 	}
 	for _, character := range workspaceID {
@@ -166,5 +174,5 @@ func isKnownSPANavigation(path string) bool {
 			return false
 		}
 	}
-	return true
+	return !hasChild || child == "upstreams" || child == "servers"
 }

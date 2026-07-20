@@ -37,6 +37,24 @@
         <dd>{{ workspace.state === 'published' ? '发布校验与运行确认已完成' : '尚未执行 Nginx 校验' }}</dd>
       </div>
     </dl>
+    <nav
+      v-if="workspace.state === 'ready'"
+      class="workspace-header__structured-links"
+      aria-label="Structured configuration"
+    >
+      <a
+        :href="'/config/workspaces/' + workspace.id + '/upstreams'"
+        data-structured-link="upstreams"
+      >
+        Manage upstreams
+      </a>
+      <a
+        :href="'/config/workspaces/' + workspace.id + '/servers'"
+        data-structured-link="servers"
+      >
+        Manage servers &amp; locations
+      </a>
+    </nav>
   </header>
 </template>
 
@@ -124,6 +142,25 @@ const stateIcon = computed(() =>
 
 .workspace-header dd {
   overflow-wrap: anywhere;
+}
+
+.workspace-header__structured-links {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: var(--spacing-sm);
+}
+
+.workspace-header__structured-links a {
+  display: inline-flex;
+  min-height: var(--component-control-min-size);
+  padding-inline: var(--spacing-md);
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--color-primary);
+  border-radius: var(--rounded-pill);
+  color: var(--color-primary);
+  text-decoration: none;
 }
 
 @media (max-width: 833px) {

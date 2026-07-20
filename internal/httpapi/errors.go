@@ -36,6 +36,7 @@ var configErrorDetails = map[string]map[string]struct{}{
 var safeDetailFields = map[string]struct{}{
 	"body": {}, "confirm_name": {}, "confirm_path": {}, "content": {}, "destination_path": {},
 	"group_id": {}, "members": {}, "name": {}, "path": {}, "query": {}, "source_path": {}, "workspace_id": {},
+	"input": {}, "kind": {}, "preview_id": {},
 	"username": {}, "backup_id": {}, "attention_case_id": {}, "confirm_backup_id": {}, "confirmation": {},
 	"expected_protected": {}, "protected": {}, "reason": {}, "retention_id": {}, "restore_id": {}, "restart_id": {},
 }

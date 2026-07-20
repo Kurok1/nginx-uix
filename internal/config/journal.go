@@ -14,13 +14,14 @@ import (
 	"io"
 	"io/fs"
 	"slices"
+	"strings"
 	"time"
 )
 
 const (
 	// JournalSchemaVersion is the only durable mutation-journal schema understood by this release.
 	JournalSchemaVersion uint16 = 1
-	journalPayloadLimit         = int64(16 << 10)
+	journalPayloadLimit         = int64(8 << 20)
 )
 
 var journalPath = RelativePath("control/journal.json")
@@ -124,9 +125,20 @@ func WriteJournal(ctx context.Context, root *ScopedRoot, journal Journal) error 
 	if ctx == nil || root == nil {
 		return fmt.Errorf("write workspace journal: %w", ErrPathInvalid)
 	}
+	payload, err := marshalJournal(journal)
+	if err != nil {
+		return err
+	}
+	if err := root.AtomicReplace(ctx, journalPath, payload, controlFileMode); err != nil {
+		return fmt.Errorf("write workspace journal: %w", err)
+	}
+	return nil
+}
+
+func marshalJournal(journal Journal) ([]byte, error) {
 	journal.StartedAt = journal.StartedAt.UTC()
 	if err := validateJournal(journal); err != nil {
-		return err
+		return nil, err
 	}
 	record := journalRecord{
 		SchemaVersion: journal.SchemaVersion, OperationID: journal.OperationID, Kind: journal.Kind,
@@ -137,16 +149,21 @@ func WriteJournal(ctx context.Context, root *ScopedRoot, journal Journal) error 
 	}
 	payload, err := json.Marshal(record)
 	if err != nil {
-		return fmt.Errorf("encode workspace journal: %w", err)
+		return nil, fmt.Errorf("encode workspace journal: %w", err)
 	}
 	payload = append(payload, '\n')
 	if int64(len(payload)) > journalPayloadLimit {
-		return fmt.Errorf("encode workspace journal: %w", ErrLimitExceeded)
+		return nil, fmt.Errorf("encode workspace journal: %w", ErrLimitExceeded)
 	}
-	if err := root.AtomicReplace(ctx, journalPath, payload, controlFileMode); err != nil {
-		return fmt.Errorf("write workspace journal: %w", err)
+	return payload, nil
+}
+
+func journalPayloadSize(journal Journal) (int64, error) {
+	payload, err := marshalJournal(journal)
+	if err != nil {
+		return 0, err
 	}
-	return nil
+	return int64(len(payload)), nil
 }
 
 // RemoveJournal durably removes the journal and succeeds when it is already absent.
@@ -178,6 +195,14 @@ func validateJournal(journal Journal) error {
 		expectedPaths = 1
 	case "copy", "rename":
 		expectedPaths = 2
+	case "replace_batch":
+		expectedPaths = -1
+		if len(journal.Paths) == 0 || len(journal.Paths) > DefaultLimits().MaxEntries ||
+			!slices.IsSortedFunc(journal.Paths, func(left, right RelativePath) int {
+				return strings.Compare(string(left), string(right))
+			}) {
+			return fmt.Errorf("validate workspace journal: invalid batch paths")
+		}
 	case "workspace_create":
 	case "workspace_delete":
 		if journal.AfterDigest != journal.BeforeDigest {
@@ -189,7 +214,7 @@ func validateJournal(journal Journal) error {
 	if journal.ExpectedRevision == 0 || journal.NextRevision != journal.ExpectedRevision+1 ||
 		journal.BeforeDigest == (Digest{}) || journal.AfterDigest == (Digest{}) ||
 		journal.StartedAt.IsZero() || journal.StartedAt != journal.StartedAt.UTC() ||
-		len(journal.Paths) != expectedPaths {
+		(expectedPaths >= 0 && len(journal.Paths) != expectedPaths) {
 		return fmt.Errorf("validate workspace journal: invalid metadata")
 	}
 	if err := validateActor(journal.Actor); err != nil {

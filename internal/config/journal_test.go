@@ -120,6 +120,18 @@ func TestJournalWorkspaceDeleteRequiresUnchangedDigest(t *testing.T) {
 	}
 }
 
+func TestJournalPayloadSizeUsesTheCanonicalRecordInsteadOfTheReadLimit(t *testing.T) {
+	t.Parallel()
+
+	size, err := journalPayloadSize(testJournal(t))
+	if err != nil {
+		t.Fatalf("journalPayloadSize() error = %v", err)
+	}
+	if size <= 0 || size >= 4096 || size == journalPayloadLimit {
+		t.Fatalf("journalPayloadSize() = %d", size)
+	}
+}
+
 func newJournalTestRoot(t *testing.T) *ScopedRoot {
 	t.Helper()
 	path := t.TempDir()

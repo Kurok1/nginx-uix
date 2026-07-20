@@ -121,6 +121,9 @@ var configContractOperations = []contractOperation{
 	{http.MethodPost, "/api/v1/config/workspaces/{workspace_id}/files/copies", "copyConfigFile", "201", []string{"FileMutationResponse"}, "", false, true, true, 256 << 10},
 	{http.MethodGet, "/api/v1/config/workspaces/{workspace_id}/files/search", "searchConfigFiles", "200", []string{"SearchResponse"}, "query", true, false, false, 0},
 	{http.MethodGet, "/api/v1/config/workspaces/{workspace_id}/diff", "getConfigDiff", "200", []string{"DiffResponse"}, "path", false, false, false, 0},
+	{http.MethodGet, "/api/v1/config/workspaces/{workspace_id}/structured-config", "getStructuredConfig", "200", []string{"StructuredConfig"}, "", false, false, true, 0},
+	{http.MethodPost, "/api/v1/config/workspaces/{workspace_id}/structured-change-previews", "createStructuredChangePreview", "200", []string{"StructuredChangePreview"}, "", false, false, true, 256 << 10},
+	{http.MethodPost, "/api/v1/config/workspaces/{workspace_id}/structured-changes", "applyStructuredChange", "200", []string{"StructuredChangeResult"}, "", false, true, true, 256 << 10},
 	{http.MethodPost, "/api/v1/config/workspaces/{workspace_id}/publish-checks", "createConfigPublishCheck", "201", []string{"PublishCheck"}, "", false, true, false, 4 << 10},
 	{http.MethodGet, "/api/v1/config/publish-checks/{check_id}", "getConfigPublishCheck", "200", []string{"PublishCheck"}, "", false, false, false, 0},
 	{http.MethodPost, "/api/v1/config/workspaces/{workspace_id}/releases", "createConfigRelease", "202", []string{"Release"}, "", false, true, false, 4 << 10},
@@ -636,6 +639,10 @@ func assertConfigSchemas(t *testing.T, schemas map[string]openAPISchema) {
 		"DeleteWorkspaceRequest", "DeleteFileRequest", "FileMutationResponse", "DiffResponse", "FileDiffSummary",
 		"SearchResponse", "SearchMatch", "GroupCollection", "ConfigGroup", "GroupMutationRequest", "DeleteGroupRequest",
 		"PublishCheck", "CandidateDiagnostic", "CreateReleaseRequest", "Release", "ReleaseStage",
+		"StructuredConfig", "StructuredSource", "StructuredProjectDiagnostic", "StructuredDiagnostic",
+		"StructuredHTTPBlock", "StructuredUpstream", "StructuredUpstreamServer", "StructuredEndpoint", "StructuredReference",
+		"StructuredHTTPServer", "StructuredLocation", "PreservedSyntax", "StructuredOperationRequest",
+		"StructuredApplyRequest", "StructuredChangePreview", "StructuredChangedFile", "StructuredChangeResult",
 		"APIErrorEnvelope", "ConfigErrorCode",
 	}
 	for _, name := range requiredSchemas {
@@ -650,6 +657,10 @@ func assertConfigSchemas(t *testing.T, schemas map[string]openAPISchema) {
 		"CONFIG_PRODUCTION_CHANGED", "CONFIG_BACKUP_INVALID", "NGINX_HEALTH_UNAVAILABLE", "CONFIG_RELEASE_NEEDS_ATTENTION",
 		"AGENT_UNAVAILABLE", "CONFIG_OPERATION_TIMEOUT",
 		"CONFIG_CANDIDATE_INVALID", "CONFIG_NO_CHANGES", "CONFIG_PUBLISH_CHECK_EXPIRED", "CONFIG_PUBLISH_IN_PROGRESS",
+		"STRUCTURED_PARSE_FAILED", "STRUCTURED_LIMIT_EXCEEDED", "STRUCTURED_PREVIEW_STALE",
+		"STRUCTURED_CONTEXT_AMBIGUOUS", "STRUCTURED_EDIT_CONFLICT", "UPSTREAM_INVALID",
+		"UPSTREAM_DUPLICATE", "UPSTREAM_REFERENCED", "UPSTREAM_REFERENCE_INCOMPLETE",
+		"LOCATION_INVALID", "LOCATION_DUPLICATE", "PROXY_PASS_INVALID",
 	} {
 		if !slices.Contains(schemas["ConfigErrorCode"].Enum, code) {
 			t.Errorf("ConfigErrorCode missing %s", code)
@@ -782,6 +793,9 @@ func TestBusinessAPIRouteContract(t *testing.T) {
 		{http.MethodPost, "/api/v1/config/workspaces/0123456789abcdef0123456789abcdef/files/copies"},
 		{http.MethodGet, "/api/v1/config/workspaces/0123456789abcdef0123456789abcdef/files/search"},
 		{http.MethodGet, "/api/v1/config/workspaces/0123456789abcdef0123456789abcdef/diff"},
+		{http.MethodGet, "/api/v1/config/workspaces/0123456789abcdef0123456789abcdef/structured-config"},
+		{http.MethodPost, "/api/v1/config/workspaces/0123456789abcdef0123456789abcdef/structured-change-previews"},
+		{http.MethodPost, "/api/v1/config/workspaces/0123456789abcdef0123456789abcdef/structured-changes"},
 		{http.MethodGet, "/api/v1/config/groups"},
 		{http.MethodPost, "/api/v1/config/groups"},
 		{http.MethodPut, "/api/v1/config/groups/0123456789abcdef0123456789abcdef"},

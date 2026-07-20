@@ -40,6 +40,12 @@ describe('WorkspaceHeader', () => {
     expect(wrapper.text()).toContain('Matches production snapshot')
     expect(wrapper.text()).toContain('3 draft changes')
     expect(wrapper.text()).toContain('尚未执行 Nginx 校验')
+    expect(wrapper.get('[data-structured-link="upstreams"]').attributes('href')).toBe(
+      '/config/workspaces/workspace-id/upstreams',
+    )
+    expect(wrapper.get('[data-structured-link="servers"]').attributes('href')).toBe(
+      '/config/workspaces/workspace-id/servers',
+    )
     expect(wrapper.find('[data-state-icon][aria-hidden="true"]').exists()).toBe(true)
     expect(wrapper.find('button').exists()).toBe(false)
   })

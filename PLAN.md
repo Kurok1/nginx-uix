@@ -341,20 +341,24 @@ v0.2.1 验收记录中已经执行的 Docker、缓存和多架构步骤继续作
 
 **目标：** 在不破坏手写配置的前提下，以结构化方式管理 upstream 和路径规则。
 
+**详细设计：** [v0.3.0 结构化 upstream 与 location 设计](docs/superpowers/specs/2026-07-20-v0.3-structured-upstream-location-design.md)
+
+**验收证据：** [v0.3.0 验收记录](docs/release/v0.3.0-verification.md)
+
 **交付物：**
 
-- [ ] 实现带 source span 的 tokenizer 和 lossless AST。
-- [ ] 建立解析、局部修改、渲染和再次解析的一致性测试。
-- [ ] 支持发现跨文件的 `http`、`server`、`upstream` 和 `location` 块。
-- [ ] 支持 upstream 创建、重命名、删除和引用检查。
-- [ ] 支持 upstream server 的地址、端口、weight、backup、down、max_fails 和 fail_timeout。
-- [ ] 保留 UI 暂不识别的 upstream 指令和参数。
-- [ ] 支持 location 精确匹配、普通前缀、`^~`、`~`、`~*` 和 named location。
-- [ ] 支持嵌套 location 的读取、编辑和合法性检查。
-- [ ] 支持 proxy_pass 与 upstream 引用选择。
-- [ ] 提示重复规则、不可达规则、顺序敏感正则和悬空 upstream 引用。
-- [ ] 结构化操作前展示生成差异，并允许退回原始文本编辑。
-- [ ] 提供 Upstream、Server/Location 管理页面。
+- [x] 实现带 source span 的 tokenizer 和 lossless AST。
+- [x] 建立解析、局部修改、渲染和再次解析的一致性测试。
+- [x] 支持发现跨文件的 `http`、`server`、`upstream` 和 `location` 块。
+- [x] 支持 upstream 创建、重命名、删除和引用检查。
+- [x] 支持 upstream server 的地址、端口、weight、backup、down、max_fails 和 fail_timeout。
+- [x] 保留 UI 暂不识别的 upstream 指令和参数。
+- [x] 支持 location 精确匹配、普通前缀、`^~`、`~`、`~*` 和 named location。
+- [x] 支持嵌套 location 的读取、编辑和合法性检查。
+- [x] 支持 proxy_pass 与 upstream 引用选择。
+- [x] 提示重复规则、不可达规则、顺序敏感正则和悬空 upstream 引用。
+- [x] 结构化操作前展示生成差异，并允许退回原始文本编辑。
+- [x] 提供 Upstream、Server/Location 管理页面。
 
 **验收条件：**
 
@@ -566,7 +570,7 @@ v0.2.1 验收记录中已经执行的 Docker、缓存和多架构步骤继续作
 | v0.2.1 | 安全配置工作区版 | 已完成 | v0.1.0 |
 | v0.2.2 | 安全发布闭环版 | 已完成 | v0.2.1 |
 | v0.2.3 | 恢复与运行控制版 | 已完成 | v0.2.2 |
-| v0.3.0 | upstream 与 location | 未开始 | v0.2.3 |
+| v0.3.0 | upstream 与 location | 已完成 | v0.2.3 |
 | v0.4.0 | 路径实验室 | 未开始 | v0.3.0 |
 | v0.5.0 | Let's Encrypt | 未开始 | v0.4.0 |
 | v0.6.0 | 发布候选 | 未开始 | v0.5.0 |
@@ -611,4 +615,6 @@ v0.2.1 验收记录中已经执行的 Docker、缓存和多架构步骤继续作
 - [x] 实施并验收 v0.2.2 安全发布闭环版。
 - [x] 为 v0.2.3 评审人工恢复、备份保留、restart、完整历史和人工处置闭环。
 - [x] 实施并验收 v0.2.3 恢复与运行控制版。
+- [x] 评审并确认 v0.3.0 结构化 upstream 与 location 设计及 fail-closed 边界。
+- [x] 实施并验收 v0.3.0 结构化 upstream 与 location 版。
 - [ ] v0.6.0 完成后，以 v0.7.0 统一执行全部 Docker 验证。
