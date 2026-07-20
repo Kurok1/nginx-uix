@@ -9,21 +9,23 @@ SCRIPT_DIR=$(CDPATH= cd "$(dirname "$0")" && pwd)
 REPOSITORY_ROOT=$(CDPATH= cd "${SCRIPT_DIR}/../.." && pwd)
 cd "${REPOSITORY_ROOT}"
 
-VERSION=$(tr -d '\n' < VERSION)
-SOURCE_COMMIT=$(git rev-parse HEAD)
-BUILD_TIME=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
-RUN_RANDOM=$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')
-RUN_ID="t17-$(date -u '+%Y%m%dT%H%M%SZ')-$$-${RUN_RANDOM}"
+# shellcheck source=lib/image.sh
+. "${SCRIPT_DIR}/lib/image.sh"
+# shellcheck source=lib/playwright_summary.sh
+. "${SCRIPT_DIR}/lib/playwright_summary.sh"
 
-OCI_ARCHIVE=""
+VERSION=$(tr -d '\n' < VERSION)
+RUN_RANDOM=$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')
+RUN_ID="t18-$$-${RUN_RANDOM}"
+
 TEMP_DIR=""
 OWN_CONTAINERS=""
 OWN_BUILDERS=""
 OWN_IMAGES=""
 OWN_VOLUMES=""
-CACHE_ROTATION_ACTIVE=0
-CACHE_HAD_PREVIOUS=0
-BUILDX_CACHE_RESULT='miss'
+OWN_CACHE_PATHS=""
+AMD64_CACHE_KIND=none
+ARM64_CACHE_KIND=none
 
 AMD64_IMAGE="nginx-uix:${VERSION}-multiarch-${RUN_ID}-amd64"
 ARM64_IMAGE="nginx-uix:${VERSION}-multiarch-${RUN_ID}-arm64"
@@ -32,12 +34,11 @@ RESOURCE_PREFIX="nginx-uix-${RUN_ID}"
 BUILDER_NAME="nginx-uix-${RUN_ID}"
 BUILDX_CACHE_PARENT="${REPOSITORY_ROOT}/.tmp"
 BUILDX_CACHE_DIR="${BUILDX_CACHE_PARENT}/buildx-cache"
-BUILDX_CACHE_STAGING_DIR="${BUILDX_CACHE_PARENT}/buildx-cache.${RUN_ID}.new"
-BUILDX_CACHE_BACKUP_DIR="${BUILDX_CACHE_PARENT}/buildx-cache.${RUN_ID}.old"
+BUILDX_CACHE_SEED_DIR=${BUILDX_CACHE_SEED_DIR:-}
+NATIVE_IMAGE=${NATIVE_IMAGE:-}
 
 NGINX_BASE='nginx:1.30.3-trixie@sha256:b6edb43d9e6e3df4914ffee84030c41f84a9a8c38d9af9b0d44ee4ee295a0a2b'
 PLAYWRIGHT_BASE='mcr.microsoft.com/playwright:v1.61.0-noble@sha256:57b65fdc9ceabe0ef613124c7bbe2babcf9362c4d85e382fe3b03604e84b428a'
-SKIP_EMULATED_AMD64_RUNTIME=${SKIP_EMULATED_AMD64_RUNTIME:-0}
 
 log() {
   printf '[multiarch] %s\n' "$*"
@@ -48,36 +49,44 @@ fail() {
   exit 1
 }
 
-remove_owned_cache_path() {
-  remove_cache_path=$1
-  case "${remove_cache_path}" in
-    "${BUILDX_CACHE_DIR}" | "${BUILDX_CACHE_STAGING_DIR}" | "${BUILDX_CACHE_BACKUP_DIR}") ;;
-    *) return 1 ;;
+register_cache_path() {
+  register_cache_path_value=$1
+  [ "$(dirname "${register_cache_path_value}")" = "${BUILDX_CACHE_PARENT}" ] ||
+    fail 'run-owned cache path has an unexpected parent'
+  case "$(basename "${register_cache_path_value}")" in
+    "buildx-cache.${RUN_ID}-"*.new | "buildx-cache.${RUN_ID}-"*.old) ;;
+    *) fail 'run-owned cache path has an unexpected name' ;;
   esac
-  rm -rf "${remove_cache_path}"
+  if [ -e "${register_cache_path_value}" ] || [ -L "${register_cache_path_value}" ]; then
+    fail 'refusing an existing run-owned cache path'
+  fi
+  OWN_CACHE_PATHS="${OWN_CACHE_PATHS} ${register_cache_path_value}"
 }
 
-cleanup_buildx_cache() {
-  if [ "${CACHE_ROTATION_ACTIVE}" -eq 1 ] && [ "${CACHE_HAD_PREVIOUS}" -eq 1 ] &&
-    [ -d "${BUILDX_CACHE_BACKUP_DIR}" ] && [ ! -L "${BUILDX_CACHE_BACKUP_DIR}" ]; then
-    if [ -e "${BUILDX_CACHE_DIR}" ] || [ -L "${BUILDX_CACHE_DIR}" ]; then
-      remove_owned_cache_path "${BUILDX_CACHE_DIR}" || true
+remove_owned_cache_paths() {
+  for remove_cache_path in ${OWN_CACHE_PATHS}; do
+    case "${remove_cache_path}" in
+      *.old)
+        if [ -d "${remove_cache_path}" ] && [ ! -L "${remove_cache_path}" ]; then
+          if [ ! -e "${BUILDX_CACHE_DIR}" ] && [ ! -L "${BUILDX_CACHE_DIR}" ] &&
+            validate_buildx_cache "${remove_cache_path}" >/dev/null 2>&1; then
+            mv "${remove_cache_path}" "${BUILDX_CACHE_DIR}" >/dev/null 2>&1 ||
+              printf '[multiarch] WARNING: previous Buildx cache remains in its run-owned backup\n' >&2
+            continue
+          fi
+          if ! validate_buildx_cache "${BUILDX_CACHE_DIR}" >/dev/null 2>&1; then
+            printf '[multiarch] WARNING: refusing to remove previous cache backup while current is invalid\n' >&2
+            continue
+          fi
+        fi
+        ;;
+    esac
+    if [ -L "${remove_cache_path}" ] || [ -f "${remove_cache_path}" ]; then
+      rm -f "${remove_cache_path}" >/dev/null 2>&1 || true
+    elif [ -d "${remove_cache_path}" ]; then
+      rm -rf "${remove_cache_path}" >/dev/null 2>&1 || true
     fi
-    if mv "${BUILDX_CACHE_BACKUP_DIR}" "${BUILDX_CACHE_DIR}"; then
-      CACHE_HAD_PREVIOUS=0
-    else
-      printf '[multiarch] WARNING: previous Buildx cache remains at %s\n' \
-        "${BUILDX_CACHE_BACKUP_DIR}" >&2
-    fi
-  fi
-
-  if [ -e "${BUILDX_CACHE_STAGING_DIR}" ] || [ -L "${BUILDX_CACHE_STAGING_DIR}" ]; then
-    remove_owned_cache_path "${BUILDX_CACHE_STAGING_DIR}" || true
-  fi
-  if [ "${CACHE_ROTATION_ACTIVE}" -eq 0 ] &&
-    { [ -e "${BUILDX_CACHE_BACKUP_DIR}" ] || [ -L "${BUILDX_CACHE_BACKUP_DIR}" ]; }; then
-    remove_owned_cache_path "${BUILDX_CACHE_BACKUP_DIR}" || true
-  fi
+  done
 }
 
 cleanup() {
@@ -99,7 +108,10 @@ cleanup() {
   if [ -n "${TEMP_DIR}" ] && [ -d "${TEMP_DIR}" ]; then
     rm -rf "${TEMP_DIR}"
   fi
-  cleanup_buildx_cache
+  if [ "${BUILDX_CACHE_LOCK_OWNED:-0}" = 1 ]; then
+    release_buildx_cache_lock >/dev/null 2>&1 || true
+  fi
+  remove_owned_cache_paths
 
   exit "${cleanup_rc}"
 }
@@ -111,11 +123,6 @@ on_signal() {
 # Install cleanup before creating temporary files or Docker resources.
 trap cleanup EXIT
 trap on_signal HUP INT TERM
-
-case "${SKIP_EMULATED_AMD64_RUNTIME}" in
-  0 | 1) ;;
-  *) fail 'SKIP_EMULATED_AMD64_RUNTIME must be 0 or 1' ;;
-esac
 
 require_command() {
   command -v "$1" >/dev/null 2>&1 || fail "required command is unavailable: $1"
@@ -157,22 +164,22 @@ register_volume() {
   OWN_VOLUMES="${OWN_VOLUMES} ${register_name}"
 }
 
-retry() (
+retry() {
   retry_limit=$1
   shift
   retry_attempt=1
   while :; do
     if "$@"; then
-      exit 0
+      return 0
     fi
     if [ "${retry_attempt}" -ge "${retry_limit}" ]; then
-      exit 1
+      return 1
     fi
     log "attempt ${retry_attempt}/${retry_limit} failed; retrying the unchanged command"
     sleep $((retry_attempt * 2))
     retry_attempt=$((retry_attempt + 1))
   done
-)
+}
 
 digest_file() (
   digest_path=$1
@@ -183,126 +190,39 @@ digest_file() (
   fi
 )
 
-digest_stream() {
-  if command -v sha256sum >/dev/null 2>&1; then
-    LC_ALL=C sha256sum | awk '{print $1}'
-  else
-    LC_ALL=C shasum -a 256 | awk '{print $1}'
+build_platform_oci_once() {
+  if [ -e "${PLATFORM_STAGING_CACHE}" ] || [ -L "${PLATFORM_STAGING_CACHE}" ]; then
+    rm -rf "${PLATFORM_STAGING_CACHE}" || return 1
   fi
-}
+  rm -f "${PLATFORM_OCI_ARCHIVE}"
 
-source_fingerprint() {
-  for fingerprint_path in \
-    .dockerignore \
-    VERSION \
-    go.mod \
-    go.sum \
-    web/package.json \
-    web/package-lock.json \
-    deploy/docker/Dockerfile \
-    deploy/docker/Playwright.Dockerfile; do
-    printf '%s %s\n' "${fingerprint_path}" "$(digest_file "${fingerprint_path}")"
-  done | digest_stream
-}
-
-assert_release_sources_clean() {
-  if [ -n "$(git status --porcelain -- \
-    .dockerignore VERSION go.mod go.sum cmd internal web deploy/docker)" ]; then
-    fail 'release inputs differ from the recorded commit'
+  acquire_buildx_cache_lock "${BUILDX_CACHE_PARENT}" 60 || return 1
+  if ! append_cache_from_args "${BUILDX_CACHE_DIR}" "${BUILDX_CACHE_SEED_DIR}"; then
+    release_buildx_cache_lock >/dev/null 2>&1 || true
+    return 1
   fi
-}
+  printf '%s\n' "${BUILDX_CACHE_KIND}" >"${TEMP_DIR}/cache-${PLATFORM_ARCH}.kind"
+  log "linux/${PLATFORM_ARCH} cache imports: ${BUILDX_CACHE_KIND}"
 
-prepare_buildx_cache() {
-  if [ -L "${BUILDX_CACHE_PARENT}" ]; then
-    fail "refusing symbolic-link Buildx cache parent: ${BUILDX_CACHE_PARENT}"
-  fi
-  mkdir -p "${BUILDX_CACHE_PARENT}"
-  [ -d "${BUILDX_CACHE_PARENT}" ] ||
-    fail "Buildx cache parent is not a directory: ${BUILDX_CACHE_PARENT}"
-
-  if [ -L "${BUILDX_CACHE_DIR}" ]; then
-    fail "refusing symbolic-link Buildx cache: ${BUILDX_CACHE_DIR}"
-  fi
-  if [ -e "${BUILDX_CACHE_DIR}" ]; then
-    [ -d "${BUILDX_CACHE_DIR}" ] ||
-      fail "Buildx cache is not a directory: ${BUILDX_CACHE_DIR}"
-    [ -f "${BUILDX_CACHE_DIR}/index.json" ] && [ ! -L "${BUILDX_CACHE_DIR}/index.json" ] ||
-      fail "Buildx cache has no regular index: ${BUILDX_CACHE_DIR}"
-    BUILDX_CACHE_RESULT='imported'
-    log "importing reusable Buildx cache from ${BUILDX_CACHE_DIR}"
-  else
-    log "reusable Buildx cache miss at ${BUILDX_CACHE_DIR}"
-  fi
-
-  for prepare_cache_path in "${BUILDX_CACHE_STAGING_DIR}" "${BUILDX_CACHE_BACKUP_DIR}"; do
-    if [ -e "${prepare_cache_path}" ] || [ -L "${prepare_cache_path}" ]; then
-      fail "refusing existing per-run Buildx cache path: ${prepare_cache_path}"
-    fi
-  done
-}
-
-reset_buildx_cache_staging() {
-  if [ -L "${BUILDX_CACHE_STAGING_DIR}" ]; then
-    fail "refusing symbolic-link Buildx cache staging path: ${BUILDX_CACHE_STAGING_DIR}"
-  fi
-  if [ -e "${BUILDX_CACHE_STAGING_DIR}" ]; then
-    remove_owned_cache_path "${BUILDX_CACHE_STAGING_DIR}" ||
-      fail "refusing to clean unowned Buildx cache path: ${BUILDX_CACHE_STAGING_DIR}"
-  fi
-}
-
-publish_buildx_cache() {
-  [ -d "${BUILDX_CACHE_STAGING_DIR}" ] && [ ! -L "${BUILDX_CACHE_STAGING_DIR}" ] ||
-    fail "Buildx cache export is not a regular directory: ${BUILDX_CACHE_STAGING_DIR}"
-  [ -f "${BUILDX_CACHE_STAGING_DIR}/index.json" ] &&
-    [ ! -L "${BUILDX_CACHE_STAGING_DIR}/index.json" ] ||
-    fail "Buildx cache export has no regular index: ${BUILDX_CACHE_STAGING_DIR}"
-  if [ -e "${BUILDX_CACHE_BACKUP_DIR}" ] || [ -L "${BUILDX_CACHE_BACKUP_DIR}" ]; then
-    fail "Buildx cache backup path already exists: ${BUILDX_CACHE_BACKUP_DIR}"
-  fi
-
-  CACHE_ROTATION_ACTIVE=1
-  CACHE_HAD_PREVIOUS=0
-  if [ -e "${BUILDX_CACHE_DIR}" ]; then
-    [ -d "${BUILDX_CACHE_DIR}" ] && [ ! -L "${BUILDX_CACHE_DIR}" ] ||
-      fail "Buildx cache changed before publication: ${BUILDX_CACHE_DIR}"
-    mv "${BUILDX_CACHE_DIR}" "${BUILDX_CACHE_BACKUP_DIR}"
-    CACHE_HAD_PREVIOUS=1
-  fi
-
-  if ! mv "${BUILDX_CACHE_STAGING_DIR}" "${BUILDX_CACHE_DIR}"; then
-    if [ "${CACHE_HAD_PREVIOUS}" -eq 1 ]; then
-      mv "${BUILDX_CACHE_BACKUP_DIR}" "${BUILDX_CACHE_DIR}" ||
-        fail "cannot restore previous Buildx cache: ${BUILDX_CACHE_BACKUP_DIR}"
-      CACHE_HAD_PREVIOUS=0
-    fi
-    CACHE_ROTATION_ACTIVE=0
-    fail 'cannot publish the new Buildx cache'
-  fi
-
-  CACHE_ROTATION_ACTIVE=0
-  if [ "${CACHE_HAD_PREVIOUS}" -eq 1 ]; then
-    remove_owned_cache_path "${BUILDX_CACHE_BACKUP_DIR}" ||
-      fail "cannot remove previous Buildx cache backup: ${BUILDX_CACHE_BACKUP_DIR}"
-    CACHE_HAD_PREVIOUS=0
-  fi
-  log "published reusable Buildx cache at ${BUILDX_CACHE_DIR}"
-}
-
-build_oci_index() {
-  rm -f "${OCI_ARCHIVE}"
-  reset_buildx_cache_staging
   set -- docker buildx build \
     --builder "${BUILDER_NAME}" \
-    --platform linux/amd64,linux/arm64 \
+    --progress=plain \
+    --platform "linux/${PLATFORM_ARCH}" \
     --provenance=false \
-    --output "type=oci,dest=${OCI_ARCHIVE}" \
-    --cache-to "type=local,dest=${BUILDX_CACHE_STAGING_DIR},mode=max" \
+    --tag "${PLATFORM_IMAGE}" \
+    --output "type=oci,dest=${PLATFORM_OCI_ARCHIVE}" \
+    --cache-to "type=local,dest=${PLATFORM_STAGING_CACHE},mode=max" \
     --build-arg "VERSION=${VERSION}" \
     --build-arg "COMMIT=${SOURCE_COMMIT}" \
-    --build-arg "BUILD_TIME=${BUILD_TIME}"
-  if [ -f "${BUILDX_CACHE_DIR}/index.json" ] && [ ! -L "${BUILDX_CACHE_DIR}/index.json" ]; then
-    set -- "$@" --cache-from "type=local,src=${BUILDX_CACHE_DIR}"
+    --build-arg "BUILD_TIME=${BUILD_TIME}" \
+    --build-arg "SOURCE_FINGERPRINT=${SOURCE_FINGERPRINT}" \
+    --build-arg "BUILD_IDENTITY=${PLATFORM_BUILD_IDENTITY}" \
+    --build-arg "SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}"
+  if [ -n "${BUILDX_CACHE_FROM_CURRENT}" ]; then
+    set -- "$@" --cache-from "${BUILDX_CACHE_FROM_CURRENT}"
+  fi
+  if [ -n "${BUILDX_CACHE_FROM_SEED}" ]; then
+    set -- "$@" --cache-from "${BUILDX_CACHE_FROM_SEED}"
   fi
   if [ -n "${BUILD_STEP_HTTP_PROXY:-}" ]; then
     set -- "$@" --build-arg "http_proxy=${BUILD_STEP_HTTP_PROXY}"
@@ -314,7 +234,30 @@ build_oci_index() {
     set -- "$@" --build-arg "no_proxy=${BUILD_STEP_NO_PROXY}"
   fi
   set -- "$@" --file deploy/docker/Dockerfile .
-  "$@"
+
+  if ! "$@"; then
+    rm -rf "${PLATFORM_STAGING_CACHE}" >/dev/null 2>&1 || true
+    release_buildx_cache_lock >/dev/null 2>&1 || true
+    return 1
+  fi
+  if ! publish_buildx_cache \
+    "${PLATFORM_STAGING_CACHE}" "${BUILDX_CACHE_DIR}" "${PLATFORM_BACKUP_CACHE}"; then
+    release_buildx_cache_lock >/dev/null 2>&1 || true
+    return 1
+  fi
+  release_buildx_cache_lock || return 1
+}
+
+build_platform_oci() {
+  PLATFORM_ARCH=$1
+  PLATFORM_IMAGE=$2
+  PLATFORM_BUILD_IDENTITY=$3
+  PLATFORM_OCI_ARCHIVE=$4
+  PLATFORM_STAGING_CACHE="${BUILDX_CACHE_PARENT}/buildx-cache.${RUN_ID}-${PLATFORM_ARCH}.new"
+  PLATFORM_BACKUP_CACHE="${BUILDX_CACHE_PARENT}/buildx-cache.${RUN_ID}-${PLATFORM_ARCH}.old"
+  register_cache_path "${PLATFORM_STAGING_CACHE}"
+  register_cache_path "${PLATFORM_BACKUP_CACHE}"
+  retry 3 build_platform_oci_once || fail "linux/${PLATFORM_ARCH} OCI build failed"
 }
 
 create_buildx_builder() {
@@ -332,78 +275,174 @@ create_buildx_builder() {
 }
 
 oci_blob_path() (
-  oci_digest=$1
+  oci_root=$1
+  oci_digest=$2
   case "${oci_digest}" in
     sha256:[0-9a-f][0-9a-f]*) ;;
     *) fail "unexpected OCI digest: ${oci_digest}" ;;
   esac
   oci_hex=${oci_digest#sha256:}
   [ "${#oci_hex}" -eq 64 ] || fail "unexpected OCI digest length: ${oci_digest}"
-  printf '%s/blobs/sha256/%s\n' "${OCI_ROOT}" "${oci_hex}"
+  case "${oci_hex}" in
+    *[!0-9a-f]*) fail "unexpected OCI digest: ${oci_digest}" ;;
+  esac
+  printf '%s/blobs/sha256/%s\n' "${oci_root}" "${oci_hex}"
 )
 
 verify_oci_blob() (
-  verify_digest=$1
-  verify_path=$(oci_blob_path "${verify_digest}")
-  [ -f "${verify_path}" ] || fail "OCI descriptor blob is missing: ${verify_digest}"
+  verify_root=$1
+  verify_digest=$2
+  verify_size=$3
+  verify_path=$(oci_blob_path "${verify_root}" "${verify_digest}")
+  [ -f "${verify_path}" ] && [ ! -L "${verify_path}" ] ||
+    fail "OCI descriptor blob is missing: ${verify_digest}"
   verify_actual=$(digest_file "${verify_path}")
   [ "sha256:${verify_actual}" = "${verify_digest}" ] || fail "OCI blob digest mismatch: ${verify_digest}"
+  verify_actual_size=$(wc -c <"${verify_path}" | tr -d ' ')
+  [ "${verify_actual_size}" = "${verify_size}" ] || fail "OCI blob size mismatch: ${verify_digest}"
 )
 
-inspect_oci_architecture() (
-  inspect_arch=$1
-  inspect_count=$(jq --arg arch "${inspect_arch}" \
-    '[.manifests[] | select(.platform.os == "linux" and .platform.architecture == $arch)] | length' \
-    "${OCI_PLATFORM_INDEX}")
-  [ "${inspect_count}" -eq 1 ] || fail "OCI index contains ${inspect_count} linux/${inspect_arch} manifests"
+verify_platform_layout() (
+  verify_layout_root=$1
+  verify_arch=$2
+  verify_build_identity=$3
+  verify_index="${verify_layout_root}/index.json"
+  [ -f "${verify_layout_root}/oci-layout" ] && [ ! -L "${verify_layout_root}/oci-layout" ] ||
+    fail "linux/${verify_arch} OCI layout marker is missing"
+  [ -f "${verify_index}" ] && [ ! -L "${verify_index}" ] ||
+    fail "linux/${verify_arch} OCI index is missing"
+  jq -e --arg arch "${verify_arch}" \
+    '.schemaVersion == 2 and
+     .mediaType == "application/vnd.oci.image.index.v1+json" and
+     (.manifests | length) == 1 and
+     .manifests[0].mediaType == "application/vnd.oci.image.manifest.v1+json" and
+     .manifests[0].platform.os == "linux" and
+     .manifests[0].platform.architecture == $arch' \
+    "${verify_index}" >/dev/null || fail "linux/${verify_arch} OCI index is malformed"
 
-  inspect_manifest_digest=$(jq -er --arg arch "${inspect_arch}" \
-    '.manifests[] | select(.platform.os == "linux" and .platform.architecture == $arch) | .digest' \
-    "${OCI_PLATFORM_INDEX}")
-  verify_oci_blob "${inspect_manifest_digest}"
-  inspect_manifest_path=$(oci_blob_path "${inspect_manifest_digest}")
-  inspect_config_digest=$(jq -er '.config.digest' "${inspect_manifest_path}")
-  verify_oci_blob "${inspect_config_digest}"
-  inspect_config_path=$(oci_blob_path "${inspect_config_digest}")
-  jq -e --arg arch "${inspect_arch}" \
-    '.os == "linux" and .architecture == $arch' "${inspect_config_path}" >/dev/null ||
-    fail "OCI config does not identify linux/${inspect_arch}"
+  verify_manifest_digest=$(jq -er '.manifests[0].digest' "${verify_index}")
+  verify_manifest_size=$(jq -er '.manifests[0].size' "${verify_index}")
+  verify_oci_blob "${verify_layout_root}" "${verify_manifest_digest}" "${verify_manifest_size}"
+  verify_manifest_path=$(oci_blob_path "${verify_layout_root}" "${verify_manifest_digest}")
+  jq -e \
+    '.schemaVersion == 2 and
+     .mediaType == "application/vnd.oci.image.manifest.v1+json" and
+     .config.mediaType == "application/vnd.oci.image.config.v1+json" and
+     (.layers | type == "array" and length > 0)' \
+    "${verify_manifest_path}" >/dev/null || fail "linux/${verify_arch} OCI manifest is malformed"
 
-  printf '%s\n' "${inspect_manifest_digest}"
+  verify_config_digest=$(jq -er '.config.digest' "${verify_manifest_path}")
+  verify_config_size=$(jq -er '.config.size' "${verify_manifest_path}")
+  verify_oci_blob "${verify_layout_root}" "${verify_config_digest}" "${verify_config_size}"
+  jq -er '.layers[] | [.digest, (.size | tostring)] | @tsv' \
+    "${verify_manifest_path}" >"${TEMP_DIR}/layers-${verify_arch}.tsv"
+  while IFS="$(printf '\t')" read -r verify_layer_digest verify_layer_size; do
+    verify_oci_blob "${verify_layout_root}" "${verify_layer_digest}" "${verify_layer_size}"
+  done <"${TEMP_DIR}/layers-${verify_arch}.tsv"
+
+  verify_config_path=$(oci_blob_path "${verify_layout_root}" "${verify_config_digest}")
+  jq -e \
+    --arg arch "${verify_arch}" \
+    --arg version "${VERSION}" \
+    --arg revision "${SOURCE_COMMIT}" \
+    --arg source "${SOURCE_FINGERPRINT}" \
+    --arg identity "${verify_build_identity}" \
+    --arg epoch "${SOURCE_DATE_EPOCH}" \
+    '.os == "linux" and .architecture == $arch and
+     .config.Labels["org.opencontainers.image.version"] == $version and
+     .config.Labels["org.opencontainers.image.revision"] == $revision and
+     .config.Labels["io.nginx-uix.source-fingerprint"] == $source and
+     .config.Labels["io.nginx-uix.build-identity"] == $identity and
+     .config.Labels["io.nginx-uix.reproducible-epoch"] == $epoch and
+     .config.Healthcheck.Test == ["CMD", "/usr/local/bin/nginx-uix", "healthcheck"]' \
+    "${verify_config_path}" >/dev/null || fail "linux/${verify_arch} OCI config identity is mismatched"
+
+  printf '%s\n' "${verify_manifest_digest}"
 )
 
-build_loaded_image() {
-  loaded_arch=$1
-  loaded_image=$2
-  retry 3 build_loaded_image_once
-
-  loaded_os=$(docker image inspect --format '{{.Os}}' "${loaded_image}")
-  loaded_actual_arch=$(docker image inspect --format '{{.Architecture}}' "${loaded_image}")
-  [ "${loaded_os}/${loaded_actual_arch}" = "linux/${loaded_arch}" ] ||
-    fail "loaded image platform is ${loaded_os}/${loaded_actual_arch}, expected linux/${loaded_arch}"
+copy_verified_platform_blobs() {
+  copy_root=$1
+  copy_arch=$2
+  copy_index="${copy_root}/index.json"
+  copy_manifest_digest=$(jq -er '.manifests[0].digest' "${copy_index}")
+  copy_manifest_size=$(jq -er '.manifests[0].size' "${copy_index}")
+  copy_manifest_path=$(oci_blob_path "${copy_root}" "${copy_manifest_digest}")
+  {
+    printf '%s\t%s\n' "${copy_manifest_digest}" "${copy_manifest_size}"
+    jq -er '.config, .layers[] | [.digest, (.size | tostring)] | @tsv' "${copy_manifest_path}"
+  } >"${TEMP_DIR}/blobs-${copy_arch}.tsv"
+  while IFS="$(printf '\t')" read -r copy_digest copy_size; do
+    verify_oci_blob "${copy_root}" "${copy_digest}" "${copy_size}"
+    copy_source=$(oci_blob_path "${copy_root}" "${copy_digest}")
+    copy_destination=$(oci_blob_path "${OCI_ROOT}" "${copy_digest}")
+    if [ -e "${copy_destination}" ] || [ -L "${copy_destination}" ]; then
+      verify_oci_blob "${OCI_ROOT}" "${copy_digest}" "${copy_size}"
+    else
+      cp "${copy_source}" "${copy_destination}.new"
+      copy_new_digest=$(digest_file "${copy_destination}.new")
+      copy_new_size=$(wc -c <"${copy_destination}.new" | tr -d ' ')
+      [ "sha256:${copy_new_digest}" = "${copy_digest}" ] && [ "${copy_new_size}" = "${copy_size}" ] ||
+        fail "copied OCI blob changed: ${copy_digest}"
+      mv "${copy_destination}.new" "${copy_destination}"
+    fi
+  done <"${TEMP_DIR}/blobs-${copy_arch}.tsv"
 }
 
-build_loaded_image_once() {
-  set -- docker buildx build \
-    --builder "${BUILDER_NAME}" \
-    --platform "linux/${loaded_arch}" \
-    --provenance=false \
-    --load \
-    --tag "${loaded_image}" \
-    --build-arg "VERSION=${VERSION}" \
-    --build-arg "COMMIT=${SOURCE_COMMIT}" \
-    --build-arg "BUILD_TIME=${BUILD_TIME}"
-  if [ -n "${BUILD_STEP_HTTP_PROXY:-}" ]; then
-    set -- "$@" --build-arg "http_proxy=${BUILD_STEP_HTTP_PROXY}"
-  fi
-  if [ -n "${BUILD_STEP_HTTPS_PROXY:-}" ]; then
-    set -- "$@" --build-arg "https_proxy=${BUILD_STEP_HTTPS_PROXY}"
-  fi
-  if [ -n "${BUILD_STEP_NO_PROXY:-}" ]; then
-    set -- "$@" --build-arg "no_proxy=${BUILD_STEP_NO_PROXY}"
-  fi
-  set -- "$@" --file deploy/docker/Dockerfile .
-  "$@"
+write_platform_descriptor() {
+  descriptor_root=$1
+  descriptor_arch=$2
+  descriptor_output=$3
+  jq -cS --arg arch "${descriptor_arch}" \
+    '.manifests[0] |
+     {mediaType: .mediaType, digest: .digest, size: .size,
+      platform: {architecture: $arch, os: "linux"}}' \
+    "${descriptor_root}/index.json" >"${descriptor_output}"
+}
+
+merge_platform_layouts() {
+  rm -rf "${OCI_ROOT}"
+  mkdir -p "${OCI_ROOT}/blobs/sha256"
+  printf '%s\n' '{"imageLayoutVersion":"1.0.0"}' >"${OCI_ROOT}/oci-layout"
+  copy_verified_platform_blobs "${AMD64_OCI_ROOT}" amd64
+  copy_verified_platform_blobs "${ARM64_OCI_ROOT}" arm64
+  write_platform_descriptor "${AMD64_OCI_ROOT}" amd64 "${TEMP_DIR}/descriptor-amd64.json"
+  write_platform_descriptor "${ARM64_OCI_ROOT}" arm64 "${TEMP_DIR}/descriptor-arm64.json"
+  jq -cS -s \
+    '{schemaVersion: 2,
+      mediaType: "application/vnd.oci.image.index.v1+json",
+      manifests: sort_by(.platform.os + "/" + .platform.architecture)}' \
+    "${TEMP_DIR}/descriptor-amd64.json" "${TEMP_DIR}/descriptor-arm64.json" \
+    >"${OCI_ROOT}/index.json.new"
+  mv "${OCI_ROOT}/index.json.new" "${OCI_ROOT}/index.json"
+  jq -e \
+    '.schemaVersion == 2 and (.manifests | length) == 2 and
+     [.manifests[].platform | (.os + "/" + .architecture)] ==
+       ["linux/amd64", "linux/arm64"]' \
+    "${OCI_ROOT}/index.json" >/dev/null || fail 'merged OCI index is not a sorted two-platform index'
+  OCI_LAYOUT_INDEX_DIGEST="sha256:$(digest_file "${OCI_ROOT}/index.json")"
+}
+
+extract_platform_layout() {
+  extract_archive=$1
+  extract_root=$2
+  rm -rf "${extract_root}"
+  mkdir -p "${extract_root}"
+  LC_ALL=C tar -xf "${extract_archive}" -C "${extract_root}"
+}
+
+load_platform_image() {
+  load_arch=$1
+  load_image=$2
+  load_archive=$3
+  load_expected_identity=$4
+  register_image "${load_image}"
+  docker load --input "${load_archive}" >/dev/null
+  PLATFORM="linux/${load_arch}"
+  docker_build_metadata || fail "could not recompute linux/${load_arch} image metadata"
+  [ "${BUILD_IDENTITY}" = "${load_expected_identity}" ] ||
+    fail "linux/${load_arch} metadata changed after OCI build"
+  assert_image_identity "${load_image}" "${load_expected_identity}" "${SOURCE_FINGERPRINT}" ||
+    fail "loaded linux/${load_arch} image identity is invalid"
 }
 
 normalize_architecture() (
@@ -414,30 +453,25 @@ normalize_architecture() (
   esac
 )
 
-platform_runnable() {
+platform_runtime_supported() {
   runnable_arch=$1
-  runnable_image=$2
   runnable_container="${RESOURCE_PREFIX}-probe-${runnable_arch}"
   runnable_log="${TEMP_DIR}/probe-${runnable_arch}.log"
+  if ! retry 3 docker pull --platform "linux/${runnable_arch}" "${NGINX_BASE}" >/dev/null; then
+    log "linux/${runnable_arch} base cannot be pulled; runtime checks are unavailable on this runner"
+    return 1
+  fi
   register_container "${runnable_container}"
   if ! docker create \
     --name "${runnable_container}" \
     --platform "linux/${runnable_arch}" \
     --entrypoint /bin/true \
-    "${runnable_image}" >"${runnable_log}" 2>&1; then
-    if [ "${runnable_arch}" = "${HOST_ARCH}" ]; then
-      sed -n '1,80p' "${runnable_log}" >&2
-      fail "native linux/${runnable_arch} image cannot be created"
-    fi
+    "${NGINX_BASE}" >"${runnable_log}" 2>&1; then
     log "linux/${runnable_arch} cannot be created on this runner; runtime checks are skipped for that architecture"
     return 1
   fi
   if docker start --attach "${runnable_container}" >"${runnable_log}" 2>&1; then
     return 0
-  fi
-  if [ "${runnable_arch}" = "${HOST_ARCH}" ]; then
-    sed -n '1,80p' "${runnable_log}" >&2
-    fail "native linux/${runnable_arch} image cannot execute"
   fi
   log "linux/${runnable_arch} cannot execute on this runner; runtime checks are skipped for that architecture"
   return 1
@@ -567,6 +601,14 @@ run_fault_suite() {
     "${SCRIPT_DIR}/faults.sh"
 }
 
+run_workspace_suite() {
+  suite_image=$1
+  suite_arch=$2
+  log "running workspace suite for native linux/${suite_arch}"
+  IMAGE="${suite_image}" PLATFORM="linux/${suite_arch}" BUILD_IMAGE=0 \
+    "${SCRIPT_DIR}/workspace.sh"
+}
+
 write_image_layers() {
   layer_image=$1
   layer_output=$2
@@ -651,9 +693,9 @@ run_playwright_acceptance() {
     fail 'Playwright acceptance failed'
   fi
   sed -n '1,240p' "${playwright_log}"
-  grep -Eq '(^|[^0-9])29 passed([[:space:](]|$)' "${playwright_log}" ||
-    fail 'Playwright output does not prove all 29 tests passed'
-  log 'Playwright acceptance passed: 29/29 tests'
+  verify_playwright_summary "${playwright_log}" ||
+    fail 'Playwright output does not prove exactly 48 passed and 1 Docker workspace skip'
+  log 'Playwright acceptance passed: 48/48 tests; 1 Docker workspace test conditionally skipped'
 }
 
 build_playwright_image() {
@@ -673,7 +715,7 @@ build_playwright_image() {
   "$@"
 }
 
-for required_command in docker git jq curl tar awk sed grep od tr wc chmod date mktemp; do
+for required_command in docker git go jq curl tar awk sed grep od tr wc chmod date mktemp cp mv; do
   require_command "${required_command}"
 done
 if ! command -v sha256sum >/dev/null 2>&1 && ! command -v shasum >/dev/null 2>&1; then
@@ -681,114 +723,141 @@ if ! command -v sha256sum >/dev/null 2>&1 && ! command -v shasum >/dev/null 2>&1
 fi
 require_executable "${SCRIPT_DIR}/smoke.sh"
 require_executable "${SCRIPT_DIR}/faults.sh"
-[ "${VERSION}" = '0.1.0' ] || fail "unexpected release version: ${VERSION}"
+require_executable "${SCRIPT_DIR}/workspace.sh"
+[ "${VERSION}" = '0.2.1' ] || fail "unexpected release version: ${VERSION}"
+[ -n "${NATIVE_IMAGE}" ] || fail 'NATIVE_IMAGE is required and is never rebuilt by multiarch.sh'
 docker info >/dev/null
 docker buildx version >/dev/null
-assert_release_sources_clean
 
-INITIAL_SOURCE_FINGERPRINT=$(source_fingerprint)
 HOST_ARCH=$(normalize_architecture "$(docker info --format '{{.Architecture}}')")
 case "${HOST_ARCH}" in
   amd64 | arm64) ;;
   *) fail "unsupported Docker host architecture: ${HOST_ARCH}" ;;
 esac
-if [ "${SKIP_EMULATED_AMD64_RUNTIME}" -eq 1 ] && [ "${HOST_ARCH}" != 'arm64' ]; then
-  fail 'SKIP_EMULATED_AMD64_RUNTIME=1 is only valid on an arm64 Docker host'
-fi
+
+PLATFORM="linux/${HOST_ARCH}"
+docker_build_metadata || fail 'could not compute native image metadata'
+INITIAL_SOURCE_FINGERPRINT=${SOURCE_FINGERPRINT}
+EXPECTED_SOURCE_COMMIT=${SOURCE_COMMIT}
+EXPECTED_SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}
+EXPECTED_BUILD_TIME=${BUILD_TIME}
+NATIVE_BUILD_IDENTITY=${BUILD_IDENTITY}
+assert_image_identity "${NATIVE_IMAGE}" "${NATIVE_BUILD_IDENTITY}" "${INITIAL_SOURCE_FINGERPRINT}" ||
+  fail 'NATIVE_IMAGE does not match the native source/build identity'
+NATIVE_IMAGE_DIGEST=${IMAGE_DIGEST}
+
+PLATFORM=linux/amd64
+docker_build_metadata || fail 'could not compute linux/amd64 build metadata'
+[ "${SOURCE_FINGERPRINT}" = "${INITIAL_SOURCE_FINGERPRINT}" ] &&
+  [ "${SOURCE_COMMIT}" = "${EXPECTED_SOURCE_COMMIT}" ] &&
+  [ "${SOURCE_DATE_EPOCH}" = "${EXPECTED_SOURCE_DATE_EPOCH}" ] &&
+  [ "${BUILD_TIME}" = "${EXPECTED_BUILD_TIME}" ] || fail 'linux/amd64 metadata changed shared source identity'
+AMD64_BUILD_IDENTITY=${BUILD_IDENTITY}
+
+PLATFORM=linux/arm64
+docker_build_metadata || fail 'could not compute linux/arm64 build metadata'
+[ "${SOURCE_FINGERPRINT}" = "${INITIAL_SOURCE_FINGERPRINT}" ] &&
+  [ "${SOURCE_COMMIT}" = "${EXPECTED_SOURCE_COMMIT}" ] &&
+  [ "${SOURCE_DATE_EPOCH}" = "${EXPECTED_SOURCE_DATE_EPOCH}" ] &&
+  [ "${BUILD_TIME}" = "${EXPECTED_BUILD_TIME}" ] || fail 'linux/arm64 metadata changed shared source identity'
+ARM64_BUILD_IDENTITY=${BUILD_IDENTITY}
+[ "${AMD64_BUILD_IDENTITY}" != "${ARM64_BUILD_IDENTITY}" ] ||
+  fail 'platform-specific build identities must differ'
 
 TEMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/nginx-uix-multiarch.${RUN_ID}.XXXXXX")
 chmod 0700 "${TEMP_DIR}"
-OCI_ARCHIVE="${TEMP_DIR}/nginx-uix-${VERSION}.oci.tar"
+AMD64_OCI_ARCHIVE="${TEMP_DIR}/nginx-uix-${VERSION}-amd64.oci.tar"
+ARM64_OCI_ARCHIVE="${TEMP_DIR}/nginx-uix-${VERSION}-arm64.oci.tar"
+AMD64_OCI_ROOT="${TEMP_DIR}/oci-amd64"
+ARM64_OCI_ROOT="${TEMP_DIR}/oci-arm64"
 OCI_ROOT="${TEMP_DIR}/oci"
-mkdir "${OCI_ROOT}"
-prepare_buildx_cache
 
 register_builder "${BUILDER_NAME}"
 create_buildx_builder
 retry 3 docker buildx inspect "${BUILDER_NAME}" --bootstrap >/dev/null
 
-log "building OCI index from commit ${SOURCE_COMMIT}"
-retry 3 build_oci_index
-publish_buildx_cache
-LC_ALL=C tar -xf "${OCI_ARCHIVE}" -C "${OCI_ROOT}"
-[ -f "${OCI_ROOT}/oci-layout" ] || fail 'OCI layout marker is missing'
-[ -f "${OCI_ROOT}/index.json" ] || fail 'OCI index is missing'
-OCI_LAYOUT_INDEX_DIGEST="sha256:$(digest_file "${OCI_ROOT}/index.json")"
-OCI_TOP_DESCRIPTOR_COUNT=$(jq '.manifests | length' "${OCI_ROOT}/index.json")
-[ "${OCI_TOP_DESCRIPTOR_COUNT}" -eq 1 ] || fail 'OCI layout must reference exactly one platform index'
-jq -e \
-  '.mediaType == "application/vnd.oci.image.index.v1+json" and
-   .manifests[0].mediaType == "application/vnd.oci.image.index.v1+json"' \
-  "${OCI_ROOT}/index.json" >/dev/null || fail 'OCI layout does not reference a nested platform index'
-OCI_INDEX_DIGEST=$(jq -er '.manifests[0].digest' "${OCI_ROOT}/index.json")
-verify_oci_blob "${OCI_INDEX_DIGEST}"
-OCI_PLATFORM_INDEX=$(oci_blob_path "${OCI_INDEX_DIGEST}")
-jq -e '.mediaType == "application/vnd.oci.image.index.v1+json"' \
-  "${OCI_PLATFORM_INDEX}" >/dev/null || fail 'nested OCI descriptor is not a platform index'
-AMD64_MANIFEST_DIGEST=$(inspect_oci_architecture amd64)
-ARM64_MANIFEST_DIGEST=$(inspect_oci_architecture arm64)
+log "building separate OCI layouts from commit ${SOURCE_COMMIT}"
+build_platform_oci amd64 "${AMD64_IMAGE}" "${AMD64_BUILD_IDENTITY}" "${AMD64_OCI_ARCHIVE}"
+AMD64_CACHE_KIND=$(cat "${TEMP_DIR}/cache-amd64.kind")
+extract_platform_layout "${AMD64_OCI_ARCHIVE}" "${AMD64_OCI_ROOT}"
+AMD64_MANIFEST_DIGEST=$(verify_platform_layout \
+  "${AMD64_OCI_ROOT}" amd64 "${AMD64_BUILD_IDENTITY}")
+
+build_platform_oci arm64 "${ARM64_IMAGE}" "${ARM64_BUILD_IDENTITY}" "${ARM64_OCI_ARCHIVE}"
+ARM64_CACHE_KIND=$(cat "${TEMP_DIR}/cache-arm64.kind")
+extract_platform_layout "${ARM64_OCI_ARCHIVE}" "${ARM64_OCI_ROOT}"
+ARM64_MANIFEST_DIGEST=$(verify_platform_layout \
+  "${ARM64_OCI_ROOT}" arm64 "${ARM64_BUILD_IDENTITY}")
 [ "${AMD64_MANIFEST_DIGEST}" != "${ARM64_MANIFEST_DIGEST}" ] || fail 'architecture manifests have the same digest'
+merge_platform_layouts
 log "OCI linux/amd64 manifest: ${AMD64_MANIFEST_DIGEST}"
 log "OCI linux/arm64 manifest: ${ARM64_MANIFEST_DIGEST}"
 
-register_image "${AMD64_IMAGE}"
-build_loaded_image amd64 "${AMD64_IMAGE}"
-register_image "${ARM64_IMAGE}"
-build_loaded_image arm64 "${ARM64_IMAGE}"
-
 AMD64_RUNNABLE=0
 ARM64_RUNNABLE=0
-AMD64_RUNTIME_RESULT='unavailable_on_runner'
-ARM64_RUNTIME_RESULT='unavailable_on_runner'
-if [ "${SKIP_EMULATED_AMD64_RUNTIME}" -eq 1 ]; then
-  AMD64_RUNTIME_RESULT='skipped_pending_native_amd64'
-  log 'linux/amd64 runtime, smoke, and fault checks skipped by explicit arm64-runner override; native linux/amd64 acceptance remains required'
-elif platform_runnable amd64 "${AMD64_IMAGE}"; then
+AMD64_RUNTIME_RESULT='not_run_non_native'
+ARM64_RUNTIME_RESULT='not_run_non_native'
+AMD64_WORKSPACE_RESULT='not_run_non_native'
+ARM64_WORKSPACE_RESULT='not_run_non_native'
+AMD64_LIMITATION='native_linux_amd64_runner_required'
+ARM64_LIMITATION='native_linux_arm64_runner_required'
+
+if [ "${HOST_ARCH}" = amd64 ]; then
+  AMD64_IMAGE=${NATIVE_IMAGE}
   AMD64_RUNNABLE=1
-  run_minimal_boot amd64 "${AMD64_IMAGE}"
+  run_minimal_boot amd64 "${NATIVE_IMAGE}"
   AMD64_RUNTIME_RESULT='passed'
-fi
-if platform_runnable arm64 "${ARM64_IMAGE}"; then
+  AMD64_LIMITATION='none'
+  log 'linux/arm64 OCI config, labels, rootfs descriptors, and healthcheck passed static verification; native linux/arm64 runtime and workspace acceptance remain required'
+else
+  ARM64_IMAGE=${NATIVE_IMAGE}
   ARM64_RUNNABLE=1
-  run_minimal_boot arm64 "${ARM64_IMAGE}"
+  run_minimal_boot arm64 "${NATIVE_IMAGE}"
   ARM64_RUNTIME_RESULT='passed'
+  ARM64_LIMITATION='none'
+  log 'linux/amd64 OCI config, labels, rootfs descriptors, and healthcheck passed static verification; native linux/amd64 runtime and workspace acceptance remain required'
 fi
 
-if [ "${AMD64_RUNNABLE}" -eq 1 ]; then
-  run_smoke_suite "${AMD64_IMAGE}" amd64 full
-  run_fault_suite "${AMD64_IMAGE}" amd64
-fi
-if [ "${ARM64_RUNNABLE}" -eq 1 ]; then
-  if [ "${HOST_ARCH}" = 'arm64' ]; then
-    run_smoke_suite "${ARM64_IMAGE}" arm64 full
-    run_fault_suite "${ARM64_IMAGE}" arm64
-  else
-    run_smoke_suite "${ARM64_IMAGE}" arm64 basic
-  fi
+if [ "${HOST_ARCH}" = amd64 ]; then
+  run_smoke_suite "${NATIVE_IMAGE}" amd64 full
+  run_fault_suite "${NATIVE_IMAGE}" amd64
+  run_workspace_suite "${NATIVE_IMAGE}" amd64
+  AMD64_WORKSPACE_RESULT='passed'
+else
+  run_smoke_suite "${NATIVE_IMAGE}" arm64 full
+  run_fault_suite "${NATIVE_IMAGE}" arm64
+  run_workspace_suite "${NATIVE_IMAGE}" arm64
+  ARM64_WORKSPACE_RESULT='passed'
 fi
 
 run_playwright_acceptance
-if [ "${HOST_ARCH}" = 'arm64' ]; then
-  assert_browser_isolation "${ARM64_IMAGE}" arm64
-else
-  assert_browser_isolation "${AMD64_IMAGE}" amd64
-fi
+assert_browser_isolation "${NATIVE_IMAGE}" "${HOST_ARCH}"
 
-assert_release_sources_clean
-FINAL_SOURCE_FINGERPRINT=$(source_fingerprint)
+PLATFORM="linux/${HOST_ARCH}"
+docker_build_metadata || fail 'could not recompute final source identity'
+FINAL_SOURCE_FINGERPRINT=${SOURCE_FINGERPRINT}
 [ "${INITIAL_SOURCE_FINGERPRINT}" = "${FINAL_SOURCE_FINGERPRINT}" ] ||
-  fail 'release inputs or lockfiles changed during the architecture builds'
+  fail 'release inputs changed during the architecture builds'
+[ "${BUILD_IDENTITY}" = "${NATIVE_BUILD_IDENTITY}" ] ||
+  fail 'native build identity changed during the architecture builds'
+assert_image_identity "${NATIVE_IMAGE}" "${NATIVE_BUILD_IDENTITY}" "${FINAL_SOURCE_FINGERPRINT}" ||
+  fail 'NATIVE_IMAGE identity changed during multiarch acceptance'
+[ "${IMAGE_DIGEST}" = "${NATIVE_IMAGE_DIGEST}" ] ||
+  fail 'NATIVE_IMAGE digest changed during multiarch acceptance'
 
-printf '\nTask 17 multi-architecture/browser acceptance: PASS\n'
+printf '\nTask 18 multi-architecture/browser acceptance: PASS\n'
 printf 'run_id=%s\n' "${RUN_ID}"
 printf 'source_commit=%s\n' "${SOURCE_COMMIT}"
-printf 'source_fingerprint=sha256:%s\n' "${FINAL_SOURCE_FINGERPRINT}"
+printf 'source_fingerprint=%s\n' "${FINAL_SOURCE_FINGERPRINT}"
+printf 'native_image_digest=%s native_platform=linux/%s\n' "${NATIVE_IMAGE_DIGEST}" "${HOST_ARCH}"
 printf 'oci_layout_index_digest=%s\n' "${OCI_LAYOUT_INDEX_DIGEST}"
-printf 'oci_platform_index_digest=%s\n' "${OCI_INDEX_DIGEST}"
-printf 'linux_amd64_manifest=%s runnable=%s runtime=%s\n' \
-  "${AMD64_MANIFEST_DIGEST}" "${AMD64_RUNNABLE}" "${AMD64_RUNTIME_RESULT}"
-printf 'linux_arm64_manifest=%s runnable=%s runtime=%s\n' \
-  "${ARM64_MANIFEST_DIGEST}" "${ARM64_RUNNABLE}" "${ARM64_RUNTIME_RESULT}"
-printf 'buildx_cache=%s path=%s\n' "${BUILDX_CACHE_RESULT}" "${BUILDX_CACHE_DIR}"
-printf 'playwright=29/29\n'
+printf 'linux_amd64_manifest=%s build_identity=%s runnable=%s runtime=%s workspace_runtime=%s static_verification=passed limitation=%s cache=%s\n' \
+  "${AMD64_MANIFEST_DIGEST}" "${AMD64_BUILD_IDENTITY}" \
+  "${AMD64_RUNNABLE}" "${AMD64_RUNTIME_RESULT}" "${AMD64_WORKSPACE_RESULT}" \
+  "${AMD64_LIMITATION}" "${AMD64_CACHE_KIND}"
+printf 'linux_arm64_manifest=%s build_identity=%s runnable=%s runtime=%s workspace_runtime=%s static_verification=passed limitation=%s cache=%s\n' \
+  "${ARM64_MANIFEST_DIGEST}" "${ARM64_BUILD_IDENTITY}" \
+  "${ARM64_RUNNABLE}" "${ARM64_RUNTIME_RESULT}" "${ARM64_WORKSPACE_RESULT}" \
+  "${ARM64_LIMITATION}" "${ARM64_CACHE_KIND}"
+printf 'playwright=48/48 conditional_skip=1_docker_workspace\n'
 printf 'browser_isolation=release-added-layers+final-filesystem\n'

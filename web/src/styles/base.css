@@ -60,6 +60,20 @@ a {
   display: none !important;
 }
 
+[inert] {
+  pointer-events: none;
+  user-select: none;
+}
+
+.workspace-scroll-region,
+.cm-scroller {
+  min-width: 0;
+  max-width: 100%;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
 #app {
   min-width: 0;
   min-height: 100vh;

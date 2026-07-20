@@ -8,10 +8,30 @@ import (
 	"context"
 	"errors"
 	"os"
+	"reflect"
 	"slices"
 	"testing"
 	"time"
+
+	"github.com/kuroky/nginx-uix/internal/config"
 )
+
+func TestNewServiceUsesOnlyFixedConfigSnapshotRoots(t *testing.T) {
+	service := NewService()
+	options := service.configSnapshot
+	if options.NginxRoot != "/etc/nginx" || options.WorkspaceRoot != "/var/lib/nginx-uix/workspaces" ||
+		options.DataUID != 10001 || options.DataGID != 10001 || options.Entry != "nginx.conf" {
+		t.Fatalf("config snapshot options = %#v", options)
+	}
+	if !reflect.DeepEqual(options.Limits, config.DefaultLimits()) {
+		t.Fatalf("config snapshot limits = %#v, want defaults", options.Limits)
+	}
+	if options.operations.random == nil || options.operations.openScopedRoot == nil || options.operations.snapshotTo == nil ||
+		options.operations.digestRoot == nil || options.operations.fchown == nil || options.operations.fchmod == nil ||
+		options.operations.fsync == nil || options.operations.rename == nil || options.operations.removeStage == nil {
+		t.Fatal("config snapshot production operations contain a nil seam")
+	}
+}
 
 func TestParseBuildInfoPreservesOrderedQuotedArguments(t *testing.T) {
 	contents, err := os.ReadFile("testdata/nginx_v.txt")

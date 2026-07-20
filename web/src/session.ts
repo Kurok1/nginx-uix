@@ -25,11 +25,13 @@ export interface SessionStore {
   handleAPIError: (error: unknown) => boolean
   login: (input: LoginRequest) => Promise<void>
   logout: () => Promise<void>
+  onExpired: (listener: () => void) => () => void
   restore: () => Promise<void>
 }
 
 export function createSessionStore(client: SessionClient): SessionStore {
   const state = reactive<SessionState>({ phase: 'unknown', session: null })
+  const expiryListeners = new Set<() => void>()
   let restorePromise: Promise<void> | null = null
 
   function setAuthenticated(session: SessionResponse): void {
@@ -75,6 +77,11 @@ export function createSessionStore(client: SessionClient): SessionStore {
     setAnonymous()
   }
 
+  function onExpired(listener: () => void): () => void {
+    expiryListeners.add(listener)
+    return () => expiryListeners.delete(listener)
+  }
+
   function handleAPIError(error: unknown): boolean {
     if (!(error instanceof APIRequestError) || error.kind !== 'api') {
       return false
@@ -83,11 +90,17 @@ export function createSessionStore(client: SessionClient): SessionStore {
     if (code !== 'AUTH_SESSION_EXPIRED' && code !== 'unauthenticated') {
       return false
     }
+    const wasAuthenticated = state.phase === 'authenticated'
     setAnonymous()
+    if (wasAuthenticated) {
+      for (const listener of expiryListeners) {
+        listener()
+      }
+    }
     return true
   }
 
-  return { state, restore, login, logout, handleAPIError }
+  return { state, restore, login, logout, onExpired, handleAPIError }
 }
 
 export const sessionStore = createSessionStore(apiClient)

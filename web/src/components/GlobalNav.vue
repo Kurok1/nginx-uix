@@ -50,6 +50,16 @@
             Configuration
           </RouterLink>
         </li>
+        <li>
+          <RouterLink to="/config/workspaces">
+            Workspaces
+          </RouterLink>
+        </li>
+        <li>
+          <RouterLink to="/config/operations">
+            Recovery &amp; History
+          </RouterLink>
+        </li>
       </ul>
 
       <button
@@ -88,6 +98,22 @@
               @click="closeMenu"
             >
               Configuration
+            </RouterLink>
+          </li>
+          <li>
+            <RouterLink
+              to="/config/workspaces"
+              @click="closeMenu"
+            >
+              Workspaces
+            </RouterLink>
+          </li>
+          <li>
+            <RouterLink
+              to="/config/operations"
+              @click="closeMenu"
+            >
+              Recovery &amp; History
             </RouterLink>
           </li>
         </ul>

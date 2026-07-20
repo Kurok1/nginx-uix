@@ -4,8 +4,12 @@
 
 set -eu
 
-IMAGE=${IMAGE:-nginx-uix:0.1.0-test}
+REPOSITORY_ROOT=${REPOSITORY_ROOT:-$(pwd)}
+. "${REPOSITORY_ROOT}/tests/docker/lib/image.sh"
+
+IMAGE=${IMAGE:-nginx-uix:0.2.1-test}
 PLATFORM=${PLATFORM:-}
+BUILD_IMAGE=${BUILD_IMAGE:-0}
 FAULT_CASE=${FAULT_CASE:-all}
 RUN_ID="$(date -u +%Y%m%d%H%M%S)-$$-$(openssl rand -hex 4)"
 RESOURCE_PREFIX="nginx-uix-faults-${RUN_ID}"
@@ -59,6 +63,9 @@ cleanup() {
     CL_STATUS=$?
     trap - EXIT HUP INT TERM
     set +e
+    if [ "${BUILDX_CACHE_LOCK_OWNED:-0}" = 1 ]; then
+        release_buildx_cache_lock >/dev/null 2>&1 || true
+    fi
     if [ -n "$ACTIVE_PID" ]; then
         kill -TERM "$ACTIVE_PID" 2>/dev/null || true
         sleep 1
@@ -695,7 +702,7 @@ run_selected() {
     esac
 }
 
-for REQUIREMENT in docker curl jq openssl; do
+for REQUIREMENT in docker curl jq openssl git go sed grep date uname; do
     command -v "$REQUIREMENT" >/dev/null 2>&1 || fail "required command not found: ${REQUIREMENT}"
 done
 
@@ -704,13 +711,18 @@ case "$PLATFORM" in
     *) fail "unsupported PLATFORM=${PLATFORM}" ;;
 esac
 
+case "$BUILD_IMAGE" in
+    auto|0|1) ;;
+    *) fail 'BUILD_IMAGE must be auto, 0, or 1' ;;
+esac
+
 case "$FAULT_CASE" in
     all|invalid|missing|readonly-data|full-data|occupied-ui|agent|ui|nginx) ;;
     *) fail "unknown FAULT_CASE=${FAULT_CASE}" ;;
 esac
 
 mkdir -p "$WORK_DIR"
-run_bounded 10 "$WORK_DIR/image-inspect.out" docker image inspect "$IMAGE" || fail "image is unavailable: ${IMAGE}"
+ensure_test_image "$IMAGE" "$BUILD_IMAGE" "$PLATFORM" || fail 'release image identity could not be ensured'
 PASSWORD_FILE="$WORK_DIR/admin-password"
 run_bounded 5 "$PASSWORD_FILE" openssl rand -hex 18
 chmod 0444 "$PASSWORD_FILE"
@@ -720,7 +732,7 @@ printf '{"username":"admin","password":"%s"}\n' "$ADMIN_PASSWORD" >"$LOGIN_FILE"
 chmod 0600 "$LOGIN_FILE"
 unset ADMIN_PASSWORD
 
-say "image=${IMAGE} platform=${PLATFORM:-native} run_id=${RUN_ID}"
+say "image=${IMAGE} platform=${PLATFORM} run_id=${RUN_ID}"
 if [ "$FAULT_CASE" = all ]; then
     for SELECTED_CASE in invalid missing readonly-data full-data occupied-ui agent ui nginx; do
         run_selected "$SELECTED_CASE"

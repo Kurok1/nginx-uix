@@ -34,12 +34,13 @@ func TestInitializeContainerCopiesCompleteDefaultsTreeWhenTargetEmpty(t *testing
 	mustMkdir(t, nginxRoot, 0o755)
 
 	options := InitializeOptions{
-		DefaultsRoot: defaultsRoot,
-		NginxRoot:    nginxRoot,
-		DataRoot:     filepath.Join(root, "data"),
-		RunRoot:      filepath.Join(root, "run"),
-		DataUID:      os.Getuid(),
-		DataGID:      os.Getgid(),
+		DefaultsRoot:  defaultsRoot,
+		NginxRoot:     nginxRoot,
+		DataRoot:      filepath.Join(root, "data"),
+		WorkspaceRoot: filepath.Join(root, "data", "workspaces"),
+		RunRoot:       filepath.Join(root, "run"),
+		DataUID:       os.Getuid(),
+		DataGID:       os.Getgid(),
 	}
 	if err := InitializeContainer(context.Background(), options); err != nil {
 		t.Fatalf("InitializeContainer() error = %v", err)
@@ -70,12 +71,13 @@ func TestInitializeNginxRuntimeLeavesDataUntouched(t *testing.T) {
 	dataBefore := snapshotExactTree(t, dataRoot)
 
 	options := InitializeOptions{
-		DefaultsRoot: defaultsRoot,
-		NginxRoot:    nginxRoot,
-		DataRoot:     dataRoot,
-		RunRoot:      runRoot,
-		DataUID:      os.Getuid(),
-		DataGID:      os.Getgid(),
+		DefaultsRoot:  defaultsRoot,
+		NginxRoot:     nginxRoot,
+		DataRoot:      dataRoot,
+		WorkspaceRoot: filepath.Join(dataRoot, "workspaces"),
+		RunRoot:       runRoot,
+		DataUID:       os.Getuid(),
+		DataGID:       os.Getgid(),
 	}
 	if err := InitializeNginxRuntime(context.Background(), options); err != nil {
 		t.Fatalf("InitializeNginxRuntime() error = %v", err)
@@ -114,12 +116,13 @@ func TestPrepareContainerDataLeavesNginxAndRuntimeUntouched(t *testing.T) {
 	runBefore := snapshotExactTree(t, runRoot)
 
 	options := InitializeOptions{
-		DefaultsRoot: defaultsRoot,
-		NginxRoot:    nginxRoot,
-		DataRoot:     dataRoot,
-		RunRoot:      runRoot,
-		DataUID:      os.Getuid(),
-		DataGID:      os.Getgid(),
+		DefaultsRoot:  defaultsRoot,
+		NginxRoot:     nginxRoot,
+		DataRoot:      dataRoot,
+		WorkspaceRoot: filepath.Join(dataRoot, "workspaces"),
+		RunRoot:       runRoot,
+		DataUID:       os.Getuid(),
+		DataGID:       os.Getgid(),
 	}
 	if err := PrepareContainerData(context.Background(), options); err != nil {
 		t.Fatalf("PrepareContainerData() error = %v", err)
@@ -131,13 +134,174 @@ func TestPrepareContainerDataLeavesNginxAndRuntimeUntouched(t *testing.T) {
 	if runAfter := snapshotExactTree(t, runRoot); !reflect.DeepEqual(runAfter, runBefore) {
 		t.Fatalf("data preparation changed runtime tree\nbefore: %#v\nafter:  %#v", runBefore, runAfter)
 	}
-	assertPathModeAndOwner(t, dataRoot, 0o700, options.DataUID, options.DataGID)
+	assertPathModeAndOwner(t, dataRoot, options.DataUID, options.DataGID)
+	assertPathModeAndOwner(t, options.WorkspaceRoot, options.DataUID, options.DataGID)
 	databaseInformation, err := os.Lstat(filepath.Join(dataRoot, "nginx-uix.db"))
 	if err != nil {
 		t.Fatalf("Lstat(database) error = %v", err)
 	}
 	if got := databaseInformation.Mode().Perm(); got&^fs.FileMode(0o600) != 0 {
 		t.Fatalf("database mode = %04o, want no broader than 0600", got)
+	}
+}
+
+func TestPrepareContainerDataCreatesAndSecuresPersistentWorkspaceRoot(t *testing.T) {
+	t.Run("upgrades an existing database without a workspace directory", func(t *testing.T) {
+		root := t.TempDir()
+		defaultsRoot := filepath.Join(root, "defaults")
+		nginxRoot := filepath.Join(root, "nginx")
+		dataRoot := filepath.Join(root, "data")
+		runRoot := filepath.Join(root, "run")
+		for _, path := range []string{defaultsRoot, nginxRoot, dataRoot, runRoot} {
+			mustMkdir(t, path, 0o700)
+		}
+		mustWriteFile(t, filepath.Join(dataRoot, "nginx-uix.db"), []byte("existing"), 0o600)
+		options := InitializeOptions{
+			DefaultsRoot: defaultsRoot, NginxRoot: nginxRoot, DataRoot: dataRoot,
+			WorkspaceRoot: filepath.Join(dataRoot, "workspaces"), RunRoot: runRoot,
+			DataUID: os.Getuid(), DataGID: os.Getgid(),
+		}
+		if err := PrepareContainerData(context.Background(), options); err != nil {
+			t.Fatal(err)
+		}
+		assertPathModeAndOwner(t, options.WorkspaceRoot, options.DataUID, options.DataGID)
+	})
+
+	t.Run("repairs wrong mode and owner", func(t *testing.T) {
+		root := t.TempDir()
+		defaultsRoot := filepath.Join(root, "defaults")
+		nginxRoot := filepath.Join(root, "nginx")
+		dataRoot := filepath.Join(root, "data")
+		runRoot := filepath.Join(root, "run")
+		for _, path := range []string{defaultsRoot, nginxRoot, dataRoot, runRoot} {
+			mustMkdir(t, path, 0o700)
+		}
+		workspaceRoot := filepath.Join(dataRoot, "workspaces")
+		mustMkdir(t, workspaceRoot, 0o755)
+		groups, err := os.Getgroups()
+		if err != nil {
+			t.Fatal(err)
+		}
+		wantGID := os.Getgid()
+		for _, group := range groups {
+			if group != fileOwner(t, workspaceRoot).gid {
+				wantGID = group
+				break
+			}
+		}
+		options := InitializeOptions{
+			DefaultsRoot: defaultsRoot, NginxRoot: nginxRoot, DataRoot: dataRoot,
+			WorkspaceRoot: workspaceRoot, RunRoot: runRoot, DataUID: os.Getuid(), DataGID: wantGID,
+		}
+		if err := PrepareContainerData(context.Background(), options); err != nil {
+			t.Fatal(err)
+		}
+		assertPathModeAndOwner(t, workspaceRoot, options.DataUID, options.DataGID)
+	})
+}
+
+func TestPrepareContainerDataCreatesRootOnlyReleaseRoots(t *testing.T) {
+	root := t.TempDir()
+	defaultsRoot := filepath.Join(root, "defaults")
+	nginxRoot := filepath.Join(root, "nginx")
+	dataRoot := filepath.Join(root, "data")
+	runRoot := filepath.Join(root, "run")
+	for _, path := range []string{defaultsRoot, nginxRoot, dataRoot, runRoot} {
+		mustMkdir(t, path, 0o700)
+	}
+	options := InitializeOptions{
+		DefaultsRoot: defaultsRoot, NginxRoot: nginxRoot, DataRoot: dataRoot,
+		WorkspaceRoot: filepath.Join(dataRoot, "workspaces"), RunRoot: runRoot,
+		DataUID: os.Getuid(), DataGID: os.Getgid(),
+	}
+	if err := PrepareContainerData(context.Background(), options); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"backups", "releases", "restores", "restarts"} {
+		path := filepath.Join(dataRoot, name)
+		information, err := os.Lstat(path)
+		if err != nil {
+			t.Fatalf("Lstat(%s) error = %v", name, err)
+		}
+		stat, ok := information.Sys().(*syscall.Stat_t)
+		if !ok || !information.IsDir() || information.Mode()&os.ModeSymlink != 0 || information.Mode().Perm() != 0o700 ||
+			int(stat.Uid) != os.Geteuid() || int(stat.Gid) != os.Getegid() {
+			t.Fatalf("%s identity = mode:%v stat:%+v, want current effective owner and 0700", name, information.Mode(), stat)
+		}
+	}
+}
+
+func TestPrepareContainerDataRejectsUnsafePersistentWorkspaceRoot(t *testing.T) {
+	for _, kind := range []string{"symlink", "regular file"} {
+		t.Run(kind, func(t *testing.T) {
+			root := t.TempDir()
+			defaultsRoot := filepath.Join(root, "defaults")
+			nginxRoot := filepath.Join(root, "nginx")
+			dataRoot := filepath.Join(root, "data")
+			runRoot := filepath.Join(root, "run")
+			for _, path := range []string{defaultsRoot, nginxRoot, dataRoot, runRoot} {
+				mustMkdir(t, path, 0o700)
+			}
+			workspaceRoot := filepath.Join(dataRoot, "workspaces")
+			outside := filepath.Join(root, "outside")
+			mustMkdir(t, outside, 0o700)
+			if kind == "symlink" {
+				if err := os.Symlink(outside, workspaceRoot); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				mustWriteFile(t, workspaceRoot, []byte("keep"), 0o600)
+			}
+			options := InitializeOptions{
+				DefaultsRoot: defaultsRoot, NginxRoot: nginxRoot, DataRoot: dataRoot,
+				WorkspaceRoot: workspaceRoot, RunRoot: runRoot, DataUID: os.Getuid(), DataGID: os.Getgid(),
+			}
+			if err := PrepareContainerData(context.Background(), options); err == nil {
+				t.Fatal("PrepareContainerData() error = nil, want unsafe workspace root rejection")
+			}
+			if kind == "symlink" {
+				if information, err := os.Lstat(workspaceRoot); err != nil || information.Mode()&os.ModeSymlink == 0 {
+					t.Fatalf("workspace symlink changed: %v, %v", information, err)
+				}
+			} else if contents, err := os.ReadFile(workspaceRoot); err != nil || string(contents) != "keep" {
+				t.Fatalf("workspace file = %q, %v", contents, err)
+			}
+		})
+	}
+}
+
+func TestPrepareContainerDataRejectsUnsafeReleaseRoots(t *testing.T) {
+	for _, name := range []string{"backups", "releases", "restores", "restarts"} {
+		for _, kind := range []string{"symlink", "regular file"} {
+			t.Run(name+"/"+kind, func(t *testing.T) {
+				root := t.TempDir()
+				defaultsRoot := filepath.Join(root, "defaults")
+				nginxRoot := filepath.Join(root, "nginx")
+				dataRoot := filepath.Join(root, "data")
+				runRoot := filepath.Join(root, "run")
+				for _, path := range []string{defaultsRoot, nginxRoot, dataRoot, runRoot} {
+					mustMkdir(t, path, 0o700)
+				}
+				target := filepath.Join(dataRoot, name)
+				if kind == "symlink" {
+					outside := filepath.Join(root, "outside")
+					mustMkdir(t, outside, 0o700)
+					if err := os.Symlink(outside, target); err != nil {
+						t.Fatal(err)
+					}
+				} else {
+					mustWriteFile(t, target, []byte("keep"), 0o600)
+				}
+				options := InitializeOptions{
+					DefaultsRoot: defaultsRoot, NginxRoot: nginxRoot, DataRoot: dataRoot,
+					WorkspaceRoot: filepath.Join(dataRoot, "workspaces"), RunRoot: runRoot,
+					DataUID: os.Getuid(), DataGID: os.Getgid(),
+				}
+				if err := PrepareContainerData(context.Background(), options); err == nil {
+					t.Fatal("PrepareContainerData() error = nil, want unsafe release root rejection")
+				}
+			})
+		}
 	}
 }
 
@@ -423,12 +587,13 @@ func TestPrepareDirectoriesSecuresPersistentDataAndRecreatesRuntime(t *testing.T
 	}
 
 	options := InitializeOptions{
-		DefaultsRoot: filepath.Join(root, "must-not-be-inspected"),
-		NginxRoot:    nginxRoot,
-		DataRoot:     dataRoot,
-		RunRoot:      runRoot,
-		DataUID:      os.Getuid(),
-		DataGID:      os.Getgid(),
+		DefaultsRoot:  filepath.Join(root, "must-not-be-inspected"),
+		NginxRoot:     nginxRoot,
+		DataRoot:      dataRoot,
+		WorkspaceRoot: filepath.Join(dataRoot, "workspaces"),
+		RunRoot:       runRoot,
+		DataUID:       os.Getuid(),
+		DataGID:       os.Getgid(),
 	}
 	if err := InitializeContainer(context.Background(), options); err != nil {
 		t.Fatalf("InitializeContainer() error = %v", err)
@@ -437,7 +602,7 @@ func TestPrepareDirectoriesSecuresPersistentDataAndRecreatesRuntime(t *testing.T
 	if nginxAfter := snapshotExactTree(t, nginxRoot); !reflect.DeepEqual(nginxAfter, nginxBefore) {
 		t.Fatalf("nonempty nginx root changed\nbefore: %#v\nafter:  %#v", nginxBefore, nginxAfter)
 	}
-	assertPathModeAndOwner(t, dataRoot, 0o700, options.DataUID, options.DataGID)
+	assertPathModeAndOwner(t, dataRoot, options.DataUID, options.DataGID)
 	databaseInformation, err := os.Lstat(databasePath)
 	if err != nil {
 		t.Fatalf("Lstat(database) error = %v", err)
@@ -844,23 +1009,42 @@ func setTreeModTime(t *testing.T, root string, modTime time.Time) {
 
 func testInitializeOptions(root, defaultsRoot, nginxRoot string) InitializeOptions {
 	return InitializeOptions{
-		DefaultsRoot: defaultsRoot,
-		NginxRoot:    nginxRoot,
-		DataRoot:     filepath.Join(root, "data"),
-		RunRoot:      filepath.Join(root, "run"),
-		DataUID:      os.Getuid(),
-		DataGID:      os.Getgid(),
+		DefaultsRoot:  defaultsRoot,
+		NginxRoot:     nginxRoot,
+		DataRoot:      filepath.Join(root, "data"),
+		WorkspaceRoot: filepath.Join(root, "data", "workspaces"),
+		RunRoot:       filepath.Join(root, "run"),
+		DataUID:       os.Getuid(),
+		DataGID:       os.Getgid(),
 	}
 }
 
-func assertPathModeAndOwner(t *testing.T, path string, mode fs.FileMode, uid, gid int) {
+type testFileOwner struct {
+	uid int
+	gid int
+}
+
+func fileOwner(t *testing.T, path string) testFileOwner {
+	t.Helper()
+	information, err := os.Lstat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stat, ok := information.Sys().(*syscall.Stat_t)
+	if !ok {
+		t.Fatalf("stat type = %T", information.Sys())
+	}
+	return testFileOwner{uid: int(stat.Uid), gid: int(stat.Gid)}
+}
+
+func assertPathModeAndOwner(t *testing.T, path string, uid, gid int) {
 	t.Helper()
 	information, err := os.Lstat(path)
 	if err != nil {
 		t.Fatalf("Lstat(%q) error = %v", path, err)
 	}
-	if got := information.Mode().Perm(); got != mode {
-		t.Fatalf("mode(%q) = %04o, want %04o", path, got, mode)
+	if got := information.Mode().Perm(); got != 0o700 {
+		t.Fatalf("mode(%q) = %04o, want 0700", path, got)
 	}
 	assertPathOwner(t, path, information, uid, gid)
 }

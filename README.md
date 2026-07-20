@@ -1,15 +1,17 @@
 # Nginx UIX
 
-Nginx UIX v0.1.0 是一个只读的 Nginx 可观测界面。管理员登录后可以查看经过真实进程校验的 Nginx 状态，以及同一次 `nginx -T` 实际加载的配置文件和加载顺序。
+Nginx UIX v0.2.3 在安全发布闭环之上增加恢复与运行控制。管理员可以审阅发布、恢复、restart、备份和审计证据，从已验证的不可变备份执行具名恢复，运行固定类型化的 Nginx restart，预览并执行确定性备份保留计划，以及用带健康证据的处置关闭 `needs_attention` case。
 
-v0.1.0 唯一受支持的部署形态是一个一体化 Docker 容器。容器内同时运行 Nginx UIX、只监听本地 Unix 套接字的 Agent、s6 进程监督器和由 UIX 观察的 Nginx。UIX 只观察同一容器内的 Nginx，管理界面在此版本中保持只读。
+最终官方部署形态仍是一体化 Docker 容器，容器内同时运行 Nginx UIX、只监听本地 Unix 套接字的 Agent、s6 进程监督器和由 UIX 管理的 Nginx。`/etc/nginx` 始终是配置真源；SQLite 只保存用户、会话、工作区元数据、任务、审计和恢复索引，不保存可反向覆盖生产文件的配置正文。v0.2.3 的 restore、restart、backup verify/delete 都是 Agent 固定类型化操作；浏览器不能提供命令、路径、PID、signal、超时或健康目标，也不能强制恢复或删除受保护备份。
+
+按当前路线图，v0.2.3 只完成源码、原生进程和浏览器验收，未执行 Docker 构建、容器运行或 multiarch。下面的容器命令描述目标部署接口，不构成 v0.2.3 镜像通过证据；完整 Docker 复验统一留到 v0.7.0。
 
 ## 快速开始
 
-仓库当前没有声明可拉取的远程镜像地址。先从当前提交构建 Task 17 使用过的本地镜像：
+仓库当前没有声明可拉取的远程镜像地址。先从当前提交构建本地镜像：
 
 ```sh
-docker build -f deploy/docker/Dockerfile -t nginx-uix:0.1.0-test .
+docker build -f deploy/docker/Dockerfile -t nginx-uix:0.2.3 .
 ```
 
 在宿主机准备一个只包含初始管理员密码的文件。密码必须是 12–128 个 Unicode 字符；文件最多 4 KiB，可以带一个末尾 LF 或 CRLF。将文件放在受限目录中，同时确保容器内 UID `10001` 可以读取它。不要把密码写进镜像、仓库或下面的命令行。
@@ -27,7 +29,7 @@ docker run -d \
   --mount type=bind,src=/absolute/private/path/nginx-uix-admin-password,dst=/run/secrets/nginx-uix-admin-password,readonly \
   --env NGINX_UIX_ADMIN_USERNAME=admin \
   --env NGINX_UIX_ADMIN_PASSWORD_FILE=/run/secrets/nginx-uix-admin-password \
-  nginx-uix:0.1.0-test
+  nginx-uix:0.2.3
 ```
 
 Docker 会为首次使用的两个具名卷创建持久存储。管理界面位于 <http://127.0.0.1:9000/>。管理端口只绑定宿主机回环地址；需要从另一台机器访问时，应通过自行维护的安全访问通道到达该地址。
@@ -44,12 +46,38 @@ Docker 会为首次使用的两个具名卷创建持久存储。管理界面位�
 
 必须保留并在每次创建容器时重新挂载这两个卷：
 
-| 容器路径 | 快速开始中的卷 | v0.1.0 内容 |
+| 容器路径 | 快速开始中的卷 | v0.2.3 内容 |
 | --- | --- | --- |
 | `/etc/nginx` | `nginx-uix-nginx` | Nginx 配置真源 |
-| `/var/lib/nginx-uix` | `nginx-uix-data` | SQLite 用户、会话、登录限速和迁移数据 |
+| `/var/lib/nginx-uix` | `nginx-uix-data` | SQLite 用户、会话、登录限速、迁移、审计、工作区、生产任务、attention case、保留计划和不可变备份 |
 
 `/run/nginx-uix` 是每次启动时重建的运行时目录，不是持久化卷。
+
+## 配置工作区边界
+
+配置工作区保存的是从 `/etc/nginx` 稳定快照创建的草稿。只有 `ready` 工作区能够写入；每次写操作都需要当前强 ETag。保存文件、搜索、分组、查看 diff、导航或关闭浏览器都只作用于草稿，不会隐式修改生产或 reload。
+
+生产变更只能从完整 diff 进入独立的“检查候选配置”流程。检查会绑定工作区 revision、生产/基础/草稿/候选摘要、manifest/policy 版本和 Nginx build；通过后仍须输入可见工作区名称确认。Agent 随后再次校验摘要，创建并验证完整不可变备份，逐文件原子替换并同步生产配置，执行完整 `nginx -t`、reload、master/worker 与回环 HTTP 健康确认。安全可判定的失败自动恢复备份；无法确认生产或运行状态时进入阻断性的 `needs_attention`，绝不报告成功。
+
+v0.2.3 只管理符合正向策略的常规 UTF-8 文本文件。单个受管文件最多 2 MiB，生产根最多 4096 个条目、32 MiB 受管文本；最多保留 8 个工作区、合计 512 MiB 工作区数据。搜索最多返回 500 项，完整 diff 响应最多 4 MiB，达到响应上限时会明确标记不完整而不会伪装成完整结果。
+
+私钥、证书、口令文件和被敏感 Nginx 指令引用的材料只显示安全分类，不复制或返回正文。symlink 不会被跟随或物化为活动链接：根内目标也只读，越界、断裂或成环目标显示为 external/unavailable。特殊文件、无效 UTF-8、含 NUL、越界路径和无法安全判定的条目均 fail closed。
+
+`stale` 表示生产摘要已变化：旧草稿仍可查看、搜索和比较，但不能继续写入，也不会自动 rebase 或覆盖外部修改；应从当前生产配置创建新工作区。`needs_attention` 表示系统无法确认文件系统、journal 与 SQLite 元数据一致：该工作区只读，只允许查看或命名删除，不能通过普通编辑清除状态。
+
+发布成功后工作区进入 `published`，仍可查看文件、diff、release ID 和阶段证据，但不能再次编辑或发布。发布任务由应用生命周期拥有；SSE 或浏览器断开不会取消已经排队的生产事务，刷新后会从持久化阶段恢复显示。
+
+## 恢复、restart 与备份保留
+
+“Recovery & History” 页面先展示开放的 attention case 和当前运行证据，再提供 Overview、Backups、History、Audit 四个任务视图。历史、备份和审计都使用有界 keyset 分页；UI 只展示显式 DTO 中的安全字段，不返回配置正文、diff、私有 manifest、绝对路径或原始进程输出。
+
+人工恢复只接受索引状态为 `complete`、正文仍存在且经 Agent 完整复核的不可变备份。管理员必须输入完整 backup ID 和受限原因。任何生产写入前，Agent 会隔离校验目标并为当前生产配置创建已验证的 safety backup；之后才按持久化 journal 原子恢复、校验、reload 并确认 master、worker 和固定回环 HTTP。失败时恢复 safety backup；结果无法唯一证明时进入 `needs_attention`，不会报告成功。
+
+Restart 只调用 Agent 内固定的监督器操作。管理员必须输入 `RESTART NGINX`；生产配置先通过固定 `nginx -t`，成功结果还必须证明 master 已更换、worker 稳定、生产摘要未变化且回环 HTTP 健康。浏览器断开不取消已排队任务，SSE 重连和刷新都从持久化阶段重建证据。
+
+备份保留先创建只读 dry-run，固定展示最小恢复点、最大数量、最大字节和最小年龄策略。执行必须输入完整 retention run ID；活动任务、开放 attention、最小安全集合、系统保护和人工保护引用的备份都不会删除。删除按 `deleting → Agent delete → deleted tombstone` 推进，保留决策与审计证据。
+
+开放的 `needs_attention` 会阻止普通工作区创建/编辑和新发布。它不能被 acknowledge 或强制清空；只有成功 restore、固定 restart 或完整当前状态复核可以记录 resolution。原工作区仍是只读历史，后续编辑应从当前生产配置创建新工作区。
 
 ## 首次管理员和环境变量
 
@@ -64,7 +92,7 @@ Docker 会为首次使用的两个具名卷创建持久存储。管理界面位�
 | `NGINX_UIX_ADMIN_PASSWORD` | 仅在密码文件变量为空时使用的明文回退。 |
 | `NGINX_UIX_EFFECTIVE_CONFIG_ROOTS` | 可选；Agent 可以只读验证的额外配置目录，使用 Linux path-list（冒号）分隔。 |
 
-密码文件优先级是 fail closed：只要设置了 `NGINX_UIX_ADMIN_PASSWORD_FILE`，文件不存在、不可读或内容无效都会阻止 UI 绑定 9000；程序不会改用 `NGINX_UIX_ADMIN_PASSWORD`。Task 17 也同时传入了文件密码和不同的明文回退，并验证只有文件密码可以登录。
+密码文件优先级是 fail closed：只要设置了 `NGINX_UIX_ADMIN_PASSWORD_FILE`，文件不存在、不可读或内容无效都会阻止 UI 绑定 9000；程序不会改用 `NGINX_UIX_ADMIN_PASSWORD`。Docker 故障验收同时传入了文件密码和不同的明文回退，并验证只有文件密码可以登录。
 
 不要在生产部署中使用明文回退。明文环境变量会成为容器配置的一部分，可能被有宿主机管理权限的工具读取。它只适合受控的本地兼容场景；正式部署应使用只读挂载的 Secret 文件。
 
@@ -123,15 +151,22 @@ docker stop --time 15 nginx-uix
 docker rm nginx-uix
 ```
 
-随后用目标镜像重复“快速开始”的 `docker run`，保持两个卷名不变。Task 17 已验证同一发布候选在这种重建方式下会保留：
+随后用目标镜像重复“快速开始”的 `docker run`，保持两个卷名不变。从 v0.2.2 升级到 v0.2.3 时，应用会向前执行 SQLite 迁移；不要把已经由 v0.2.3 打开的数据目录重新交给旧版本。该迁移和持久化重开已通过原生测试，容器卷升级统一在 v0.7.0 验证。保留两个卷会保留：
 
 - Nginx 文件的内容和元数据；
 - 初始管理员及原密码；
 - 已有浏览器会话；
 - 登录限速状态；
-- SQLite WAL 完整性。
+- SQLite WAL 完整性；
+- 工作区、逻辑组和恢复状态；
+- 发布检查、release 阶段、备份索引和受保护备份。
+- restore/restart 阶段、生产变更租约、保留计划、删除 tombstone 和 attention resolution。
 
-改变管理员引导变量不会修改已持久化的管理员。跨版本升级仍应以对应版本的发布验证记录为准；当前证据没有把删除卷后的恢复算作数据保留。
+改变管理员引导变量不会修改已持久化的管理员。升级前应先备份两个卷，并以目标版本的发布验证记录确认迁移和平台限制。删除卷后的恢复不属于数据保留。
+
+## Docker 验证边界
+
+v0.1.0 和 v0.2.1 的历史 Docker 记录继续保留，但不替代最终完整产品的复验。v0.1.0 至 v0.6.0 不执行 Docker 脚本、镜像构建、容器/卷故障注入、容器浏览器测试或 multiarch；v0.7.0 将以届时完整源码一次性覆盖镜像、进程生命周期、数据升级、故障恢复、安全边界和 `linux/amd64`/`linux/arm64`。因此当前 README 不把任何 v0.2.3 Docker 命令或产物标记为通过。
 
 ## 空卷和非空 Nginx 卷
 
@@ -141,7 +176,7 @@ docker rm nginx-uix
 - 只要存在任意文件、目录、隐藏项或符号链接，初始化就不会复制、合并、修复、改权限或重命名其中任何内容。
 - 非空目录缺少 `/etc/nginx/nginx.conf`，或者入口配置不可读、无效时，目录仍保持原样；UI 和 Agent 继续运行，Nginx 保持停止，readiness 返回 503。
 
-Task 17 对普通文件、隐藏文件、嵌套目录和符号链接分别记录了启动前、启动后、容器重建后的内容与元数据摘要，三次结果完全一致。
+Docker 卷验收对普通文件、隐藏文件、嵌套目录和符号链接分别记录了启动前、启动后、容器重建后的内容与元数据摘要，三次结果完全一致。
 
 ## Nginx 无效时的诊断
 
@@ -159,23 +194,25 @@ Task 17 对普通文件、隐藏文件、嵌套目录和符号链接分别记录
 docker logs --tail 120 nginx-uix
 ```
 
-v0.1.0 的界面只读，不会修改持久化配置。请在持久化 `/etc/nginx` 中恢复有效的 `/etc/nginx/nginx.conf`，再停止并重新启动容器。任何非空卷都不会被默认文件自动修补。
+普通工作区编辑不会修改生产配置。若一次发布或人工恢复明确显示 `rolled_back`，系统已经恢复安全备份并重新确认运行健康；若显示 `needs_attention`，不要继续编辑、发布或把状态手工改成成功。进入 “Recovery & History” 保存 subject、release/restore/restart、backup 和 request ID 的脱敏证据，只使用页面提供的 verified restore、fixed restart 或 current-state verification 处置；没有完整健康证据时保持阻断。任何非空配置目录都不会被默认文件自动修补。
 
-如果 liveness 也不可访问，应优先检查管理员引导输入、`/var/lib/nginx-uix` 的可写性、9000 监听冲突和容器日志。Task 17 已验证：UI 数据只读、存储空间不足或 9000 被占用时，UI 不绑定管理端口，但有效的 Nginx 服务保持独立运行。
+如果 liveness 也不可访问，应优先检查管理员引导输入、`/var/lib/nginx-uix` 的可写性、9000 监听冲突和容器日志。故障验收已验证：UI 数据只读、存储空间不足或 9000 被占用时，UI 不绑定管理端口，但有效的 Nginx 服务保持独立运行。
 
 ## 架构边界
 
-发布 Dockerfile 只接受 `linux/amd64` 和 `linux/arm64`；其他 `TARGETARCH` 会使构建失败。Task 17 已从同一提交和锁文件生成并检查两个 OCI manifest。
-
-当前候选的完整运行、故障和停止验收是在原生 `linux/arm64` 主机上完成的。`linux/amd64` 镜像已构建、加载并检查，但原生 amd64 运行验收仍待对应主机执行；arm64 OrbStack/Rosetta 会改写 `/proc/<pid>/exe`，不满足 UIX 对真实 Nginx 可执行文件身份的严格校验，不能替代原生证据。部署时应选择与 Linux 主机原生架构匹配的镜像，并把其他仿真环境视为未验证。
+发布 Dockerfile 的目标边界仍是 `linux/amd64` 和 `linux/arm64`。v0.2.3 没有构建或运行任一架构镜像，也不复用早期 OCI 结果冒充当前版本证据；两种架构的最终行为统一在 v0.7.0 验证。
 
 ## 契约与验证来源
 
 - [v0.1.0 验收证据](docs/release/v0.1.0-verification.md)
+- [v0.2.1 验收证据](docs/release/v0.2.1-verification.md)
+- [v0.2.2 验收证据](docs/release/v0.2.2-verification.md)
+- [v0.2.3 验收证据](docs/release/v0.2.3-verification.md)
 - [产品版本范围](PLAN.md)
 - [v0.1.0 设计边界](docs/superpowers/specs/2026-07-14-v0.1-observability-design.md)
+- [v0.2.1 工作区设计](docs/superpowers/specs/2026-07-15-v0.2.1-config-workspace-design.md)
+- [v0.2.2 安全发布设计](docs/superpowers/specs/2026-07-18-v0.2.2-safe-publish-design.md)
+- [v0.2.3 恢复与运行控制设计](docs/superpowers/specs/2026-07-19-v0.2.3-recovery-runtime-control-design.md)
 - [REST API 契约](api/v1/openapi.yaml)
 - [发布镜像定义](deploy/docker/Dockerfile)
-- [Docker 主线验收](tests/docker/smoke.sh)
-- [Docker 故障验收](tests/docker/faults.sh)
-- [双架构验收](tests/docker/multiarch.sh)
+- Docker、容器故障和 multiarch 脚本仅作为 v0.7.0 的未来验收入口，不属于 v0.2.3 已执行证据。

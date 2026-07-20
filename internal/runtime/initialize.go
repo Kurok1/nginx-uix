@@ -13,17 +13,19 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 )
 
 // InitializeOptions contains trusted container filesystem and ownership values.
 type InitializeOptions struct {
-	DefaultsRoot string
-	NginxRoot    string
-	DataRoot     string
-	RunRoot      string
-	DataUID      int
-	DataGID      int
+	DefaultsRoot  string
+	NginxRoot     string
+	DataRoot      string
+	WorkspaceRoot string
+	RunRoot       string
+	DataUID       int
+	DataGID       int
 }
 
 type initializeFileCopier func(
@@ -181,6 +183,24 @@ func preflightContainerDirectories(options InitializeOptions) (string, string, e
 		if databaseErr != nil && !errors.Is(databaseErr, fs.ErrNotExist) {
 			return "", "", fmt.Errorf("inspect sqlite database: %w", databaseErr)
 		}
+		workspacePath := filepath.Join(dataRoot, "workspaces")
+		workspaceInformation, workspaceErr := os.Lstat(workspacePath)
+		if workspaceErr == nil && (workspaceInformation.Mode()&os.ModeSymlink != 0 || !workspaceInformation.IsDir()) {
+			return "", "", fmt.Errorf("workspace root must be a directory without symlinks")
+		}
+		if workspaceErr != nil && !errors.Is(workspaceErr, fs.ErrNotExist) {
+			return "", "", fmt.Errorf("inspect workspace root: %w", workspaceErr)
+		}
+		for _, name := range []string{"backups", "releases", "restores", "restarts"} {
+			path := filepath.Join(dataRoot, name)
+			information, inspectErr := os.Lstat(path)
+			if inspectErr == nil && (information.Mode()&os.ModeSymlink != 0 || !information.IsDir()) {
+				return "", "", fmt.Errorf("%s root must be a directory without symlinks", name)
+			}
+			if inspectErr != nil && !errors.Is(inspectErr, fs.ErrNotExist) {
+				return "", "", fmt.Errorf("inspect %s root: %w", name, inspectErr)
+			}
+		}
 	}
 	runRoot, _, err := inspectInitializeDirectoryCandidate(options.RunRoot, "runtime root")
 	if err != nil {
@@ -229,6 +249,10 @@ func validateInitializeRootSeparation(options InitializeOptions) error {
 			return fmt.Errorf("%s must be absolute", roots[index].name)
 		}
 	}
+	workspaceRoot := filepath.Clean(options.WorkspaceRoot)
+	if !filepath.IsAbs(workspaceRoot) || workspaceRoot != filepath.Join(filepath.Clean(options.DataRoot), "workspaces") {
+		return fmt.Errorf("workspace root must be the fixed workspaces directory beneath data root")
+	}
 	for left := range roots {
 		for right := left + 1; right < len(roots); right++ {
 			if initializePathsOverlap(roots[left].path, roots[right].path) {
@@ -276,8 +300,72 @@ func prepareContainerDataDirectory(ctx context.Context, options InitializeOption
 	if err := secureInitializeDatabase(dataRoot, options.DataUID, options.DataGID); err != nil {
 		return err
 	}
+	if err := secureInitializeWorkspaceRoot(dataRoot, options); err != nil {
+		return err
+	}
+	if err := secureInitializeAgentDataRoots(dataRoot); err != nil {
+		return err
+	}
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	return nil
+}
+
+func secureInitializeAgentDataRoots(dataRoot string) error {
+	for _, name := range []string{"backups", "releases", "restores", "restarts"} {
+		path := filepath.Join(dataRoot, name)
+		if err := requireInitializeChild(dataRoot, path); err != nil {
+			return fmt.Errorf("resolve %s root: %w", name, err)
+		}
+		root, err := ensureInitializeDirectory(path, name+" root", 0o700)
+		if err != nil {
+			return err
+		}
+		if err := os.Chown(root, os.Geteuid(), os.Getegid()); err != nil {
+			return fmt.Errorf("set %s root ownership: %w", name, err)
+		}
+		// #nosec G302 -- Agent release evidence is deliberately owner-only 0700.
+		if err := os.Chmod(root, 0o700); err != nil {
+			return fmt.Errorf("set %s root permissions: %w", name, err)
+		}
+		information, err := os.Lstat(root)
+		if err != nil {
+			return fmt.Errorf("verify %s root: %w", name, err)
+		}
+		stat, ok := information.Sys().(*syscall.Stat_t)
+		if !ok || information.Mode()&os.ModeSymlink != 0 || !information.IsDir() || information.Mode().Perm() != 0o700 ||
+			int(stat.Uid) != os.Geteuid() || int(stat.Gid) != os.Getegid() {
+			return fmt.Errorf("verify %s root: exact Agent ownership and mode are required", name)
+		}
+	}
+	return nil
+}
+
+func secureInitializeWorkspaceRoot(dataRoot string, options InitializeOptions) error {
+	workspacePath := filepath.Join(dataRoot, "workspaces")
+	if err := requireInitializeChild(dataRoot, workspacePath); err != nil {
+		return fmt.Errorf("resolve workspace root: %w", err)
+	}
+	workspaceRoot, err := ensureInitializeDirectory(workspacePath, "workspace root", 0o700)
+	if err != nil {
+		return err
+	}
+	if err := os.Chown(workspaceRoot, options.DataUID, options.DataGID); err != nil {
+		return fmt.Errorf("set workspace root ownership: %w", err)
+	}
+	// #nosec G302 -- configuration workspaces are deliberately owner-only 0700.
+	if err := os.Chmod(workspaceRoot, 0o700); err != nil {
+		return fmt.Errorf("set workspace root permissions: %w", err)
+	}
+	information, err := os.Lstat(workspaceRoot)
+	if err != nil {
+		return fmt.Errorf("verify workspace root: %w", err)
+	}
+	stat, ok := information.Sys().(*syscall.Stat_t)
+	if !ok || information.Mode()&os.ModeSymlink != 0 || !information.IsDir() || information.Mode().Perm() != 0o700 ||
+		int(stat.Uid) != options.DataUID || int(stat.Gid) != options.DataGID {
+		return fmt.Errorf("verify workspace root: exact directory ownership and mode are required")
 	}
 	return nil
 }

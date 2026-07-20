@@ -3,14 +3,76 @@
   @since 0.1.0
 -->
 <script setup lang="ts">
+import { computed, inject, onBeforeUnmount } from 'vue'
+import { routerKey, type RouteLocationRaw } from 'vue-router'
+
 import LoginForm from '../components/LoginForm.vue'
-import type { SessionStore } from '../session'
+import UnsavedRecovery from '../components/UnsavedRecovery.vue'
+import { sessionStore, type SessionStore } from '../session'
+import { workspaceStore, type WorkspaceStore } from '../workspace'
 
 interface Props {
   store?: SessionStore
+  workspace?: WorkspaceStore
 }
 
 const props = defineProps<Props>()
+const router = inject(routerKey, null)
+const sessions = props.store ?? sessionStore
+const workspaces = props.workspace ?? workspaceStore
+const dirtyPaths = computed(() =>
+  workspaces.state.documents.filter(({ dirty }) => dirty).map(({ path }) => path),
+)
+let removeReturnGuard: (() => void) | null = null
+
+const loginStore: SessionStore = {
+  state: sessions.state,
+  handleAPIError: sessions.handleAPIError,
+  async login(input) {
+    await sessions.login(input)
+    await workspaces.markSessionRestored()
+    installWorkspaceReturn()
+  },
+  logout: sessions.logout,
+  onExpired: sessions.onExpired,
+  restore: sessions.restore,
+}
+
+onBeforeUnmount(() => {
+  removeReturnGuard?.()
+  removeReturnGuard = null
+})
+
+function workspaceReturnTarget(): RouteLocationRaw | null {
+  if (router === null) return null
+  const redirect = router.currentRoute.value.query.redirect
+  if (typeof redirect === 'string') {
+    const resolved = router.resolve(redirect)
+    if (resolved.name === 'config-workspaces' || resolved.name === 'config-operations') {
+      return { path: resolved.path, query: resolved.query, hash: resolved.hash }
+    }
+  }
+  if (workspaces.state.active !== null) {
+    return {
+      name: 'config-workspaces',
+      params: { workspaceId: workspaces.state.active.id },
+    }
+  }
+  return null
+}
+
+function installWorkspaceReturn(): void {
+  const target = workspaceReturnTarget()
+  if (router === null || target === null) return
+  removeReturnGuard?.()
+  removeReturnGuard = router.beforeEach((to) => {
+    if (to.name !== 'dashboard') return true
+    const remove = removeReturnGuard
+    removeReturnGuard = null
+    remove?.()
+    return target
+  })
+}
 </script>
 
 <template>
@@ -25,7 +87,12 @@ const props = defineProps<Props>()
         </h1>
         <p>使用管理员凭据继续。</p>
       </header>
-      <LoginForm :store="props.store" />
+      <UnsavedRecovery
+        v-if="dirtyPaths.length > 0"
+        :paths="dirtyPaths"
+        @copy="workspaces.copyLocalContent"
+      />
+      <LoginForm :store="loginStore" />
     </section>
   </main>
 </template>
@@ -48,6 +115,10 @@ const props = defineProps<Props>()
 }
 
 .login-view__header {
+  margin-block-end: var(--spacing-xl);
+}
+
+.login-view__panel :deep(.unsaved-recovery) {
   margin-block-end: var(--spacing-xl);
 }
 

@@ -15,6 +15,7 @@ func TestLoadConfigDefaultsAndFixedPaths(t *testing.T) {
 	t.Setenv("NGINX_UIX_NGINX_BINARY", "/tmp/not-nginx")
 	t.Setenv("NGINX_UIX_NGINX_CONFIG", "/tmp/not-nginx.conf")
 	t.Setenv("NGINX_UIX_AGENT_SOCKET", "/tmp/not-agent.sock")
+	t.Setenv("NGINX_UIX_WORKSPACE_ROOT", "/tmp/not-workspaces")
 
 	config, err := LoadConfig()
 	if err != nil {
@@ -29,6 +30,9 @@ func TestLoadConfigDefaultsAndFixedPaths(t *testing.T) {
 	}
 	if got, want := config.AgentSocketPath, "/run/nginx-uix/agent.sock"; got != want {
 		t.Errorf("AgentSocketPath = %q, want %q", got, want)
+	}
+	if got, want := config.WorkspaceRoot, "/var/lib/nginx-uix/workspaces"; got != want {
+		t.Errorf("WorkspaceRoot = %q, want %q", got, want)
 	}
 	if got, want := config.NginxBinary, "/usr/sbin/nginx"; got != want {
 		t.Errorf("NginxBinary = %q, want %q", got, want)

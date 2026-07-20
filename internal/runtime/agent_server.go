@@ -53,6 +53,9 @@ func RunAgentServer(ctx context.Context, service *Service, logger *slog.Logger) 
 	if service == nil {
 		return fmt.Errorf("run agent server: service is required")
 	}
+	if err := service.ReconcileReleaseArtifacts(ctx); err != nil {
+		return fmt.Errorf("run agent server: reconcile release artifacts: %w", err)
+	}
 	return runAgentServer(ctx, newAgentServerConfig(service, logger))
 }
 
@@ -239,7 +242,7 @@ func newAgentHTTPServer(handler http.Handler) *http.Server {
 		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
-		WriteTimeout:      30 * time.Second,
+		WriteTimeout:      65 * time.Second,
 		IdleTimeout:       60 * time.Second,
 		MaxHeaderBytes:    agentMaxHeaderBytes,
 	}

@@ -114,9 +114,13 @@ test('desktop tab order exposes the skip link and visible focus in DOM order', a
     page.locator('.global-nav__brand'),
     page.locator('.global-nav__links a').nth(0),
     page.locator('.global-nav__links a').nth(1),
+    page.locator('.global-nav__links a').nth(2),
+    page.locator('.global-nav__links a').nth(3),
     page.getByRole('button', { name: '退出登录' }),
     page.locator('.sub-nav__links a').nth(0),
     page.locator('.sub-nav__links a').nth(1),
+    page.locator('.sub-nav__links a').nth(2),
+    page.locator('.sub-nav__links a').nth(3),
     page.getByRole('button', { name: '刷新状态' }),
   ]
   for (const control of orderedControls) {

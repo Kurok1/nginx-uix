@@ -9,12 +9,16 @@ import {
   type RouterHistory,
   type RouteRecordRaw,
 } from 'vue-router'
+import { watch } from 'vue'
 
 import { apiClient, type APIClient } from './api/client'
 import { sessionStore, type SessionStore } from './session'
+import { workspaceStore, type WorkspaceStore } from './workspace'
+import ConfigWorkspaceView from './views/ConfigWorkspaceView.vue'
 import DashboardView from './views/DashboardView.vue'
 import EffectiveConfigView from './views/EffectiveConfigView.vue'
 import LoginView from './views/LoginView.vue'
+import OperationsView from './views/OperationsView.vue'
 
 declare module 'vue-router' {
   interface RouteMeta {
@@ -36,6 +40,18 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true },
   },
   {
+    path: '/config/workspaces/:workspaceId?',
+    name: 'config-workspaces',
+    component: ConfigWorkspaceView,
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/config/operations',
+    name: 'config-operations',
+    component: OperationsView,
+    meta: { requiresAuth: true },
+  },
+  {
     path: '/login',
     name: 'login',
     component: LoginView,
@@ -51,10 +67,17 @@ export function createAppRouter(
   router.beforeEach(async (to) => {
     await store.restore()
     if (store.state.phase === 'authenticated' && to.name === 'login') {
+      const redirect = typeof to.query.redirect === 'string' ? to.query.redirect : ''
+      if (redirect !== '') {
+        const resolved = router.resolve(redirect)
+        if (resolved.name === 'config-workspaces' || resolved.name === 'config-operations') {
+          return { path: resolved.path, query: resolved.query, hash: resolved.hash }
+        }
+      }
       return { name: 'dashboard' }
     }
     if (store.state.phase !== 'authenticated' && to.meta.requiresAuth) {
-      return { name: 'login' }
+      return { name: 'login', query: { redirect: to.fullPath } }
     }
     return true
   })
@@ -65,13 +88,69 @@ export function installSessionExpiryRedirect(
   client: APIClient,
   store: SessionStore,
   router: Router,
+  workspaces: WorkspaceStore = workspaceStore,
 ): () => void {
   return client.onError((error) => {
     if (store.handleAPIError(error)) {
-      void router.replace({ name: 'login' })
+      workspaces.markSessionExpired()
+      const redirect = router.currentRoute.value.fullPath
+      void router.replace({
+        name: 'login',
+        query: redirect.startsWith('/login') ? undefined : { redirect },
+      })
     }
   })
 }
 
+export function installWorkspaceLeaveGuard(
+  router: Router,
+  store: WorkspaceStore,
+  confirmLeave: (message: string) => boolean,
+): () => void {
+  const removeRouteGuard = router.beforeEach((to, from) => {
+    if (
+      from.name === 'config-workspaces' &&
+      to.name !== 'config-workspaces' &&
+      store.hasUnsavedChanges() &&
+      store.state.banner?.kind !== 'session_expired'
+    ) {
+      return confirmLeave(
+        'Unsaved workspace text will remain only in this browser session. Leave this page?',
+      )
+    }
+    return true
+  })
+
+  let beforeUnloadInstalled = false
+  const handleBeforeUnload = (event: BeforeUnloadEvent): void => {
+    if (!store.hasUnsavedChanges()) return
+    event.preventDefault()
+    event.returnValue = ''
+  }
+  const stopWatching = watch(
+    () => store.hasUnsavedChanges(),
+    (dirty) => {
+      if (dirty && !beforeUnloadInstalled) {
+        window.addEventListener('beforeunload', handleBeforeUnload)
+        beforeUnloadInstalled = true
+      } else if (!dirty && beforeUnloadInstalled) {
+        window.removeEventListener('beforeunload', handleBeforeUnload)
+        beforeUnloadInstalled = false
+      }
+    },
+    { immediate: true },
+  )
+
+  return () => {
+    removeRouteGuard()
+    stopWatching()
+    if (beforeUnloadInstalled) {
+      window.removeEventListener('beforeunload', handleBeforeUnload)
+      beforeUnloadInstalled = false
+    }
+  }
+}
+
 export const appRouter = createAppRouter()
 installSessionExpiryRedirect(apiClient, sessionStore, appRouter)
+installWorkspaceLeaveGuard(appRouter, workspaceStore, (message) => window.confirm(message))

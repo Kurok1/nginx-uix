@@ -140,12 +140,13 @@ func TestAgentRecordNginxExitParsesS6Values(t *testing.T) {
 func TestAgentInitContainerRunsAsRootWithTrustedOptions(t *testing.T) {
 	ctx := context.WithValue(context.Background(), agentTestContextKey{}, "initialize")
 	options := nginxruntime.InitializeOptions{
-		DefaultsRoot: "/trusted/defaults",
-		NginxRoot:    "/trusted/nginx",
-		DataRoot:     "/trusted/data",
-		RunRoot:      "/trusted/run",
-		DataUID:      1234,
-		DataGID:      5678,
+		DefaultsRoot:  "/trusted/defaults",
+		NginxRoot:     "/trusted/nginx",
+		DataRoot:      "/trusted/data",
+		WorkspaceRoot: "/trusted/data/workspaces",
+		RunRoot:       "/trusted/run",
+		DataUID:       1234,
+		DataGID:       5678,
 	}
 	calls := make([]string, 0, 2)
 	agent := &Agent{
@@ -177,12 +178,13 @@ func TestAgentInitContainerRunsAsRootWithTrustedOptions(t *testing.T) {
 
 func TestAgentSeparatedContainerInitializersRunOnlyTheirFixedOperation(t *testing.T) {
 	options := nginxruntime.InitializeOptions{
-		DefaultsRoot: "/trusted/defaults",
-		NginxRoot:    "/trusted/nginx",
-		DataRoot:     "/trusted/data",
-		RunRoot:      "/trusted/run",
-		DataUID:      1234,
-		DataGID:      5678,
+		DefaultsRoot:  "/trusted/defaults",
+		NginxRoot:     "/trusted/nginx",
+		DataRoot:      "/trusted/data",
+		WorkspaceRoot: "/trusted/data/workspaces",
+		RunRoot:       "/trusted/run",
+		DataUID:       1234,
+		DataGID:       5678,
 	}
 	tests := []struct {
 		mode       string
@@ -403,12 +405,13 @@ func TestNewAgentWiresFixedProductionDependencies(t *testing.T) {
 
 func TestProductionInitializeOptionsUseOnlyFixedContainerValues(t *testing.T) {
 	want := nginxruntime.InitializeOptions{
-		DefaultsRoot: "/usr/share/nginx-uix/default-nginx",
-		NginxRoot:    "/etc/nginx",
-		DataRoot:     "/var/lib/nginx-uix",
-		RunRoot:      "/run/nginx-uix",
-		DataUID:      10001,
-		DataGID:      10001,
+		DefaultsRoot:  "/usr/share/nginx-uix/default-nginx",
+		NginxRoot:     "/etc/nginx",
+		DataRoot:      "/var/lib/nginx-uix",
+		WorkspaceRoot: "/var/lib/nginx-uix/workspaces",
+		RunRoot:       "/run/nginx-uix",
+		DataUID:       10001,
+		DataGID:       10001,
 	}
 	if got := ProductionInitializeOptions(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("ProductionInitializeOptions() = %#v, want %#v", got, want)

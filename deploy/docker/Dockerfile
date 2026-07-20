@@ -1,12 +1,20 @@
 # @author hanchao <hanchao@66yunlian.com>
 # @since 0.1.0
 
+ARG VERSION=0.2.3
+ARG COMMIT
+ARG BUILD_TIME
+ARG SOURCE_FINGERPRINT
+ARG BUILD_IDENTITY
+ARG SOURCE_DATE_EPOCH
+
 FROM node:24.17.0-trixie-slim@sha256:9022946fb57e6fb6a2503931470deba4b49db02bfc8f587f93007fd33ef54415 AS frontend
 
 WORKDIR /workspace/web
 
 COPY web/package.json web/package-lock.json ./
-RUN test "$(npm --version)" = "11.13.0" && npm ci
+RUN --mount=type=cache,id=nginx-uix-npm,target=/root/.npm,sharing=locked \
+    test "$(npm --version)" = "11.13.0" && npm ci
 
 COPY web/index.html \
     web/eslint.config.js \
@@ -22,9 +30,9 @@ FROM golang:1.26.4-trixie@sha256:68b7145ec43d1820b9a56704554b53d1520aa2a15cb5233
 
 ARG TARGETOS
 ARG TARGETARCH
-ARG VERSION=0.1.0
-ARG COMMIT=unknown
-ARG BUILD_TIME=unknown
+ARG VERSION
+ARG COMMIT
+ARG BUILD_TIME
 
 WORKDIR /workspace
 
@@ -32,7 +40,11 @@ RUN test "$(go env GOVERSION)" = "go1.26.4"
 
 COPY go.mod go.sum VERSION ./
 RUN --mount=type=cache,target=/go/pkg/mod,sharing=locked \
-    test "$(tr -d '\n' < VERSION)" = "${VERSION}" && go mod download
+    test -n "${VERSION}" \
+    && test -n "${COMMIT}" \
+    && test -n "${BUILD_TIME}" \
+    && test "$(tr -d '\n' < VERSION)" = "${VERSION}" \
+    && go mod download
 
 COPY cmd ./cmd
 COPY internal ./internal
@@ -84,6 +96,24 @@ RUN set -eu; \
     tar -C /s6-rootfs -Jxpf "/tmp/s6-overlay-${s6_arch}.tar.xz"
 
 FROM nginx:1.30.3-trixie@sha256:b6edb43d9e6e3df4914ffee84030c41f84a9a8c38d9af9b0d44ee4ee295a0a2b AS runtime
+
+ARG VERSION
+ARG COMMIT
+ARG SOURCE_FINGERPRINT
+ARG BUILD_IDENTITY
+ARG SOURCE_DATE_EPOCH
+
+RUN test -n "${VERSION}" \
+    && test -n "${COMMIT}" \
+    && test -n "${SOURCE_FINGERPRINT}" \
+    && test -n "${BUILD_IDENTITY}" \
+    && test -n "${SOURCE_DATE_EPOCH}"
+
+LABEL org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${COMMIT}" \
+      io.nginx-uix.source-fingerprint="${SOURCE_FINGERPRINT}" \
+      io.nginx-uix.build-identity="${BUILD_IDENTITY}" \
+      io.nginx-uix.reproducible-epoch="${SOURCE_DATE_EPOCH}"
 
 RUN set -eu; \
     groupadd --gid 10001 nginx-uix; \

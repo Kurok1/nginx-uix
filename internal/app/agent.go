@@ -64,12 +64,13 @@ type Agent struct {
 // ProductionInitializeOptions returns the fixed trusted container paths and UI owner.
 func ProductionInitializeOptions() nginxruntime.InitializeOptions {
 	return nginxruntime.InitializeOptions{
-		DefaultsRoot: defaultNginxSourceRoot,
-		NginxRoot:    defaultNginxRoot,
-		DataRoot:     defaultDataRoot,
-		RunRoot:      defaultRunRoot,
-		DataUID:      defaultDataUID,
-		DataGID:      defaultDataGID,
+		DefaultsRoot:  defaultNginxSourceRoot,
+		NginxRoot:     defaultNginxRoot,
+		DataRoot:      defaultDataRoot,
+		WorkspaceRoot: workspaceRoot,
+		RunRoot:       defaultRunRoot,
+		DataUID:       defaultDataUID,
+		DataGID:       defaultDataGID,
 	}
 }
 

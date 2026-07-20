@@ -23,8 +23,10 @@ import effectiveConfigSource from './EffectiveConfigView.vue?raw'
 const baseStylesSource = readFileSync(resolve(process.cwd(), 'src/styles/base.css'), 'utf8')
 
 const currentSession: SessionResponse = {
-  user: { id: 7, username: 'operator' },
+  user: { id: 7, username: 'operator', created_at: '2026-07-15T11:00:00Z' },
   csrf_token: 'csrf-token',
+  created_at: '2026-07-15T12:00:00Z',
+  last_seen_at: '2026-07-15T12:30:00Z',
   idle_expires_at: '2026-07-15T20:00:00Z',
   absolute_expires_at: '2026-07-16T12:00:00Z',
 }

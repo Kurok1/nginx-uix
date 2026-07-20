@@ -18,6 +18,7 @@ import (
 const (
 	defaultListenAddr = "0.0.0.0:9000"
 	databasePath      = "/var/lib/nginx-uix/nginx-uix.db"
+	workspaceRoot     = "/var/lib/nginx-uix/workspaces"
 	agentSocketPath   = "/run/nginx-uix/agent.sock"
 	nginxBinary       = "/usr/sbin/nginx"
 	nginxConfigPath   = "/etc/nginx/nginx.conf"
@@ -32,6 +33,7 @@ type Config struct {
 	AdminPasswordFile string
 	AdminPassword     string
 	DatabasePath      string
+	WorkspaceRoot     string
 	AgentSocketPath   string
 	NginxBinary       string
 	NginxConfigPath   string
@@ -62,6 +64,7 @@ func LoadConfig() (Config, error) {
 		AdminPasswordFile: os.Getenv("NGINX_UIX_ADMIN_PASSWORD_FILE"),
 		AdminPassword:     os.Getenv("NGINX_UIX_ADMIN_PASSWORD"),
 		DatabasePath:      databasePath,
+		WorkspaceRoot:     workspaceRoot,
 		AgentSocketPath:   agentSocketPath,
 		NginxBinary:       nginxBinary,
 		NginxConfigPath:   nginxConfigPath,
