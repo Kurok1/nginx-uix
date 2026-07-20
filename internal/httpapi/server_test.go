@@ -128,6 +128,8 @@ func TestSPAFallbackServesIndexOnlyForKnownNavigationRoutes(t *testing.T) {
 		"/configuration",
 		"/config/workspaces",
 		"/config/workspaces/0123456789abcdef0123456789abcdef",
+		"/config/workspaces/0123456789abcdef0123456789abcdef/upstreams",
+		"/config/workspaces/0123456789abcdef0123456789abcdef/servers",
 	}
 	for _, method := range []string{http.MethodGet, http.MethodHead} {
 		for _, path := range paths {

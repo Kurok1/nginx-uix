@@ -610,6 +610,7 @@ watch(
 			releases.reset()
         await store.openWorkspace(workspaceId)
         await store.loadGroups(workspaceId)
+			await openRequestedRoutePath()
 			const releaseID = routeReleaseID() ?? state.active?.last_release_id
 			if (releaseID !== undefined) await releases.resume(releaseID)
       })
@@ -617,6 +618,15 @@ watch(
   },
   { immediate: true },
 )
+
+	watch(
+		() => route.query.path,
+		() => {
+			if (state.active?.id === route.params.workspaceId) {
+				void run(openRequestedRoutePath)
+			}
+		},
+	)
 
 	watch(
 		() => route.query.release,
@@ -703,6 +713,13 @@ function requestWorkspaceDelete(workspace: WorkspaceSummary): void {
 
 function openFile(path: string): void {
   void run(() => store.openFile(path))
+}
+
+async function openRequestedRoutePath(): Promise<void> {
+	const requestedPath = route.query.path
+	if (typeof requestedPath !== 'string' || requestedPath === '') return
+	await store.openFile(requestedPath)
+	state.activeTask = 'editor'
 }
 
 function selectFileFromControl(event: Event): void {

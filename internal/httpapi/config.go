@@ -43,6 +43,7 @@ type WorkspaceAPI interface {
 
 type configHandler struct {
 	workspaces WorkspaceAPI
+	structured StructuredAPI
 	groups     GroupAPI
 	sessions   SessionService
 	publicURL  *url.URL

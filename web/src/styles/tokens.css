@@ -95,6 +95,11 @@
   --component-operations-table-min-width: 720px;
   --component-operations-detail-width: min(92vw, 640px);
   --component-attention-panel-border-width: 2px;
+  --component-structured-list-width: 280px;
+  --component-structured-detail-min-width: 360px;
+  --component-structured-review-width: 420px;
+  --component-structured-tree-indent: 20px;
+  --component-structured-diagnostic-max-height: 240px;
 
   --focus-outline: 2px solid var(--color-primary-focus);
   --focus-offset: 2px;

@@ -3,7 +3,7 @@
 openapi: 3.1.0
 info:
   title: Nginx UIX API
-  version: 0.2.3
+  version: 0.3.0
 servers:
   - url: /
 paths:
@@ -796,6 +796,136 @@ paths:
           $ref: "#/components/responses/ConfigAPIError"
         "504":
           $ref: "#/components/responses/ConfigAPIError"
+  /api/v1/config/workspaces/{workspace_id}/structured-config:
+    get:
+      operationId: getStructuredConfig
+      summary: Get the ETag-bound structured HTTP configuration projection
+      description: Returns bounded upstream, HTTP server, location, proxy_pass, and diagnostic projections without exposing preserved raw syntax. Unknown query parameters are rejected.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - $ref: "#/components/parameters/RequestID"
+      responses:
+        "200":
+          description: Structured projection for exactly one workspace draft revision
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestID"
+            Cache-Control:
+              schema: { type: string, enum: [no-store] }
+            ETag:
+              description: Quoted strong identity matching draft_etag in the response body.
+              schema:
+                type: string
+                pattern: '^"draft-v1:[0-9a-f]{64}"$'
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StructuredConfig"
+        "400": { $ref: "#/components/responses/ConfigAPIError" }
+        "401": { $ref: "#/components/responses/ConfigAPIError" }
+        "404": { $ref: "#/components/responses/ConfigAPIError" }
+        "413": { $ref: "#/components/responses/ConfigAPIError" }
+        "422": { $ref: "#/components/responses/ConfigAPIError" }
+        "500": { $ref: "#/components/responses/ConfigAPIError" }
+        "503": { $ref: "#/components/responses/ConfigAPIError" }
+        "504": { $ref: "#/components/responses/ConfigAPIError" }
+  /api/v1/config/workspaces/{workspace_id}/structured-change-previews:
+    post:
+      operationId: createStructuredChangePreview
+      summary: Preview one typed structured draft change
+      description: Rebuilds and reparses the proposed server-rendered edits without updating the workspace or production configuration.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - $ref: "#/components/parameters/Origin"
+        - $ref: "#/components/parameters/CSRFToken"
+        - $ref: "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        description: Strict tagged JSON operation limited to 262144 bytes.
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StructuredOperationRequest"
+      responses:
+        "200":
+          description: Deterministic complete or explicitly incomplete draft-only change review
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestID"
+            Cache-Control:
+              schema: { type: string, enum: [no-store] }
+            ETag:
+              description: Quoted strong identity matching draft_etag in the response body.
+              schema:
+                type: string
+                pattern: '^"draft-v1:[0-9a-f]{64}"$'
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StructuredChangePreview"
+        "400": { $ref: "#/components/responses/ConfigAPIError" }
+        "401": { $ref: "#/components/responses/ConfigAPIError" }
+        "403": { $ref: "#/components/responses/ConfigAPIError" }
+        "404": { $ref: "#/components/responses/ConfigAPIError" }
+        "409": { $ref: "#/components/responses/ConfigAPIError" }
+        "413": { $ref: "#/components/responses/ConfigAPIError" }
+        "415": { $ref: "#/components/responses/ConfigAPIError" }
+        "422": { $ref: "#/components/responses/ConfigAPIError" }
+        "500": { $ref: "#/components/responses/ConfigAPIError" }
+        "503": { $ref: "#/components/responses/ConfigAPIError" }
+        "504": { $ref: "#/components/responses/ConfigAPIError" }
+  /api/v1/config/workspaces/{workspace_id}/structured-changes:
+    post:
+      operationId: applyStructuredChange
+      summary: Apply one previewed typed change to the workspace draft
+      description: Recomputes the operation and preview identity against If-Match, then atomically replaces only the changed workspace files. Production configuration and Nginx are unaffected.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - $ref: "#/components/parameters/Origin"
+        - $ref: "#/components/parameters/CSRFToken"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        description: Strict tagged JSON operation and preview identity limited to 262144 bytes.
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StructuredApplyRequest"
+      responses:
+        "200":
+          description: Workspace draft updated; no validation, publication, or reload has run
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestID"
+            Cache-Control:
+              schema: { type: string, enum: [no-store] }
+            ETag:
+              description: New quoted strong workspace draft identity.
+              schema:
+                type: string
+                pattern: '^"draft-v1:[0-9a-f]{64}"$'
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StructuredChangeResult"
+        "400": { $ref: "#/components/responses/ConfigAPIError" }
+        "401": { $ref: "#/components/responses/ConfigAPIError" }
+        "403": { $ref: "#/components/responses/ConfigAPIError" }
+        "404": { $ref: "#/components/responses/ConfigAPIError" }
+        "409": { $ref: "#/components/responses/ConfigAPIError" }
+        "413": { $ref: "#/components/responses/ConfigAPIError" }
+        "415": { $ref: "#/components/responses/ConfigAPIError" }
+        "422": { $ref: "#/components/responses/ConfigAPIError" }
+        "500": { $ref: "#/components/responses/ConfigAPIError" }
+        "503": { $ref: "#/components/responses/ConfigAPIError" }
+        "504": { $ref: "#/components/responses/ConfigAPIError" }
   /api/v1/config/workspaces/{workspace_id}/publish-checks:
     post:
       operationId: createConfigPublishCheck
@@ -3049,6 +3179,569 @@ components:
         request_id: { type: string, pattern: "^[A-Za-z0-9._-]{1,64}$" }
         created_at: { type: string, format: date-time }
         finished_at: { type: string, format: date-time }
+    StructuredSource:
+      type: object
+      additionalProperties: false
+      required: [path, start_line, start_column, end_line, end_column]
+      properties:
+        path:
+          type: string
+          description: Configuration-root relative source path; semantic limit is 1024 UTF-8 bytes and 64 components.
+        start_line: { type: integer, minimum: 1 }
+        start_column: { type: integer, minimum: 1 }
+        end_line: { type: integer, minimum: 1 }
+        end_column: { type: integer, minimum: 1 }
+    StructuredProjectDiagnostic:
+      type: object
+      additionalProperties: false
+      required: [code, path, line, column]
+      properties:
+        code:
+          type: string
+          pattern: "^[a-z0-9_]+$"
+          maxLength: 64
+        path:
+          type: string
+          description: Configuration-root relative source path; semantic limit is 1024 UTF-8 bytes and 64 components.
+        line: { type: integer, minimum: 1 }
+        column: { type: integer, minimum: 1 }
+        related_path:
+          type: string
+          description: Optional configuration-root relative related path; semantic limit is 1024 UTF-8 bytes and 64 components.
+    StructuredDiagnostic:
+      type: object
+      additionalProperties: false
+      required: [domain, code, severity, source]
+      properties:
+        domain:
+          type: string
+          enum: [upstream, location]
+        code:
+          type: string
+          pattern: "^[a-z0-9_]+$"
+          maxLength: 64
+        severity:
+          type: string
+          enum: [blocking, warning]
+        source:
+          $ref: "#/components/schemas/StructuredSource"
+        related_id:
+          type: string
+          pattern: "^[0-9a-f]{32}$"
+        parent_id:
+          type: string
+          pattern: "^[0-9a-f]{32}$"
+    PreservedSyntax:
+      type: object
+      additionalProperties: false
+      required: [name, editable]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 256
+          description: Directive or parameter name only; preserved arguments and source text are never exposed.
+        editable:
+          type: boolean
+          const: false
+    StructuredEndpoint:
+      type: object
+      additionalProperties: false
+      required: [address, port, unix]
+      properties:
+        address:
+          type: string
+          minLength: 1
+          maxLength: 1024
+        port:
+          type: [integer, "null"]
+          minimum: 1
+          maximum: 65535
+        unix:
+          type: boolean
+    StructuredUpstreamServer:
+      type: object
+      additionalProperties: false
+      required: [id, source, endpoint, weight, backup, down, max_fails, fail_timeout, preserved_parameters, editable]
+      properties:
+        id: { type: string, pattern: "^[0-9a-f]{32}$" }
+        source:
+          $ref: "#/components/schemas/StructuredSource"
+        endpoint:
+          $ref: "#/components/schemas/StructuredEndpoint"
+        weight:
+          type: [integer, "null"]
+          minimum: 1
+        backup:
+          type: boolean
+        down:
+          type: boolean
+        max_fails:
+          type: [integer, "null"]
+          minimum: 0
+        fail_timeout:
+          type: [string, "null"]
+          maxLength: 64
+        preserved_parameters:
+          type: array
+          minItems: 0
+          maxItems: 1024
+          items:
+            $ref: "#/components/schemas/PreservedSyntax"
+        editable:
+          type: boolean
+        read_only_reason:
+          type: string
+          pattern: "^[a-z0-9_]*$"
+          maxLength: 64
+    StructuredReference:
+      type: object
+      additionalProperties: false
+      required: [id, source, state, port]
+      properties:
+        id: { type: string, pattern: "^[0-9a-f]{32}$" }
+        source:
+          $ref: "#/components/schemas/StructuredSource"
+        state:
+          type: string
+          enum: [resolved, dangling, external, dynamic, ambiguous, unknown]
+        scheme:
+          type: string
+          enum: [http, https]
+        host:
+          type: string
+          maxLength: 1024
+        port:
+          type: [integer, "null"]
+          minimum: 1
+          maximum: 65535
+        uri:
+          type: string
+          maxLength: 4096
+        upstream_id:
+          type: string
+          pattern: "^[0-9a-f]{32}$"
+        upstream_name:
+          type: string
+          maxLength: 256
+    StructuredUpstream:
+      type: object
+      additionalProperties: false
+      required: [id, name, source, servers, preserved_directives, references, editable, instances]
+      properties:
+        id: { type: string, pattern: "^[0-9a-f]{32}$" }
+        name:
+          type: string
+          minLength: 1
+          maxLength: 256
+        source:
+          $ref: "#/components/schemas/StructuredSource"
+        servers:
+          type: array
+          minItems: 0
+          maxItems: 10000
+          items:
+            $ref: "#/components/schemas/StructuredUpstreamServer"
+        preserved_directives:
+          type: array
+          minItems: 0
+          maxItems: 10000
+          items:
+            $ref: "#/components/schemas/PreservedSyntax"
+        references:
+          type: array
+          minItems: 0
+          maxItems: 10000
+          items:
+            $ref: "#/components/schemas/StructuredReference"
+        editable:
+          type: boolean
+        read_only_reason:
+          type: string
+          pattern: "^[a-z0-9_]*$"
+          maxLength: 64
+        instances:
+          type: integer
+          minimum: 1
+          maximum: 16384
+    StructuredLocation:
+      type: object
+      additionalProperties: false
+      required: [id, type, matcher, source, children, proxy_passes, unknown_directive_count, editable, proxy_pass_editable, instances]
+      properties:
+        id: { type: string, pattern: "^[0-9a-f]{32}$" }
+        type:
+          type: string
+          enum: [unknown, exact, prefix, prefix_priority, regex, regex_insensitive, named]
+        matcher:
+          type: string
+          maxLength: 4096
+        source:
+          $ref: "#/components/schemas/StructuredSource"
+        children:
+          type: array
+          minItems: 0
+          maxItems: 10000
+          items:
+            $ref: "#/components/schemas/StructuredLocation"
+        proxy_passes:
+          type: array
+          minItems: 0
+          maxItems: 10000
+          items:
+            $ref: "#/components/schemas/StructuredReference"
+        unknown_directive_count:
+          type: integer
+          minimum: 0
+          maximum: 10000
+        editable:
+          type: boolean
+        read_only_reason:
+          type: string
+          pattern: "^[a-z0-9_]*$"
+          maxLength: 64
+        proxy_pass_editable:
+          type: boolean
+        proxy_pass_read_only_reason:
+          type: string
+          pattern: "^[a-z0-9_]*$"
+          maxLength: 64
+        instances:
+          type: integer
+          minimum: 1
+          maximum: 16384
+    StructuredHTTPServer:
+      type: object
+      additionalProperties: false
+      required: [id, source, listens, server_names, summary_truncated, locations, editable, instances]
+      properties:
+        id: { type: string, pattern: "^[0-9a-f]{32}$" }
+        source:
+          $ref: "#/components/schemas/StructuredSource"
+        listens:
+          type: array
+          minItems: 0
+          maxItems: 64
+          items:
+            type: string
+            maxLength: 1024
+        server_names:
+          type: array
+          minItems: 0
+          maxItems: 256
+          items:
+            type: string
+            maxLength: 1024
+        summary_truncated:
+          type: boolean
+        locations:
+          type: array
+          minItems: 0
+          maxItems: 10000
+          items:
+            $ref: "#/components/schemas/StructuredLocation"
+        editable:
+          type: boolean
+        read_only_reason:
+          type: string
+          pattern: "^[a-z0-9_]*$"
+          maxLength: 64
+        instances:
+          type: integer
+          minimum: 1
+          maximum: 16384
+    StructuredHTTPBlock:
+      type: object
+      additionalProperties: false
+      required: [id, source, editable, instances]
+      properties:
+        id: { type: string, pattern: "^[0-9a-f]{32}$" }
+        source:
+          $ref: "#/components/schemas/StructuredSource"
+        editable:
+          type: boolean
+        read_only_reason:
+          type: string
+          pattern: "^[a-z0-9_]*$"
+          maxLength: 64
+        instances:
+          type: integer
+          minimum: 1
+          maximum: 16384
+    StructuredConfig:
+      type: object
+      additionalProperties: false
+      required: [workspace_id, draft_etag, complete, project_diagnostics, http_blocks, upstreams, proxy_pass_references, servers, diagnostics]
+      properties:
+        workspace_id: { type: string, pattern: "^[0-9a-f]{32}$" }
+        draft_etag:
+          type: string
+          pattern: '^"draft-v1:[0-9a-f]{64}"$'
+        complete:
+          type: boolean
+          description: False only when project parsing or include-context loading is incomplete; domain diagnostics block only operations that touch affected syntax.
+        project_diagnostics:
+          type: array
+          minItems: 0
+          maxItems: 20000
+          items:
+            $ref: "#/components/schemas/StructuredProjectDiagnostic"
+        http_blocks:
+          type: array
+          minItems: 0
+          maxItems: 10000
+          items:
+            $ref: "#/components/schemas/StructuredHTTPBlock"
+        upstreams:
+          type: array
+          minItems: 0
+          maxItems: 10000
+          items:
+            $ref: "#/components/schemas/StructuredUpstream"
+        proxy_pass_references:
+          type: array
+          minItems: 0
+          maxItems: 10000
+          items:
+            $ref: "#/components/schemas/StructuredReference"
+        servers:
+          type: array
+          minItems: 0
+          maxItems: 10000
+          items:
+            $ref: "#/components/schemas/StructuredHTTPServer"
+        diagnostics:
+          type: array
+          minItems: 0
+          maxItems: 20000
+          items:
+            $ref: "#/components/schemas/StructuredDiagnostic"
+    StructuredUpstreamServerInput:
+      type: object
+      additionalProperties: false
+      required: [address]
+      properties:
+        address:
+          type: string
+          minLength: 1
+          maxLength: 1024
+        port:
+          type: [integer, "null"]
+          minimum: 1
+          maximum: 65535
+        unix:
+          type: boolean
+        weight:
+          type: [integer, "null"]
+          minimum: 1
+        backup:
+          type: boolean
+        down:
+          type: boolean
+        max_fails:
+          type: [integer, "null"]
+          minimum: 0
+        fail_timeout:
+          type: [string, "null"]
+          maxLength: 64
+    StructuredProxyPassInput:
+      type: object
+      additionalProperties: false
+      required: [upstream_id, scheme]
+      properties:
+        upstream_id: { type: string, pattern: "^[0-9a-f]{32}$" }
+        scheme:
+          type: string
+          enum: [http, https]
+        port:
+          type: [integer, "null"]
+          minimum: 1
+          maximum: 65535
+        uri:
+          type: string
+          maxLength: 4096
+    StructuredUpstreamCreateInput:
+      type: object
+      additionalProperties: false
+      required: [http_block_id, name, servers]
+      properties:
+        http_block_id: { type: string, pattern: "^[0-9a-f]{32}$" }
+        name: { type: string, minLength: 1, maxLength: 256 }
+        servers:
+          type: array
+          minItems: 1
+          maxItems: 4096
+          items:
+            $ref: "#/components/schemas/StructuredUpstreamServerInput"
+    StructuredUpstreamRenameInput:
+      type: object
+      additionalProperties: false
+      required: [upstream_id, new_name]
+      properties:
+        upstream_id: { type: string, pattern: "^[0-9a-f]{32}$" }
+        new_name: { type: string, minLength: 1, maxLength: 256 }
+    StructuredUpstreamDeleteInput:
+      type: object
+      additionalProperties: false
+      required: [upstream_id, confirm_name]
+      properties:
+        upstream_id: { type: string, pattern: "^[0-9a-f]{32}$" }
+        confirm_name: { type: string, minLength: 1, maxLength: 256 }
+    StructuredUpstreamServerCreateInput:
+      type: object
+      additionalProperties: false
+      required: [upstream_id, server]
+      properties:
+        upstream_id: { type: string, pattern: "^[0-9a-f]{32}$" }
+        server:
+          $ref: "#/components/schemas/StructuredUpstreamServerInput"
+    StructuredUpstreamServerUpdateInput:
+      type: object
+      additionalProperties: false
+      required: [upstream_id, server_id, server]
+      properties:
+        upstream_id: { type: string, pattern: "^[0-9a-f]{32}$" }
+        server_id: { type: string, pattern: "^[0-9a-f]{32}$" }
+        server:
+          $ref: "#/components/schemas/StructuredUpstreamServerInput"
+    StructuredUpstreamServerDeleteInput:
+      type: object
+      additionalProperties: false
+      required: [upstream_id, server_id]
+      properties:
+        upstream_id: { type: string, pattern: "^[0-9a-f]{32}$" }
+        server_id: { type: string, pattern: "^[0-9a-f]{32}$" }
+    StructuredLocationCreateInput:
+      type: object
+      additionalProperties: false
+      required: [parent_id, type, matcher]
+      properties:
+        parent_id: { type: string, pattern: "^[0-9a-f]{32}$" }
+        type:
+          type: string
+          enum: [exact, prefix, prefix_priority, regex, regex_insensitive, named]
+        matcher: { type: string, minLength: 1, maxLength: 4096 }
+        proxy_pass:
+          oneOf:
+            - $ref: "#/components/schemas/StructuredProxyPassInput"
+            - type: "null"
+    StructuredLocationUpdateInput:
+      type: object
+      additionalProperties: false
+      required: [location_id, type, matcher, proxy_mode]
+      properties:
+        location_id: { type: string, pattern: "^[0-9a-f]{32}$" }
+        type:
+          type: string
+          enum: [exact, prefix, prefix_priority, regex, regex_insensitive, named]
+        matcher: { type: string, minLength: 1, maxLength: 4096 }
+        proxy_mode:
+          type: string
+          enum: [preserve, set, remove]
+        proxy_pass:
+          oneOf:
+            - $ref: "#/components/schemas/StructuredProxyPassInput"
+            - type: "null"
+    StructuredLocationDeleteInput:
+      type: object
+      additionalProperties: false
+      required: [location_id, confirm_matcher]
+      properties:
+        location_id: { type: string, pattern: "^[0-9a-f]{32}$" }
+        confirm_matcher: { type: string, minLength: 1, maxLength: 4096 }
+    StructuredOperationRequest:
+      type: object
+      additionalProperties: false
+      required: [kind, input]
+      properties:
+        kind:
+          type: string
+          enum: [upstream.create, upstream.rename, upstream.delete, upstream_server.create, upstream_server.update, upstream_server.delete, location.create, location.update, location.delete]
+          description: Discriminator selecting the exactly matching input schema.
+        input:
+          oneOf:
+            - $ref: "#/components/schemas/StructuredUpstreamCreateInput"
+            - $ref: "#/components/schemas/StructuredUpstreamRenameInput"
+            - $ref: "#/components/schemas/StructuredUpstreamDeleteInput"
+            - $ref: "#/components/schemas/StructuredUpstreamServerCreateInput"
+            - $ref: "#/components/schemas/StructuredUpstreamServerUpdateInput"
+            - $ref: "#/components/schemas/StructuredUpstreamServerDeleteInput"
+            - $ref: "#/components/schemas/StructuredLocationCreateInput"
+            - $ref: "#/components/schemas/StructuredLocationUpdateInput"
+            - $ref: "#/components/schemas/StructuredLocationDeleteInput"
+    StructuredApplyRequest:
+      type: object
+      additionalProperties: false
+      required: [preview_id, kind, input]
+      properties:
+        preview_id: { type: string, pattern: "^[0-9a-f]{64}$" }
+        kind:
+          type: string
+          enum: [upstream.create, upstream.rename, upstream.delete, upstream_server.create, upstream_server.update, upstream_server.delete, location.create, location.update, location.delete]
+          description: Discriminator selecting the exactly matching input schema.
+        input:
+          oneOf:
+            - $ref: "#/components/schemas/StructuredUpstreamCreateInput"
+            - $ref: "#/components/schemas/StructuredUpstreamRenameInput"
+            - $ref: "#/components/schemas/StructuredUpstreamDeleteInput"
+            - $ref: "#/components/schemas/StructuredUpstreamServerCreateInput"
+            - $ref: "#/components/schemas/StructuredUpstreamServerUpdateInput"
+            - $ref: "#/components/schemas/StructuredUpstreamServerDeleteInput"
+            - $ref: "#/components/schemas/StructuredLocationCreateInput"
+            - $ref: "#/components/schemas/StructuredLocationUpdateInput"
+            - $ref: "#/components/schemas/StructuredLocationDeleteInput"
+    StructuredChangedFile:
+      type: object
+      additionalProperties: false
+      required: [path, before_digest, after_digest, added_lines, removed_lines, patch]
+      properties:
+        path:
+          type: string
+          description: Configuration-root relative changed path; semantic limit is 1024 UTF-8 bytes and 64 components.
+        before_digest: { type: string, pattern: "^[0-9a-f]{64}$" }
+        after_digest: { type: string, pattern: "^[0-9a-f]{64}$" }
+        added_lines: { type: integer, minimum: 0 }
+        removed_lines: { type: integer, minimum: 0 }
+        patch:
+          type: string
+          description: Complete unified diff when complete is true; empty for every file when the response bound is exceeded.
+    StructuredChangePreview:
+      type: object
+      additionalProperties: false
+      required: [preview_id, workspace_id, draft_etag, operation_kind, target_id, changed_files, complete]
+      properties:
+        preview_id: { type: string, pattern: "^[0-9a-f]{64}$" }
+        workspace_id: { type: string, pattern: "^[0-9a-f]{32}$" }
+        draft_etag: { type: string, pattern: '^"draft-v1:[0-9a-f]{64}"$' }
+        operation_kind:
+          type: string
+          enum: [upstream.create, upstream.rename, upstream.delete, upstream_server.create, upstream_server.update, upstream_server.delete, location.create, location.update, location.delete]
+        target_id: { type: string, pattern: "^[0-9a-f]{32}$" }
+        changed_files:
+          type: array
+          minItems: 1
+          maxItems: 4096
+          items:
+            $ref: "#/components/schemas/StructuredChangedFile"
+        complete:
+          type: boolean
+    StructuredChangeResult:
+      type: object
+      additionalProperties: false
+      required: [workspace, draft_etag, changed_paths]
+      properties:
+        workspace:
+          $ref: "#/components/schemas/WorkspaceDetail"
+        draft_etag:
+          type: string
+          pattern: '^"draft-v1:[0-9a-f]{64}"$'
+        changed_paths:
+          type: array
+          minItems: 1
+          maxItems: 4096
+          items:
+            type: string
+            description: Configuration-root relative changed path; semantic limit is 1024 UTF-8 bytes and 64 components.
     ConfigErrorCode:
       type: string
       enum:
@@ -3086,6 +3779,18 @@ components:
         - CONFIG_RESTORE_NOT_FOUND
         - NGINX_RESTART_NOT_FOUND
         - CONFIG_ATTENTION_CASE_NOT_FOUND
+        - STRUCTURED_PARSE_FAILED
+        - STRUCTURED_LIMIT_EXCEEDED
+        - STRUCTURED_PREVIEW_STALE
+        - STRUCTURED_CONTEXT_AMBIGUOUS
+        - STRUCTURED_EDIT_CONFLICT
+        - UPSTREAM_INVALID
+        - UPSTREAM_DUPLICATE
+        - UPSTREAM_REFERENCED
+        - UPSTREAM_REFERENCE_INCOMPLETE
+        - LOCATION_INVALID
+        - LOCATION_DUPLICATE
+        - PROXY_PASS_INVALID
     ConfigAPIErrorCode:
       oneOf:
         - $ref: "#/components/schemas/ConfigErrorCode"
@@ -3100,7 +3805,7 @@ components:
           description: Safe configuration-root relative path; semantic limit is 1024 UTF-8 bytes and 64 components.
         field:
           type: string
-          enum: [attention_case_id, attention_id, backup_id, body, confirm_backup_id, confirm_name, confirm_path, confirmation, content, destination_path, expected_protected, group_id, include_deleted, limit, members, name, path, protected, query, reason, restart_id, restore_id, retention_id, source_path, state, workspace_id]
+          enum: [attention_case_id, attention_id, backup_id, body, confirm_backup_id, confirm_name, confirm_path, confirmation, content, destination_path, expected_protected, group_id, include_deleted, input, kind, limit, members, name, path, preview_id, protected, query, reason, restart_id, restore_id, retention_id, source_path, state, workspace_id]
         backup_id:
           type: string
           pattern: "^[0-9a-f]{32}$"
@@ -3125,7 +3830,7 @@ components:
           pattern: '^"(?:draft|groups)-v1:[0-9a-f]{64}"$'
         limit_name:
           type: string
-          enum: [request_body_bytes, file_bytes, entries, managed_bytes, workspaces, workspace_bytes, groups, group_members, total_group_members, diff_response_bytes, search_matches, search_query_bytes, include_token_bytes, include_directive_bytes, include_edges, include_depth]
+          enum: [request_body_bytes, file_bytes, entries, managed_bytes, workspaces, workspace_bytes, groups, group_members, total_group_members, diff_response_bytes, search_matches, search_query_bytes, include_token_bytes, include_directive_bytes, include_edges, include_depth, structured_tokens, structured_nodes, structured_contexts, structured_diff_bytes]
         limit_value:
           type: integer
           format: int64

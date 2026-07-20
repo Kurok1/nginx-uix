@@ -216,7 +216,28 @@ func (s *Service) mutateFile(
 		BeforeDigest: workspace.DraftDigest, AfterDigest: afterManifest.Digest(), Actor: actor,
 		Paths: proposalPaths(proposal), StartedAt: startedAt,
 	}
-	if err := s.checkMutationCapacity(ctx, root, workspace, int64(len(beforeContent))+int64(manifestPayloadSize(afterManifest))+journalPayloadLimit); err != nil {
+	journalBytes, err := journalPayloadSize(journal)
+	if err != nil {
+		return MutationResult{}, fmt.Errorf("replace workspace file: %w", err)
+	}
+	additional, err := mutationCapacityBytes(
+		int64(len(beforeContent)),
+		int64(len(proposal.content)),
+		int64(manifestPayloadSize(manifest)),
+		int64(manifestPayloadSize(afterManifest)),
+		journalBytes,
+	)
+	if err != nil {
+		return MutationResult{}, fmt.Errorf("replace workspace file: %w", ErrLimitExceeded)
+	}
+	if ensureBase {
+		baseBytes := int64(manifestPayloadSize(baseManifest))
+		additional, err = mutationCapacityBytes(additional, baseBytes, baseBytes)
+		if err != nil {
+			return MutationResult{}, fmt.Errorf("replace workspace file: %w", ErrLimitExceeded)
+		}
+	}
+	if err := s.checkMutationCapacity(ctx, root, workspace, additional); err != nil {
 		return MutationResult{}, fmt.Errorf("replace workspace file: %w", err)
 	}
 	if err := s.mutationCheckpoint("before_recovery"); err != nil {
@@ -329,6 +350,17 @@ func (s *Service) mutateFile(
 		return MutationResult{}, fmt.Errorf("mutate workspace file: resulting entry missing: %w", ErrConflict)
 	}
 	return MutationResult{Workspace: next, Entry: &resultEntry}, nil
+}
+
+func mutationCapacityBytes(parts ...int64) (int64, error) {
+	var total int64
+	for _, part := range parts {
+		if part < 0 || part > math.MaxInt64-total {
+			return 0, ErrLimitExceeded
+		}
+		total += part
+	}
+	return total, nil
 }
 
 func (s *Service) openVerifiedWorkspace(
@@ -755,7 +787,15 @@ func proposedManifest(
 	default:
 		return Manifest{}, ErrPathInvalid
 	}
+	return manifestFromContents(ctx, entries, contents, limits)
+}
 
+func manifestFromContents(
+	ctx context.Context,
+	entries []Entry,
+	contents map[RelativePath][]byte,
+	limits Limits,
+) (Manifest, error) {
 	raw := make([]RawEntry, len(entries))
 	for index, entry := range entries {
 		raw[index] = RawEntry{
@@ -894,7 +934,13 @@ func writeRecovery(
 }
 
 func removeRecovery(ctx context.Context, root *ScopedRoot, journal Journal) error {
-	for _, name := range []string{"before.bin", "manifest.bin", "before-manifest.bin", "base-manifest.bin"} {
+	names := []string{"before.bin", "manifest.bin", "before-manifest.bin", "base-manifest.bin"}
+	if journal.Kind == "replace_batch" {
+		for index := range journal.Paths {
+			names = append(names, replacementRecoveryName(index))
+		}
+	}
+	for _, name := range names {
 		if err := root.RemoveRegular(ctx, recoveryPath(journal, name)); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return err
 		}
@@ -1045,6 +1091,9 @@ func (s *Service) reconcileFileJournal(ctx context.Context, workspace Workspace,
 	afterManifest, err := readManifestAt(ctx, root, recoveryPath(journal, "manifest.bin"), s.limits)
 	if err != nil || afterManifest.Digest() != journal.AfterDigest {
 		return s.markNeedsAttention(ctx, workspace, reasonRecoveryInvalid, root, true)
+	}
+	if journal.Kind == "replace_batch" {
+		return s.reconcileReplacementJournal(ctx, workspace, root, journal, beforeManifest, afterManifest)
 	}
 	beforeContent, err := validateRecoveryContent(ctx, root, journal, beforeManifest, s.limits)
 	if err != nil {
@@ -1247,7 +1296,7 @@ func cleanupOrphanRecovery(ctx context.Context, root *ScopedRoot) error {
 			directories = append(directories, entry.Path)
 		case 2:
 			if entry.Type != EntryRegular || entry.Mode.Perm() != controlFileMode ||
-				!slices.Contains([]string{"before.bin", "manifest.bin", "before-manifest.bin", "base-manifest.bin"}, components[1]) {
+				!isRecoveryEvidenceName(components[1]) {
 				return ErrPathInvalid
 			}
 			regular = append(regular, entry.Path)

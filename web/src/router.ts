@@ -19,6 +19,7 @@ import DashboardView from './views/DashboardView.vue'
 import EffectiveConfigView from './views/EffectiveConfigView.vue'
 import LoginView from './views/LoginView.vue'
 import OperationsView from './views/OperationsView.vue'
+import StructuredConfigView from './views/StructuredConfigView.vue'
 
 declare module 'vue-router' {
   interface RouteMeta {
@@ -37,6 +38,26 @@ const routes: RouteRecordRaw[] = [
     path: '/configuration',
     name: 'configuration',
     component: EffectiveConfigView,
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/config/workspaces/:workspaceId/upstreams',
+    name: 'structured-upstreams',
+    component: StructuredConfigView,
+    props: (route) => ({
+      workspaceId: String(route.params.workspaceId),
+      mode: 'upstreams',
+    }),
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/config/workspaces/:workspaceId/servers',
+    name: 'structured-servers',
+    component: StructuredConfigView,
+    props: (route) => ({
+      workspaceId: String(route.params.workspaceId),
+      mode: 'servers',
+    }),
     meta: { requiresAuth: true },
   },
   {
@@ -70,7 +91,12 @@ export function createAppRouter(
       const redirect = typeof to.query.redirect === 'string' ? to.query.redirect : ''
       if (redirect !== '') {
         const resolved = router.resolve(redirect)
-        if (resolved.name === 'config-workspaces' || resolved.name === 'config-operations') {
+        if (
+          resolved.name === 'config-workspaces' ||
+          resolved.name === 'config-operations' ||
+          resolved.name === 'structured-upstreams' ||
+          resolved.name === 'structured-servers'
+        ) {
           return { path: resolved.path, query: resolved.query, hash: resolved.hash }
         }
       }

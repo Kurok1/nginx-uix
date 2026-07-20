@@ -20,6 +20,7 @@ import subNavSource from './components/SubNav.vue?raw'
 import ConfigWorkspaceView from './views/ConfigWorkspaceView.vue'
 import EffectiveConfigView from './views/EffectiveConfigView.vue'
 import OperationsView from './views/OperationsView.vue'
+import StructuredConfigView from './views/StructuredConfigView.vue'
 
 const currentSession: SessionResponse = {
   user: { id: 7, username: 'operator', created_at: '2026-07-14T11:00:00Z' },
@@ -99,6 +100,8 @@ describe('application router', () => {
       { name: 'dashboard', path: '/' },
       { name: 'config-operations', path: '/config/operations' },
       { name: 'config-workspaces', path: '/config/workspaces/:workspaceId?' },
+      { name: 'structured-servers', path: '/config/workspaces/:workspaceId/servers' },
+      { name: 'structured-upstreams', path: '/config/workspaces/:workspaceId/upstreams' },
       { name: 'configuration', path: '/configuration' },
       { name: 'login', path: '/login' },
     ])
@@ -124,6 +127,22 @@ describe('application router', () => {
 
     expect(workspaceRoute?.components?.default).toBe(ConfigWorkspaceView)
     expect(workspaceRoute?.meta.requiresAuth).toBe(true)
+  })
+
+  it('routes both structured workspace surfaces to the mode-bound workbench', () => {
+    const store = createSessionStore(createClient(vi.fn().mockResolvedValue(currentSession)))
+    const router = createAppRouter(store, createMemoryHistory())
+    const upstreamRoute = router
+      .getRoutes()
+      .find((route) => route.name === 'structured-upstreams')
+    const serverRoute = router
+      .getRoutes()
+      .find((route) => route.name === 'structured-servers')
+
+    expect(upstreamRoute?.components?.default).toBe(StructuredConfigView)
+    expect(serverRoute?.components?.default).toBe(StructuredConfigView)
+    expect(upstreamRoute?.meta.requiresAuth).toBe(true)
+    expect(serverRoute?.meta.requiresAuth).toBe(true)
   })
 
   it('adds Workspaces and Recovery & History to both navigation levels and bounds overflow', () => {

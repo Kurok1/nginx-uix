@@ -199,6 +199,27 @@ type ReplaceFileInput struct {
 	IfMatch string
 }
 
+// FileReplacement is one complete managed-text content replacement in a batch.
+type FileReplacement struct {
+	Path    RelativePath
+	Content []byte
+}
+
+// ReplaceFilesInput describes one recoverable structured multi-file draft update.
+type ReplaceFilesInput struct {
+	Replacements  []FileReplacement
+	IfMatch       string
+	OperationKind string
+	PreviewID     string
+	TargetID      string
+}
+
+// ReplaceFilesResult returns the persisted workspace and stable changed-path summary.
+type ReplaceFilesResult struct {
+	Workspace    Workspace
+	ChangedPaths []RelativePath
+}
+
 // CopyFileInput describes one managed-text copy without include rewriting.
 type CopyFileInput struct {
 	SourcePath      RelativePath

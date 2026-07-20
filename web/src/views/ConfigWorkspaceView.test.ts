@@ -433,6 +433,21 @@ describe('ConfigWorkspaceView', () => {
     expect(review.text()).toContain('Search incomplete: response limit reached')
   })
 
+  it('opens the safe source file requested by a structured diagnostic link', async () => {
+    const { store } = createStore()
+    const { router } = await mountView(store)
+
+    await router.push({
+      name: 'config-workspaces',
+      params: { workspaceId: 'workspace-id' },
+      query: { path: 'conf.d/site.conf' },
+      hash: '#line-12',
+    })
+    await flushPromises()
+
+    expect(store.openFile).toHaveBeenCalledWith('conf.d/site.conf')
+  })
+
   it('preserves local conflict text and exposes only the defined recovery actions', async () => {
     const local = document(true, true)
     const { state, store } = createStore({ documents: [local] })

@@ -243,6 +243,7 @@ export interface WorkspaceAPIRequest {
 export interface WorkspaceAPIFixture {
   workspaceId: string
   currentDraftETag: () => string
+  commitExternalDraftMutation: () => WorkspaceDetail
   currentGroupsETag: () => string
   forceConflict: () => void
   setWorkspaceState: (state: WorkspaceState) => void
@@ -666,6 +667,10 @@ export async function installWorkspaceAPIFixture(
   return {
     workspaceId,
     currentDraftETag: draftETag,
+    commitExternalDraftMutation: () => {
+      rotateDraft()
+      return workspace()
+    },
     currentGroupsETag: groupsETag,
     forceConflict: () => {
       conflictNext = true
