@@ -34,6 +34,16 @@ var (
 	ErrConflict = errors.New("conflict")
 	// ErrReleaseInProgress indicates that the single global publication slot is occupied.
 	ErrReleaseInProgress = errors.New("release in progress")
+	// ErrOperationInProgress indicates that another production-changing task owns the global lease.
+	ErrOperationInProgress = errors.New("configuration operation in progress")
+	// ErrBackupProtected indicates that a recovery point cannot be removed under current evidence.
+	ErrBackupProtected = errors.New("configuration backup protected")
+	// ErrBackupTargetInvalid indicates that a requested restore point is absent, damaged, or fails integrity evidence.
+	ErrBackupTargetInvalid = errors.New("configuration backup target invalid")
+	// ErrRetentionPlanExpired indicates that a persisted deletion plan can no longer be executed.
+	ErrRetentionPlanExpired = errors.New("configuration retention plan expired")
+	// ErrAttentionUnresolved indicates that an open consistency case still blocks ordinary mutation.
+	ErrAttentionUnresolved = errors.New("configuration attention unresolved")
 	// ErrCandidateInvalid indicates that the complete isolated candidate was rejected.
 	ErrCandidateInvalid = errors.New("candidate invalid")
 	// ErrPublishCheckExpired indicates that digest-bound validation evidence is no longer usable.

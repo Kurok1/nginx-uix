@@ -161,6 +161,13 @@ func (s *ReleaseService) Queue(ctx context.Context, actor Actor, input QueueRele
 	if _, err := ParsePublishCheckID(string(input.CheckID)); err != nil {
 		return Release{}, err
 	}
+	openAttention, err := s.repository.HasOpenAttentionCases(ctx)
+	if err != nil {
+		return Release{}, fmt.Errorf("check unresolved configuration attention: %w", err)
+	}
+	if openAttention {
+		return Release{}, ErrAttentionUnresolved
+	}
 	review, err := s.workspaces.openReviewWorkspace(ctx, input.WorkspaceID, true)
 	if err != nil {
 		return Release{}, fmt.Errorf("queue release: %w", err)
@@ -385,8 +392,10 @@ func (s *ReleaseService) persistReleaseBackup(ctx context.Context, release Relea
 		return ErrConflict
 	}
 	return s.repository.PutBackup(ctx, Backup{
-		ID: evidence.BackupID, ReleaseID: release.ID, State: BackupStateComplete,
-		EntryCount: evidence.EntryCount, TotalBytes: evidence.TotalBytes,
+		ID: evidence.BackupID, OriginType: BackupOriginRelease, OriginID: string(release.ID),
+		ReleaseID: release.ID, ProductionDigest: evidence.ProductionDigest,
+		TreeDigest: evidence.TreeDigest, State: BackupStateComplete,
+		EntryCount: evidence.EntryCount, TotalBytes: evidence.TotalBytes, BodyPresent: true,
 		CreatedAt: release.CreatedAt, VerifiedAt: evidence.VerifiedAt,
 	})
 }
@@ -525,6 +534,8 @@ func releaseResultRequiresBackup(result ReleaseExecutionResult) bool {
 	switch result.State {
 	case ReleaseStateSucceeded, ReleaseStateRolledBack, ReleaseStateNeedsAttention:
 		return true
+	case ReleaseStateQueued, ReleaseStateRunning, ReleaseStateRollingBack,
+		ReleaseStateFailed, ReleaseStateCancelled:
 	}
 	for _, stage := range result.Stages {
 		if stage.Stage == ReleaseStageBackupVerified {

@@ -95,6 +95,19 @@ type contractOperation struct {
 	bodyLimitBytes int
 }
 
+type recoveryContractOperation struct {
+	method        string
+	path          string
+	operationID   string
+	successStatus string
+	successSchema string
+	mediaType     string
+	queries       []string
+	bodyLimit     int
+	location      bool
+	lastEventID   bool
+}
+
 var configContractOperations = []contractOperation{
 	{http.MethodGet, "/api/v1/config/workspaces", "listConfigWorkspaces", "200", []string{"WorkspaceList"}, "", false, false, false, 0},
 	{http.MethodPost, "/api/v1/config/workspaces", "createConfigWorkspace", "201", []string{"WorkspaceDetail"}, "", false, false, true, 4 << 10},
@@ -116,6 +129,28 @@ var configContractOperations = []contractOperation{
 	{http.MethodPost, "/api/v1/config/groups", "createConfigGroup", "201", []string{"GroupCollection"}, "", false, true, true, 256 << 10},
 	{http.MethodPut, "/api/v1/config/groups/{group_id}", "replaceConfigGroup", "200", []string{"GroupCollection"}, "", false, true, true, 256 << 10},
 	{http.MethodDelete, "/api/v1/config/groups/{group_id}", "deleteConfigGroup", "200", []string{"GroupCollection"}, "", false, true, true, 256 << 10},
+}
+
+var recoveryContractOperations = []recoveryContractOperation{
+	{http.MethodGet, "/api/v1/config/history/releases", "listConfigReleaseHistory", "200", "ReleaseHistoryPage", "application/json", []string{"cursor", "limit"}, 0, false, false},
+	{http.MethodGet, "/api/v1/config/history/restores", "listConfigRestoreHistory", "200", "RestoreHistoryPage", "application/json", []string{"cursor", "limit"}, 0, false, false},
+	{http.MethodGet, "/api/v1/config/history/restarts", "listNginxRestartHistory", "200", "RestartHistoryPage", "application/json", []string{"cursor", "limit"}, 0, false, false},
+	{http.MethodGet, "/api/v1/config/backups", "listConfigBackups", "200", "BackupPage", "application/json", []string{"cursor", "limit", "include_deleted"}, 0, false, false},
+	{http.MethodGet, "/api/v1/config/backups/{backup_id}", "getConfigBackup", "200", "ConfigBackup", "application/json", nil, 0, false, false},
+	{http.MethodPut, "/api/v1/config/backups/{backup_id}/protection", "changeConfigBackupProtection", "200", "ConfigBackup", "application/json", nil, 4 << 10, false, false},
+	{http.MethodPost, "/api/v1/config/backup-retention-runs", "createConfigBackupRetentionPlan", "201", "RetentionRun", "application/json", nil, 4 << 10, true, false},
+	{http.MethodGet, "/api/v1/config/backup-retention-runs/{retention_id}", "getConfigBackupRetentionRun", "200", "RetentionRun", "application/json", nil, 0, false, false},
+	{http.MethodPost, "/api/v1/config/backup-retention-runs/{retention_id}/executions", "executeConfigBackupRetentionRun", "202", "RetentionRun", "application/json", nil, 4 << 10, true, false},
+	{http.MethodPost, "/api/v1/config/backups/{backup_id}/restores", "createConfigRestore", "202", "ConfigRestore", "application/json", nil, 4 << 10, true, false},
+	{http.MethodGet, "/api/v1/config/restores/{restore_id}", "getConfigRestore", "200", "ConfigRestore", "application/json", nil, 0, false, false},
+	{http.MethodGet, "/api/v1/config/restores/{restore_id}/events", "streamConfigRestoreEvents", "200", "", "text/event-stream", nil, 0, false, true},
+	{http.MethodPost, "/api/v1/nginx/restarts", "createNginxRestart", "202", "NginxRestart", "application/json", nil, 4 << 10, true, false},
+	{http.MethodGet, "/api/v1/nginx/restarts/{restart_id}", "getNginxRestart", "200", "NginxRestart", "application/json", nil, 0, false, false},
+	{http.MethodGet, "/api/v1/nginx/restarts/{restart_id}/events", "streamNginxRestartEvents", "200", "", "text/event-stream", nil, 0, false, true},
+	{http.MethodGet, "/api/v1/config/audit-events", "listConfigAuditEvents", "200", "AuditEventPage", "application/json", []string{"cursor", "limit"}, 0, false, false},
+	{http.MethodGet, "/api/v1/config/attention-cases", "listConfigAttentionCases", "200", "AttentionCasePage", "application/json", []string{"state", "cursor", "limit"}, 0, false, false},
+	{http.MethodGet, "/api/v1/config/attention-cases/{attention_id}", "getConfigAttentionCase", "200", "AttentionCase", "application/json", nil, 0, false, false},
+	{http.MethodPost, "/api/v1/config/attention-cases/{attention_id}/verifications", "createConfigAttentionVerification", "201", "RuntimeVerification", "application/json", nil, 4 << 10, false, false},
 }
 
 func TestOpenAPIContract(t *testing.T) {
@@ -146,6 +181,9 @@ func TestOpenAPIContract(t *testing.T) {
 		{method: http.MethodGet, path: "/api/v1/nginx/effective-config"},
 	}
 	for _, operation := range configContractOperations {
+		businessOperations = append(businessOperations, publicOperation{method: operation.method, path: operation.path})
+	}
+	for _, operation := range recoveryContractOperations {
 		businessOperations = append(businessOperations, publicOperation{method: operation.method, path: operation.path})
 	}
 	businessOperations = append(businessOperations, publicOperation{method: http.MethodGet, path: "/api/v1/config/releases/{release_id}/events"})
@@ -187,6 +225,7 @@ func TestOpenAPIContract(t *testing.T) {
 	}
 
 	assertConfigOpenAPIContract(t, contents, document)
+	assertRecoveryOpenAPIContract(t, document)
 }
 
 func assertConfigOpenAPIContract(t *testing.T, contents []byte, document openAPIContractDocument) {
@@ -235,11 +274,199 @@ func assertConfigOpenAPIContract(t *testing.T, contents []byte, document openAPI
 				t.Fatalf("yaml.Marshal(%s %s) error = %v", method, path, err)
 			}
 			lower := strings.ToLower(string(serialized))
-			for _, forbidden := range []string{"restart", "restore", "shell", "absolute_path", "nginx_args"} {
+			for _, forbidden := range []string{"shell", "absolute_path", "nginx_args", "arbitrary_command"} {
 				if strings.Contains(lower, forbidden) {
 					t.Errorf("config operation %s %s exposes forbidden term %q", method, path, forbidden)
 				}
 			}
+		}
+	}
+}
+
+func assertRecoveryOpenAPIContract(t *testing.T, document openAPIContractDocument) {
+	t.Helper()
+	for _, expected := range recoveryContractOperations {
+		operation, exists := document.Paths[expected.path][strings.ToLower(expected.method)]
+		if !exists {
+			t.Errorf("recovery contract missing %s %s", expected.method, expected.path)
+			continue
+		}
+		if operation.OperationID != expected.operationID {
+			t.Errorf("%s %s operationId = %q, want %q", expected.method, expected.path, operation.OperationID, expected.operationID)
+		}
+		if !hasSessionSecurity(operation.Security) {
+			t.Errorf("%s %s missing sessionCookie security", expected.method, expected.path)
+		}
+		parameters := resolveParameters(document.Components.Parameters, operation.Parameters)
+		assertRecoveryHeader(t, expected, parameters, "X-Request-ID", false)
+		if expected.method != http.MethodGet {
+			assertRecoveryHeader(t, expected, parameters, "Origin", true)
+			assertRecoveryHeader(t, expected, parameters, "X-CSRF-Token", true)
+		}
+		if expected.lastEventID {
+			assertRecoveryHeader(t, expected, parameters, "Last-Event-ID", false)
+		}
+		assertRecoveryQueries(t, expected, parameters)
+		assertRecoveryBody(t, expected, operation.RequestBody)
+		assertRecoverySuccess(t, expected, operation.Responses[expected.successStatus])
+		assertRecoveryErrors(t, expected, operation.Responses)
+	}
+	assertRecoverySchemas(t, document.Components.Schemas)
+}
+
+func assertRecoveryHeader(
+	t *testing.T,
+	expected recoveryContractOperation,
+	parameters []openAPIParameter,
+	name string,
+	required bool,
+) {
+	t.Helper()
+	for _, parameter := range parameters {
+		if parameter.In == "header" && parameter.Name == name {
+			if parameter.Required != required {
+				t.Errorf("%s %s header %s required = %v", expected.method, expected.path, name, parameter.Required)
+			}
+			return
+		}
+	}
+	t.Errorf("%s %s missing header %s", expected.method, expected.path, name)
+}
+
+func assertRecoveryQueries(t *testing.T, expected recoveryContractOperation, parameters []openAPIParameter) {
+	t.Helper()
+	actual := make([]string, 0, len(expected.queries))
+	for _, parameter := range parameters {
+		if parameter.In != "query" {
+			continue
+		}
+		actual = append(actual, parameter.Name)
+		if parameter.Required || !strings.Contains(strings.ToLower(parameter.Description), "exactly once") {
+			t.Errorf("%s %s query %s must be optional and document exactly-once cardinality", expected.method, expected.path, parameter.Name)
+		}
+	}
+	slices.Sort(actual)
+	wanted := slices.Clone(expected.queries)
+	slices.Sort(wanted)
+	if !slices.Equal(actual, wanted) {
+		t.Errorf("%s %s query parameters = %v, want %v", expected.method, expected.path, actual, wanted)
+	}
+}
+
+func assertRecoveryBody(t *testing.T, expected recoveryContractOperation, body *openAPIRequestBody) {
+	t.Helper()
+	if expected.bodyLimit == 0 {
+		if body != nil {
+			t.Errorf("%s %s documents unexpected request body", expected.method, expected.path)
+		}
+		return
+	}
+	if body == nil || !body.Required {
+		t.Errorf("%s %s missing required strict request body", expected.method, expected.path)
+		return
+	}
+	if !strings.Contains(body.Description, fmt.Sprintf("%d bytes", expected.bodyLimit)) {
+		t.Errorf("%s %s body does not document %d-byte limit", expected.method, expected.path, expected.bodyLimit)
+	}
+	if body.Content["application/json"].Schema.Ref == "" {
+		t.Errorf("%s %s request body does not use a reusable schema", expected.method, expected.path)
+	}
+}
+
+func assertRecoverySuccess(t *testing.T, expected recoveryContractOperation, response openAPIResponse) {
+	t.Helper()
+	if response.Ref != "" || len(response.Content) == 0 {
+		t.Errorf("%s %s missing explicit success response", expected.method, expected.path)
+		return
+	}
+	cache := response.Headers["Cache-Control"].Schema
+	if schemaType(cache) != "string" || !slices.Contains(cache.Enum, "no-store") {
+		t.Errorf("%s %s success response does not guarantee Cache-Control no-store", expected.method, expected.path)
+	}
+	if _, exists := response.Headers["X-Request-ID"]; !exists {
+		t.Errorf("%s %s success response does not document X-Request-ID", expected.method, expected.path)
+	}
+	_, hasLocation := response.Headers["Location"]
+	if hasLocation != expected.location {
+		t.Errorf("%s %s Location present = %v, want %v", expected.method, expected.path, hasLocation, expected.location)
+	}
+	media, exists := response.Content[expected.mediaType]
+	if !exists {
+		t.Errorf("%s %s success response missing %s", expected.method, expected.path, expected.mediaType)
+		return
+	}
+	if expected.successSchema != "" && media.Schema.Ref != "#/components/schemas/"+expected.successSchema {
+		t.Errorf("%s %s success schema = %q, want %s", expected.method, expected.path, media.Schema.Ref, expected.successSchema)
+	}
+}
+
+func assertRecoveryErrors(t *testing.T, expected recoveryContractOperation, responses map[string]openAPIResponse) {
+	t.Helper()
+	found := false
+	for status, response := range responses {
+		if strings.HasPrefix(status, "2") {
+			continue
+		}
+		found = true
+		if response.Ref != "#/components/responses/ConfigAPIError" {
+			t.Errorf("%s %s response %s is not ConfigAPIError", expected.method, expected.path, status)
+		}
+	}
+	if !found {
+		t.Errorf("%s %s documents no stable error response", expected.method, expected.path)
+	}
+}
+
+func assertRecoverySchemas(t *testing.T, schemas map[string]openAPISchema) {
+	t.Helper()
+	for _, name := range []string{
+		"ReleaseHistoryPage", "RestoreHistoryPage", "RestartHistoryPage", "BackupPage", "ConfigBackup",
+		"BackupProtectionRequest", "RetentionExecutionRequest", "RetentionRun", "RetentionItem", "RetentionPolicy",
+		"RestoreRequest", "ConfigRestore", "RestoreStage", "RestartRequest", "NginxRestart", "RestartStage",
+		"AuditEventPage", "AuditEvent", "AttentionCasePage", "AttentionCase", "RuntimeVerification",
+	} {
+		if _, exists := schemas[name]; !exists {
+			t.Errorf("OpenAPI missing recovery schema %s", name)
+		}
+	}
+	for _, name := range []string{
+		"ReleaseHistoryPage", "RestoreHistoryPage", "RestartHistoryPage", "BackupPage", "AuditEventPage", "AttentionCasePage",
+	} {
+		items := schemas[name].Properties["items"]
+		if schemaType(items) != "array" || items.MinItems == nil || items.MaxItems == nil ||
+			*items.MinItems != 0 || *items.MaxItems != recoveryMaximumPageLimit {
+			t.Errorf("%s.items must be bounded 0..%d", name, recoveryMaximumPageLimit)
+		}
+	}
+	for _, code := range []string{
+		"CONFIG_OPERATION_IN_PROGRESS", "CONFIG_BACKUP_PROTECTED", "CONFIG_RETENTION_PLAN_EXPIRED",
+		"CONFIG_ATTENTION_UNRESOLVED", "CONFIG_BACKUP_TARGET_INVALID", "CONFIG_RESTORE_NEEDS_ATTENTION",
+		"NGINX_RESTART_CONFIG_INVALID", "NGINX_RESTART_FAILED", "NGINX_RESTART_NEEDS_ATTENTION",
+		"CONFIG_BACKUP_NOT_FOUND", "CONFIG_RETENTION_RUN_NOT_FOUND", "CONFIG_RESTORE_NOT_FOUND",
+		"NGINX_RESTART_NOT_FOUND", "CONFIG_ATTENTION_CASE_NOT_FOUND",
+	} {
+		if !slices.Contains(schemas["ConfigErrorCode"].Enum, code) {
+			t.Errorf("ConfigErrorCode missing %s", code)
+		}
+	}
+	wantRestoreStages := []string{
+		"queued", "target_verifying", "target_validated", "safety_backup_creating", "safety_backup_verified",
+		"files_restoring", "files_restored", "production_validated", "reload_requested", "runtime_confirmed",
+		"succeeded", "rollback_applying", "rollback_files_restored", "rollback_validated",
+		"rollback_reload_requested", "rolled_back", "failed", "needs_attention",
+	}
+	for _, name := range []string{"ConfigRestore", "RestoreStage"} {
+		if stage := schemas[name].Properties["stage"]; !slices.Equal(stage.Enum, wantRestoreStages) {
+			t.Errorf("%s.stage enum = %v", name, stage.Enum)
+		}
+	}
+	wantRestartStages := []string{
+		"queued", "production_validating", "runtime_sampling", "restart_requested", "runtime_confirming",
+		"succeeded", "failed", "needs_attention",
+	}
+	for _, name := range []string{"NginxRestart", "RestartStage"} {
+		if stage := schemas[name].Properties["stage"]; !slices.Equal(stage.Enum, wantRestartStages) {
+			t.Errorf("%s.stage enum = %v", name, stage.Enum)
 		}
 	}
 }

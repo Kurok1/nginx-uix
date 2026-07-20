@@ -23,6 +23,8 @@ import (
 const (
 	backupManifestMagic    = "NUXB"
 	backupManifestVersion  = uint16(1)
+	backupCompleteV1       = uint16(1)
+	backupCompleteV2       = uint16(2)
 	backupOperationTimeout = 2 * time.Minute
 	backupCompleteLimit    = 16 << 10
 	backupManifestLimit    = 16 << 20
@@ -53,14 +55,24 @@ type backupManifestEntry struct {
 }
 
 type backupComplete struct {
-	SchemaVersion    uint16           `json:"schema_version"`
-	BackupID         config.BackupID  `json:"backup_id"`
-	ReleaseID        config.ReleaseID `json:"release_id"`
-	ProductionDigest config.Digest    `json:"production_digest"`
-	TreeDigest       config.Digest    `json:"tree_digest"`
-	EntryCount       int              `json:"entry_count"`
-	TotalBytes       int64            `json:"total_bytes"`
-	VerifiedAt       time.Time        `json:"verified_at"`
+	SchemaVersion    uint16                  `json:"schema_version"`
+	BackupID         config.BackupID         `json:"backup_id"`
+	OriginType       config.BackupOriginType `json:"origin_type,omitempty"`
+	OriginID         string                  `json:"origin_id,omitempty"`
+	ReleaseID        config.ReleaseID        `json:"release_id,omitempty"`
+	ProductionDigest config.Digest           `json:"production_digest"`
+	TreeDigest       config.Digest           `json:"tree_digest"`
+	EntryCount       int                     `json:"entry_count"`
+	TotalBytes       int64                   `json:"total_bytes"`
+	VerifiedAt       time.Time               `json:"verified_at"`
+}
+
+type backupCreation struct {
+	backupID         config.BackupID
+	originType       config.BackupOriginType
+	originID         string
+	releaseID        config.ReleaseID
+	productionDigest config.Digest
 }
 
 func defaultBackupOptions() backupOptions {
@@ -95,7 +107,7 @@ func validateBackupOptions(options backupOptions) error {
 }
 
 // CreateBackup creates and verifies one immutable complete copy of the fixed production root.
-func (s *Service) CreateBackup(ctx context.Context, request config.BackupRequest) (_ config.BackupEvidence, returnErr error) {
+func (s *Service) CreateBackup(ctx context.Context, request config.BackupRequest) (config.BackupEvidence, error) {
 	if ctx == nil || s == nil {
 		return config.BackupEvidence{}, errors.New("create backup: service is unavailable")
 	}
@@ -108,6 +120,34 @@ func (s *Service) CreateBackup(ctx context.Context, request config.BackupRequest
 	if request.ProductionDigest == (config.Digest{}) {
 		return config.BackupEvidence{}, config.ErrDigestInvalid
 	}
+	return s.createBackup(ctx, backupCreation{
+		backupID: request.BackupID, originType: config.BackupOriginRelease,
+		originID: string(request.ReleaseID), releaseID: request.ReleaseID,
+		productionDigest: request.ProductionDigest,
+	})
+}
+
+// CreateRestoreBackup creates a v2 immutable safety backup owned by one manual restore.
+func (s *Service) CreateRestoreBackup(ctx context.Context, request config.RestoreBackupRequest) (config.BackupEvidence, error) {
+	if ctx == nil || s == nil {
+		return config.BackupEvidence{}, errors.New("create restore backup: service is unavailable")
+	}
+	if _, err := config.ParseRestoreID(string(request.RestoreID)); err != nil {
+		return config.BackupEvidence{}, err
+	}
+	if _, err := config.ParseBackupID(string(request.BackupID)); err != nil {
+		return config.BackupEvidence{}, err
+	}
+	if request.ProductionDigest == (config.Digest{}) {
+		return config.BackupEvidence{}, config.ErrDigestInvalid
+	}
+	return s.createBackup(ctx, backupCreation{
+		backupID: request.BackupID, originType: config.BackupOriginRestore,
+		originID: string(request.RestoreID), productionDigest: request.ProductionDigest,
+	})
+}
+
+func (s *Service) createBackup(ctx context.Context, request backupCreation) (_ config.BackupEvidence, returnErr error) {
 	options := s.backup
 	if options.NginxRoot == "" {
 		options = defaultBackupOptions()
@@ -118,7 +158,7 @@ func (s *Service) CreateBackup(ctx context.Context, request config.BackupRequest
 	operationCtx, cancel := context.WithTimeout(ctx, backupOperationTimeout)
 	defer cancel()
 	production, err := s.ConfigDigest(operationCtx)
-	if err != nil || production.Digest != request.ProductionDigest {
+	if err != nil || production.Digest != request.productionDigest {
 		return config.BackupEvidence{}, errors.Join(fmt.Errorf("verify backup production digest: %w", config.ErrSnapshotChanged), err)
 	}
 	source, err := config.OpenScopedRoot(options.NginxRoot)
@@ -129,7 +169,7 @@ func (s *Service) CreateBackup(ctx context.Context, request config.BackupRequest
 	if err != nil {
 		return config.BackupEvidence{}, errors.Join(err, source.Close())
 	}
-	backupPath := filepath.Join(options.BackupRoot, string(request.BackupID))
+	backupPath := filepath.Join(options.BackupRoot, string(request.backupID))
 	if err := os.Mkdir(backupPath, 0o700); err != nil {
 		return config.BackupEvidence{}, errors.Join(err, source.Close())
 	}
@@ -165,7 +205,7 @@ func (s *Service) CreateBackup(ctx context.Context, request config.BackupRequest
 		return config.BackupEvidence{}, errors.Join(fmt.Errorf("verify stable backup source: %w", config.ErrSnapshotChanged), err, closeErr)
 	}
 	production, err = s.ConfigDigest(operationCtx)
-	if err != nil || production.Digest != request.ProductionDigest {
+	if err != nil || production.Digest != request.productionDigest {
 		return config.BackupEvidence{}, errors.Join(fmt.Errorf("verify backup production digest after copy: %w", config.ErrSnapshotChanged), err)
 	}
 	backupRoot, err := config.OpenScopedRoot(treePath)
@@ -199,8 +239,9 @@ func (s *Service) CreateBackup(ctx context.Context, request config.BackupRequest
 	}
 	verifiedAt := s.currentTime()
 	complete := backupComplete{
-		SchemaVersion: backupManifestVersion, BackupID: request.BackupID, ReleaseID: request.ReleaseID,
-		ProductionDigest: request.ProductionDigest, TreeDigest: treeDigest,
+		SchemaVersion: backupCompleteV2, BackupID: request.backupID, OriginType: request.originType,
+		OriginID: request.originID, ReleaseID: request.releaseID,
+		ProductionDigest: request.productionDigest, TreeDigest: treeDigest,
 		EntryCount: before.EntryCount, TotalBytes: before.TotalBytes, VerifiedAt: verifiedAt,
 	}
 	completePayload, err := json.Marshal(complete)
@@ -224,8 +265,8 @@ func (s *Service) CreateBackup(ctx context.Context, request config.BackupRequest
 	}
 	owned = false
 	return config.BackupEvidence{
-		BackupID: request.BackupID, ReleaseID: request.ReleaseID,
-		ProductionDigest: request.ProductionDigest, TreeDigest: treeDigest,
+		BackupID: request.backupID, OriginType: request.originType, OriginID: request.originID,
+		ReleaseID: request.releaseID, ProductionDigest: request.productionDigest, TreeDigest: treeDigest,
 		EntryCount: before.EntryCount, TotalBytes: before.TotalBytes, VerifiedAt: verifiedAt,
 	}, nil
 }
@@ -260,13 +301,14 @@ func (s *Service) VerifyBackup(ctx context.Context, id config.BackupID) (config.
 		return config.BackupEvidence{}, errors.Join(config.ErrSnapshotChanged, readErr, controlCloseErr)
 	}
 	var complete backupComplete
-	if err := decodeReleaseJSON(completePayload, &complete); err != nil || complete.SchemaVersion != backupManifestVersion ||
+	if err := decodeReleaseJSON(completePayload, &complete); err != nil ||
+		(complete.SchemaVersion != backupCompleteV1 && complete.SchemaVersion != backupCompleteV2) ||
 		complete.BackupID != id || complete.ProductionDigest == (config.Digest{}) || complete.TreeDigest != treeDigest ||
 		complete.EntryCount != manifest.EntryCount || complete.TotalBytes != manifest.TotalBytes ||
 		complete.VerifiedAt.IsZero() || complete.VerifiedAt.Location() != time.UTC {
 		return config.BackupEvidence{}, errors.Join(config.ErrSnapshotChanged, err)
 	}
-	if _, err := config.ParseReleaseID(string(complete.ReleaseID)); err != nil {
+	if err := normalizeBackupCompleteOrigin(&complete); err != nil {
 		return config.BackupEvidence{}, errors.Join(config.ErrSnapshotChanged, err)
 	}
 	root, err := config.OpenScopedRoot(filepath.Join(backupPath, "tree"))
@@ -279,10 +321,89 @@ func (s *Service) VerifyBackup(ctx context.Context, id config.BackupID) (config.
 		return config.BackupEvidence{}, errors.Join(config.ErrSnapshotChanged, verifyErr, closeErr)
 	}
 	return config.BackupEvidence{
-		BackupID: id, ReleaseID: complete.ReleaseID,
+		BackupID: id, OriginType: complete.OriginType, OriginID: complete.OriginID, ReleaseID: complete.ReleaseID,
 		ProductionDigest: complete.ProductionDigest, TreeDigest: treeDigest,
 		EntryCount: manifest.EntryCount, TotalBytes: manifest.TotalBytes, VerifiedAt: complete.VerifiedAt,
 	}, nil
+}
+
+func normalizeBackupCompleteOrigin(complete *backupComplete) error {
+	if complete == nil {
+		return config.ErrSnapshotChanged
+	}
+	if complete.SchemaVersion == backupCompleteV1 {
+		if _, err := config.ParseReleaseID(string(complete.ReleaseID)); err != nil ||
+			complete.OriginType != "" || complete.OriginID != "" {
+			return config.ErrSnapshotChanged
+		}
+		complete.OriginType = config.BackupOriginRelease
+		complete.OriginID = string(complete.ReleaseID)
+		return nil
+	}
+	switch complete.OriginType {
+	case config.BackupOriginRelease:
+		if _, err := config.ParseReleaseID(complete.OriginID); err != nil ||
+			string(complete.ReleaseID) != complete.OriginID {
+			return config.ErrSnapshotChanged
+		}
+	case config.BackupOriginRestore:
+		if _, err := config.ParseRestoreID(complete.OriginID); err != nil || complete.ReleaseID != "" {
+			return config.ErrSnapshotChanged
+		}
+	default:
+		return config.ErrSnapshotChanged
+	}
+	return nil
+}
+
+// DeleteBackup removes one already-authorized fixed-root backup body after exact integrity verification.
+func (s *Service) DeleteBackup(ctx context.Context, request config.BackupDeletionRequest) error {
+	if ctx == nil || s == nil {
+		return errors.New("delete backup: service is unavailable")
+	}
+	if _, err := config.ParseRetentionRunID(string(request.RunID)); err != nil {
+		return err
+	}
+	if _, err := config.ParseBackupID(string(request.BackupID)); err != nil {
+		return err
+	}
+	if request.ProductionDigest == (config.Digest{}) || request.TreeDigest == (config.Digest{}) ||
+		request.SnapshotCreatedAt.IsZero() || request.SnapshotTotalBytes < 0 {
+		return config.ErrDigestInvalid
+	}
+	select {
+	case s.releaseLock <- struct{}{}:
+		defer func() { <-s.releaseLock }()
+	default:
+		return config.ErrReleaseInProgress
+	}
+	options := s.backup
+	if options.BackupRoot == "" {
+		options = defaultBackupOptions()
+	}
+	backupPath := filepath.Join(options.BackupRoot, string(request.BackupID))
+	if _, err := os.Lstat(backupPath); errors.Is(err, fs.ErrNotExist) {
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("inspect backup deletion target: %w", err)
+	}
+	operationCtx, cancel := context.WithTimeout(ctx, backupOperationTimeout)
+	defer cancel()
+	evidence, err := s.VerifyBackup(operationCtx, request.BackupID)
+	if err != nil {
+		return fmt.Errorf("verify backup deletion target: %w", err)
+	}
+	if evidence.ProductionDigest != request.ProductionDigest || evidence.TreeDigest != request.TreeDigest ||
+		evidence.TotalBytes != request.SnapshotTotalBytes {
+		return config.ErrSnapshotChanged
+	}
+	if err := removeBackupTree(backupPath); err != nil {
+		return fmt.Errorf("remove backup body: %w", err)
+	}
+	if err := syncDirectory(options.BackupRoot); err != nil {
+		return fmt.Errorf("sync backup deletion: %w", err)
+	}
+	return nil
 }
 
 func verifyBackupEnvelopeModes(backupPath string) error {
@@ -463,7 +584,7 @@ func removeBackupTree(root string) error {
 			return walkErr
 		}
 		if entry.Type()&fs.ModeSymlink == 0 && entry.IsDir() {
-			// #nosec G302 -- this is a known incomplete owner-only backup selected for removal.
+			// #nosec G122 G302 -- this is an Agent-owned 0700 backup root selected by a parsed opaque ID.
 			return os.Chmod(path, 0o700)
 		}
 		return nil
@@ -520,7 +641,7 @@ func writeAtomicSyncedFile(directory, name string, payload []byte, mode fs.FileM
 }
 
 func syncDirectory(path string) error {
-	// #nosec G304 -- callers pass fixed validated roots or directories created beneath those roots.
+	// #nosec G703 G304 -- callers pass fixed validated roots or directories created beneath those roots.
 	directory, err := os.Open(path)
 	if err != nil {
 		return err

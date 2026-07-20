@@ -46,6 +46,8 @@ type Service struct {
 	candidate            candidateOptions
 	backup               backupOptions
 	release              releaseOptions
+	restart              restartOptions
+	restore              restoreOptions
 	candidateLock        chan struct{}
 	releaseLock          chan struct{}
 }
@@ -67,6 +69,8 @@ func newServiceWithExecutor(executor commandExecutor) *Service {
 		candidate:        defaultCandidateOptions(),
 		backup:           defaultBackupOptions(),
 		release:          defaultReleaseOptions(),
+		restart:          defaultRestartOptions(),
+		restore:          defaultRestoreOptions(),
 		candidateLock:    make(chan struct{}, 2),
 		releaseLock:      make(chan struct{}, 1),
 	}

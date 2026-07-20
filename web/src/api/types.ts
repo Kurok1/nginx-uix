@@ -52,8 +52,22 @@ export type APIErrorCode =
   | 'CONFIG_OPERATION_TIMEOUT'
 	| 'CONFIG_CANDIDATE_INVALID'
 	| 'CONFIG_NO_CHANGES'
-	| 'CONFIG_PUBLISH_CHECK_EXPIRED'
+  | 'CONFIG_PUBLISH_CHECK_EXPIRED'
 	| 'CONFIG_PUBLISH_IN_PROGRESS'
+	| 'CONFIG_OPERATION_IN_PROGRESS'
+	| 'CONFIG_BACKUP_PROTECTED'
+	| 'CONFIG_RETENTION_PLAN_EXPIRED'
+	| 'CONFIG_ATTENTION_UNRESOLVED'
+	| 'CONFIG_BACKUP_TARGET_INVALID'
+	| 'CONFIG_RESTORE_NEEDS_ATTENTION'
+	| 'NGINX_RESTART_CONFIG_INVALID'
+	| 'NGINX_RESTART_FAILED'
+	| 'NGINX_RESTART_NEEDS_ATTENTION'
+	| 'CONFIG_BACKUP_NOT_FOUND'
+	| 'CONFIG_RETENTION_RUN_NOT_FOUND'
+	| 'CONFIG_RESTORE_NOT_FOUND'
+	| 'NGINX_RESTART_NOT_FOUND'
+	| 'CONFIG_ATTENTION_CASE_NOT_FOUND'
 
 export interface APIError {
   code: APIErrorCode
@@ -348,4 +362,235 @@ export interface Release {
 	updated_at: string
 	finished_at?: string
 	stages: ReleaseStage[]
+}
+
+export interface CursorPage<T> {
+  items: T[]
+  next_cursor?: string
+}
+
+export type BackupOriginType = 'release' | 'restore'
+export type BackupState = 'creating' | 'complete' | 'invalid' | 'deleting' | 'deleted'
+
+export interface BackupProtectionReason {
+  kind: string
+  code: string
+}
+
+export interface ConfigBackup {
+  id: string
+  origin_type: BackupOriginType
+  origin_id: string
+  release_id?: string
+  production_digest: string
+  state: BackupState
+  entry_count: number
+  total_bytes: number
+  body_present: boolean
+  protected: boolean
+  manually_protected: boolean
+  protection_reason?: string
+  protections: BackupProtectionReason[]
+  created_at: string
+  verified_at?: string
+  deleted_at?: string
+}
+
+export type RestoreState =
+  | 'queued'
+  | 'running'
+  | 'rolling_back'
+  | 'succeeded'
+  | 'failed'
+  | 'rolled_back'
+  | 'needs_attention'
+  | 'cancelled'
+
+export type RestoreStageName =
+  | 'queued'
+  | 'target_verifying'
+  | 'target_validated'
+  | 'safety_backup_creating'
+  | 'safety_backup_verified'
+  | 'files_restoring'
+  | 'files_restored'
+  | 'production_validated'
+  | 'reload_requested'
+  | 'runtime_confirmed'
+  | 'succeeded'
+  | 'rollback_applying'
+  | 'rollback_files_restored'
+  | 'rollback_validated'
+  | 'rollback_reload_requested'
+  | 'rolled_back'
+  | 'failed'
+  | 'needs_attention'
+
+export interface RestoreStage {
+  sequence: number
+  stage: RestoreStageName
+  result: ReleaseStageResult
+  code?: string
+  details: Readonly<Record<string, unknown>>
+  occurred_at: string
+}
+
+export interface ConfigRestore {
+  id: string
+  target_backup_id: string
+  safety_backup_id: string
+  attention_case_id?: string
+  state: RestoreState
+  stage: RestoreStageName
+  source_digest: string
+  target_digest: string
+  last_error_code?: string
+  reason: string
+  request_id: string
+  created_at: string
+  updated_at: string
+  finished_at?: string
+  stages: RestoreStage[]
+}
+
+export type RestartState =
+  | 'queued'
+  | 'running'
+  | 'succeeded'
+  | 'failed'
+  | 'needs_attention'
+  | 'cancelled'
+
+export type RestartStageName =
+  | 'queued'
+  | 'production_validating'
+  | 'runtime_sampling'
+  | 'restart_requested'
+  | 'runtime_confirming'
+  | 'succeeded'
+  | 'failed'
+  | 'needs_attention'
+
+export interface RestartStage {
+  sequence: number
+  stage: RestartStageName
+  result: ReleaseStageResult
+  code?: string
+  details: Readonly<Record<string, unknown>>
+  occurred_at: string
+}
+
+export interface NginxRestart {
+  id: string
+  attention_case_id?: string
+  state: RestartState
+  stage: RestartStageName
+  production_digest: string
+  before_master_pid?: number
+  after_master_pid?: number
+  worker_count: number
+  http_status?: number
+  last_error_code?: string
+  reason: string
+  request_id: string
+  created_at: string
+  updated_at: string
+  finished_at?: string
+  stages: RestartStage[]
+}
+
+export interface RetentionPolicy {
+  minimum_complete: number
+  maximum_complete: number
+  maximum_total_bytes: number
+  minimum_age_seconds: number
+}
+
+export type RetentionRunState =
+  | 'planned'
+  | 'executing'
+  | 'succeeded'
+  | 'failed'
+  | 'needs_attention'
+  | 'expired'
+
+export type RetentionItemState =
+  | 'planned'
+  | 'kept'
+  | 'deleting'
+  | 'deleted'
+  | 'skipped_protected'
+  | 'failed'
+  | 'needs_attention'
+
+export interface RetentionItem {
+  ordinal: number
+  backup_id: string
+  decision: 'keep' | 'delete'
+  reason_code: string
+  state: RetentionItemState
+  snapshot_created_at: string
+  snapshot_total_bytes: number
+}
+
+export interface RetentionRun {
+  id: string
+  state: RetentionRunState
+  policy: RetentionPolicy
+  backup_count: number
+  total_bytes: number
+  protected_count: number
+  delete_count: number
+  delete_bytes: number
+  deleted_count: number
+  deleted_bytes: number
+  last_error_code?: string
+  created_at: string
+  expires_at: string
+  started_at?: string
+  finished_at?: string
+  items: RetentionItem[]
+}
+
+export type AttentionCaseState = 'open' | 'resolved'
+export type AttentionSubjectType = 'workspace' | 'release' | 'restore' | 'restart'
+
+export interface AttentionCase {
+  id: string
+  subject_type: AttentionSubjectType
+  subject_id: string
+  workspace_id?: string
+  backup_id?: string
+  state: AttentionCaseState
+  reason_code: string
+  opened_at: string
+  resolved_at?: string
+  resolution_type?: 'restore' | 'restart' | 'verification'
+  resolution_id?: string
+}
+
+export interface RuntimeVerification {
+  id: string
+  attention_case_id: string
+  state: 'succeeded' | 'failed'
+  production_digest: string
+  master_pid?: number
+  worker_count: number
+  http_status?: number
+  last_error_code?: string
+  request_id: string
+  created_at: string
+  finished_at: string
+}
+
+export interface AuditEvent {
+  id: number
+  occurred_at: string
+  actor_name: string
+  action: string
+  object_type: string
+  object_id: string
+  result: string
+  request_id: string
+  details: Readonly<Record<string, string | number | boolean>>
 }

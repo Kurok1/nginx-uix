@@ -88,6 +88,11 @@ async function loginRouter() {
         name: 'config-workspaces',
         component: { template: '<div />' },
       },
+      {
+        path: '/config/operations',
+        name: 'config-operations',
+        component: { template: '<div />' },
+      },
     ],
   })
   await router.push('/login?redirect=/config/workspaces/workspace-id')
@@ -156,5 +161,27 @@ describe('LoginView', () => {
     expect(workspace.markSessionRestored).toHaveBeenCalledOnce()
     expect(router.currentRoute.value.fullPath).toBe('/config/workspaces/workspace-id')
     expect(workspace.state.documents[0]?.content).toBe('events { worker_connections 256; }\n')
+  })
+
+  it('returns to the authenticated recovery route after login without storing route state', async () => {
+    const login = vi.fn<(input: LoginRequest) => Promise<SessionResponse>>().mockResolvedValue(
+      currentSession,
+    )
+    const store = createSessionStore(createClient(login))
+    const workspace = dirtyWorkspace()
+    workspace.state.documents = []
+    const router = await loginRouter()
+    await router.replace('/login?redirect=/config/operations?tab=audit')
+    const wrapper = mount(LoginView, {
+      props: { store, workspace },
+      global: { plugins: [router] },
+    })
+
+    await wrapper.get('input[name="username"]').setValue('operator')
+    await wrapper.get('input[name="password"]').setValue('secret')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    expect(router.currentRoute.value.fullPath).toBe('/config/operations?tab=audit')
   })
 })

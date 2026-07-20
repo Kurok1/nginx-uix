@@ -241,6 +241,135 @@ function releaseFixture(state: 'queued' | 'succeeded' = 'queued') {
   }
 }
 
+function backupFixture() {
+  return {
+    id: backupID,
+    origin_type: 'release',
+    origin_id: releaseID,
+    release_id: releaseID,
+    production_digest: digestA,
+    state: 'complete',
+    entry_count: 2,
+    total_bytes: 512,
+    body_present: true,
+    protected: true,
+    manually_protected: false,
+    protections: [{ kind: 'system', code: 'minimum_complete' }],
+    created_at: '2026-07-18T04:01:00Z',
+    verified_at: '2026-07-18T04:01:01Z',
+  }
+}
+
+const restoreID = '44444444444444444444444444444444'
+const safetyBackupID = '55555555555555555555555555555555'
+const restartID = '66666666666666666666666666666666'
+const retentionID = '77777777777777777777777777777777'
+const attentionID = '88888888888888888888888888888888'
+const verificationID = '99999999999999999999999999999999'
+
+function restoreFixture() {
+  return {
+    id: restoreID,
+    target_backup_id: backupID,
+    safety_backup_id: safetyBackupID,
+    state: 'queued',
+    stage: 'queued',
+    source_digest: digestA,
+    target_digest: digestB,
+    reason: 'restore known configuration',
+    request_id: 'request-restore',
+    created_at: '2026-07-19T08:00:00Z',
+    updated_at: '2026-07-19T08:00:00Z',
+    stages: [],
+  }
+}
+
+function restartFixture() {
+  return {
+    id: restartID,
+    state: 'queued',
+    stage: 'queued',
+    production_digest: digestA,
+    worker_count: 0,
+    reason: 'restart after runtime degradation',
+    request_id: 'request-restart',
+    created_at: '2026-07-19T08:01:00Z',
+    updated_at: '2026-07-19T08:01:00Z',
+    stages: [],
+  }
+}
+
+function retentionFixture() {
+  return {
+    id: retentionID,
+    state: 'planned',
+    policy: {
+      minimum_complete: 3,
+      maximum_complete: 20,
+      maximum_total_bytes: 4_294_967_296,
+      minimum_age_seconds: 86_400,
+    },
+    backup_count: 1,
+    total_bytes: 512,
+    protected_count: 0,
+    delete_count: 1,
+    delete_bytes: 512,
+    deleted_count: 0,
+    deleted_bytes: 0,
+    created_at: '2026-07-19T08:02:00Z',
+    expires_at: '2026-07-19T08:12:00Z',
+    items: [{
+      ordinal: 0,
+      backup_id: backupID,
+      decision: 'delete',
+      reason_code: 'maximum_complete',
+      state: 'planned',
+      snapshot_created_at: '2026-07-18T04:01:00Z',
+      snapshot_total_bytes: 512,
+    }],
+  }
+}
+
+function attentionFixture() {
+  return {
+    id: attentionID,
+    subject_type: 'restart',
+    subject_id: restartID,
+    state: 'open',
+    reason_code: 'runtime_unknown',
+    opened_at: '2026-07-19T08:03:00Z',
+  }
+}
+
+function verificationFixture() {
+  return {
+    id: verificationID,
+    attention_case_id: attentionID,
+    state: 'succeeded',
+    production_digest: digestA,
+    master_pid: 100,
+    worker_count: 2,
+    http_status: 204,
+    request_id: 'request-verify',
+    created_at: '2026-07-19T08:04:00Z',
+    finished_at: '2026-07-19T08:04:01Z',
+  }
+}
+
+function auditFixture() {
+  return {
+    id: 1,
+    occurred_at: '2026-07-19T08:05:00Z',
+    actor_name: 'operator',
+    action: 'config.backup.protect',
+    object_type: 'config_backup',
+    object_id: backupID,
+    result: 'succeeded',
+    request_id: 'request-audit',
+    details: { protected: true },
+  }
+}
+
 function jsonResponse(body: unknown, status = 200, headers?: HeadersInit): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -512,6 +641,61 @@ describe('APIClient', () => {
 })
 
 describe('configuration APIClient surface', () => {
+	it('lists backups with a typed cursor and performs an audited protection mutation', async () => {
+		const backup = backupFixture()
+		const fetchMock = vi.fn<typeof fetch>()
+			.mockResolvedValueOnce(jsonResponse({ items: [backup], next_cursor: 'cursor_1' }))
+			.mockResolvedValueOnce(jsonResponse(backup))
+		const client = new APIClient(fetchMock)
+		await expect(client.listBackups({ cursor: 'prior', includeDeleted: true })).resolves.toEqual({
+			items: [backup], next_cursor: 'cursor_1',
+		})
+		await expect(client.changeBackupProtection(backupID, {
+			expected_protected: false, protected: true,
+			reason: 'incident recovery point', confirmation: '',
+		}, 'csrf-1')).resolves.toEqual(backup)
+		expect(requestAt(fetchMock)[0]).toBe('/api/v1/config/backups?cursor=prior&include_deleted=true')
+		const [url, init] = requestAt(fetchMock, 1)
+		expect(url).toBe(`/api/v1/config/backups/${backupID}/protection`)
+		expect(new Headers(init.headers).get('X-CSRF-Token')).toBe('csrf-1')
+	})
+
+	it('queues restore and fixed restart tasks only with matching Location evidence', async () => {
+		const fetchMock = vi.fn<typeof fetch>()
+			.mockResolvedValueOnce(jsonResponse(restoreFixture(), 202, {
+				Location: `/api/v1/config/restores/${restoreID}`,
+			}))
+			.mockResolvedValueOnce(jsonResponse(restartFixture(), 202, {
+				Location: `/api/v1/nginx/restarts/${restartID}`,
+			}))
+		const client = new APIClient(fetchMock)
+		await client.createRestore(backupID, {
+			attention_case_id: '', reason: 'restore known configuration', confirm_backup_id: backupID,
+		}, 'csrf-1')
+		await client.createRestart({ attention_case_id: '', reason: 'restart after runtime degradation',
+			confirmation: 'RESTART NGINX' }, 'csrf-1')
+		expect(requestAt(fetchMock)[0]).toBe(`/api/v1/config/backups/${backupID}/restores`)
+		expect(requestAt(fetchMock, 1)[0]).toBe('/api/v1/nginx/restarts')
+	})
+
+	it('parses retention, attention verification, history and safe audit pages', async () => {
+		const fetchMock = vi.fn<typeof fetch>()
+			.mockResolvedValueOnce(jsonResponse(retentionFixture(), 201, {
+				Location: `/api/v1/config/backup-retention-runs/${retentionID}`,
+			}))
+			.mockResolvedValueOnce(jsonResponse({ items: [attentionFixture()] }))
+			.mockResolvedValueOnce(jsonResponse(verificationFixture(), 201))
+			.mockResolvedValueOnce(jsonResponse({ items: [releaseFixture('succeeded')] }))
+			.mockResolvedValueOnce(jsonResponse({ items: [auditFixture()] }))
+		const client = new APIClient(fetchMock)
+		await expect(client.planBackupRetention('csrf-1')).resolves.toEqual(retentionFixture())
+		await expect(client.listAttentionCases({ state: 'open' })).resolves.toEqual({ items: [attentionFixture()] })
+		await expect(client.verifyAttentionCase(attentionID, 'csrf-1')).resolves.toEqual(verificationFixture())
+		await expect(client.listReleaseHistory()).resolves.toEqual({ items: [releaseFixture('succeeded')] })
+		await expect(client.listAuditEvents()).resolves.toEqual({ items: [auditFixture()] })
+		expect(requestAt(fetchMock, 1)[0]).toBe('/api/v1/config/attention-cases?state=open')
+	})
+
 	 it('creates valid and invalid persisted publish checks with exact mutation headers', async () => {
 		const fetchMock = vi
 			.fn<typeof fetch>()

@@ -165,17 +165,39 @@ const (
 	BackupStateCreating BackupState = "creating"
 	BackupStateComplete BackupState = "complete"
 	BackupStateInvalid  BackupState = "invalid"
+	BackupStateDeleting BackupState = "deleting"
+	BackupStateDeleted  BackupState = "deleted"
+)
+
+// BackupOriginType identifies the operation that created an immutable recovery point.
+type BackupOriginType string
+
+const (
+	BackupOriginRelease BackupOriginType = "release"
+	BackupOriginRestore BackupOriginType = "restore"
 )
 
 // Backup is the content-free persisted index for one immutable backup.
 type Backup struct {
-	ID         BackupID
-	ReleaseID  ReleaseID
-	State      BackupState
-	EntryCount int
-	TotalBytes int64
-	CreatedAt  time.Time
-	VerifiedAt time.Time
+	ID                BackupID
+	OriginType        BackupOriginType
+	OriginID          string
+	ReleaseID         ReleaseID
+	ProductionDigest  Digest
+	TreeDigest        Digest
+	State             BackupState
+	EntryCount        int
+	TotalBytes        int64
+	ManuallyProtected bool
+	ProtectionReason  string
+	ProtectedBy       int64
+	ProtectedAt       time.Time
+	BodyPresent       bool
+	DeleteRunID       string
+	DeleteReason      string
+	CreatedAt         time.Time
+	VerifiedAt        time.Time
+	DeletedAt         time.Time
 }
 
 // BackupRequest authorizes one fixed-root immutable backup before production writes.
@@ -188,6 +210,8 @@ type BackupRequest struct {
 // BackupEvidence exposes only content-free integrity facts about a protected backup.
 type BackupEvidence struct {
 	BackupID         BackupID
+	OriginType       BackupOriginType
+	OriginID         string
 	ReleaseID        ReleaseID
 	ProductionDigest Digest
 	TreeDigest       Digest
@@ -229,6 +253,7 @@ type ReleaseRepository interface {
 	Release(context.Context, ReleaseID) (Release, error)
 	ActiveRelease(context.Context) (Release, error)
 	ReleaseStages(context.Context, ReleaseID, uint64, int) ([]ReleaseStage, error)
+	HasOpenAttentionCases(context.Context) (bool, error)
 	PutBackup(context.Context, Backup) error
 	Backup(context.Context, BackupID) (Backup, error)
 }

@@ -19,6 +19,7 @@ import globalNavSource from './components/GlobalNav.vue?raw'
 import subNavSource from './components/SubNav.vue?raw'
 import ConfigWorkspaceView from './views/ConfigWorkspaceView.vue'
 import EffectiveConfigView from './views/EffectiveConfigView.vue'
+import OperationsView from './views/OperationsView.vue'
 
 const currentSession: SessionResponse = {
   user: { id: 7, username: 'operator', created_at: '2026-07-14T11:00:00Z' },
@@ -85,7 +86,7 @@ describe('application router', () => {
     sessionStorage.clear()
   })
 
-  it('defines Login, Dashboard, effective configuration and configuration workspaces', () => {
+  it('defines Login, Dashboard, effective configuration, workspaces and recovery history', () => {
     const store = createSessionStore(createClient(vi.fn().mockResolvedValue(currentSession)))
     const router = createAppRouter(store, createMemoryHistory())
 
@@ -96,10 +97,22 @@ describe('application router', () => {
         .sort((left, right) => left.path.localeCompare(right.path)),
     ).toEqual([
       { name: 'dashboard', path: '/' },
+      { name: 'config-operations', path: '/config/operations' },
       { name: 'config-workspaces', path: '/config/workspaces/:workspaceId?' },
       { name: 'configuration', path: '/configuration' },
       { name: 'login', path: '/login' },
     ])
+  })
+
+  it('routes the authenticated recovery URL to the operations evidence view', () => {
+    const store = createSessionStore(createClient(vi.fn().mockResolvedValue(currentSession)))
+    const router = createAppRouter(store, createMemoryHistory())
+    const operationsRoute = router
+      .getRoutes()
+      .find((route) => route.name === 'config-operations')
+
+    expect(operationsRoute?.components?.default).toBe(OperationsView)
+    expect(operationsRoute?.meta.requiresAuth).toBe(true)
   })
 
   it('routes the authenticated workspace URL to the configuration-workspace view', () => {
@@ -113,13 +126,17 @@ describe('application router', () => {
     expect(workspaceRoute?.meta.requiresAuth).toBe(true)
   })
 
-  it('adds Workspaces to both navigation levels and bounds page overflow', () => {
+  it('adds Workspaces and Recovery & History to both navigation levels and bounds overflow', () => {
     expect(globalNavSource.match(/to="\/config\/workspaces"/g)).toHaveLength(2)
     expect(globalNavSource).toContain('Workspaces')
     expect(globalNavSource).toContain('to="/configuration"')
+    expect(globalNavSource.match(/to="\/config\/operations"/g)).toHaveLength(2)
+    expect(globalNavSource).toContain('Recovery &amp; History')
     expect(subNavSource).toContain('to="/config/workspaces"')
     expect(subNavSource).toContain('Workspaces')
     expect(subNavSource).toContain('to="/configuration"')
+    expect(subNavSource).toContain('to="/config/operations"')
+    expect(subNavSource).toContain('Recovery &amp; History')
     expect(appShellSource).toMatch(/\.app-shell\s*\{[\s\S]*overflow-x: hidden/)
   })
 

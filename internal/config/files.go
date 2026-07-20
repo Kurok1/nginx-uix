@@ -169,6 +169,9 @@ func (s *Service) mutateFile(
 	if err != nil || parsedID != id {
 		return MutationResult{}, fmt.Errorf("replace workspace file: %w", ErrIdentifierInvalid)
 	}
+	if err := s.requireResolvedAttention(ctx); err != nil {
+		return MutationResult{}, fmt.Errorf("replace workspace file: %w", err)
+	}
 	root, err := OpenScopedRoot(s.workspacePath(id))
 	if err != nil {
 		return MutationResult{}, fmt.Errorf("replace workspace file: open workspace: %w", err)

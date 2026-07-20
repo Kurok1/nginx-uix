@@ -30,12 +30,14 @@ var configErrorDetails = map[string]map[string]struct{}{
 	"CONFIG_ENTRY_NOT_MANAGED":  {"path": {}},
 	"CONFIG_LIMIT_EXCEEDED":     {"limit_name": {}, "limit_value": {}, "actual": {}},
 	"CONFIG_WORKSPACE_CONFLICT": {"current_etag": {}, "field": {}, "path": {}},
+	"CONFIG_BACKUP_PROTECTED":   {"backup_id": {}},
 }
 
 var safeDetailFields = map[string]struct{}{
 	"body": {}, "confirm_name": {}, "confirm_path": {}, "content": {}, "destination_path": {},
 	"group_id": {}, "members": {}, "name": {}, "path": {}, "query": {}, "source_path": {}, "workspace_id": {},
-	"username": {},
+	"username": {}, "backup_id": {}, "attention_case_id": {}, "confirm_backup_id": {}, "confirmation": {},
+	"expected_protected": {}, "protected": {}, "reason": {}, "retention_id": {}, "restore_id": {}, "restart_id": {},
 }
 
 var safeLimitNames = map[string]struct{}{
@@ -125,6 +127,13 @@ func safeDetailValue(key string, value any) (any, bool) {
 		raw, ok := value.(string)
 		_, allowed := safeDetailFields[raw]
 		return raw, ok && allowed
+	case "backup_id":
+		raw, ok := value.(string)
+		if !ok {
+			return nil, false
+		}
+		_, err := config.ParseBackupID(raw)
+		return raw, err == nil
 	case "limit_name":
 		raw, ok := value.(string)
 		_, allowed := safeLimitNames[raw]
@@ -176,6 +185,16 @@ func writeConfigAPIError(writer http.ResponseWriter, request *http.Request, err 
 		writeAPIError(writer, requestID, http.StatusConflict, "CONFIG_PUBLISH_CHECK_EXPIRED", "发布检查已过期或绑定事实已变化", nil)
 	case errors.Is(err, config.ErrReleaseInProgress):
 		writeAPIError(writer, requestID, http.StatusConflict, "CONFIG_PUBLISH_IN_PROGRESS", "已有配置发布或回滚正在进行", nil)
+	case errors.Is(err, config.ErrOperationInProgress):
+		writeAPIError(writer, requestID, http.StatusConflict, "CONFIG_OPERATION_IN_PROGRESS", "已有生产配置操作正在进行", nil)
+	case errors.Is(err, config.ErrBackupProtected):
+		writeAPIError(writer, requestID, http.StatusConflict, "CONFIG_BACKUP_PROTECTED", "备份仍受保护，不能删除", details)
+	case errors.Is(err, config.ErrRetentionPlanExpired):
+		writeAPIError(writer, requestID, http.StatusConflict, "CONFIG_RETENTION_PLAN_EXPIRED", "备份保留计划已过期或证据已变化", nil)
+	case errors.Is(err, config.ErrAttentionUnresolved):
+		writeAPIError(writer, requestID, http.StatusConflict, "CONFIG_ATTENTION_UNRESOLVED", "运行状态仍需人工处理", nil)
+	case errors.Is(err, config.ErrBackupTargetInvalid):
+		writeAPIError(writer, requestID, http.StatusUnprocessableEntity, "CONFIG_BACKUP_TARGET_INVALID", "目标备份无法通过完整性检查", nil)
 	case errors.Is(err, config.ErrConflict), errors.Is(err, fs.ErrExist):
 		writeAPIError(writer, requestID, http.StatusConflict, "CONFIG_WORKSPACE_CONFLICT", "配置工作区已变化", details)
 	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, nginxruntime.ErrCommandTimeout):

@@ -35,6 +35,7 @@ const (
 	agentErrorCodeConfigLimitExceeded    = "config_limit_exceeded"
 	agentErrorCodeConfigSnapshotChanged  = "config_snapshot_changed"
 	agentErrorCodeConfigOperationTimeout = "config_operation_timeout"
+	agentErrorCodeObjectNotFound         = "config_object_not_found"
 	agentProtocolContentType             = "application/json"
 	agentProtocolVersion                 = uint16(1)
 	agentProtocolHealthPath              = "/v1/health"
@@ -48,6 +49,16 @@ const (
 	agentProtocolReleasePath             = "/v1/config/release"
 	agentProtocolReleaseProgressPath     = "/v1/config/release/progress"
 	agentProtocolReleaseRecoveryPath     = "/v1/config/release/recovery"
+	agentProtocolBackupVerifyPath        = "/v1/config/backup/verify"
+	agentProtocolBackupDeletePath        = "/v1/config/backup/delete"
+	agentProtocolRestorePreparePath      = "/v1/config/restore/prepare"
+	agentProtocolRestorePath             = "/v1/config/restore"
+	agentProtocolRestoreProgressPath     = "/v1/config/restore/progress"
+	agentProtocolRestoreRecoveryPath     = "/v1/config/restore/recovery"
+	agentProtocolRestartPath             = "/v1/nginx/restart"
+	agentProtocolRestartProgressPath     = "/v1/nginx/restart/progress"
+	agentProtocolRestartRecoveryPath     = "/v1/nginx/restart/recovery"
+	agentProtocolRuntimeVerificationPath = "/v1/nginx/runtime-verification"
 	agentSnapshotRequestLimit            = 4 * 1024
 	agentSnapshotTimeout                 = configSnapshotTimeout
 	agentDigestTimeout                   = configDigestTimeout
@@ -70,6 +81,19 @@ type agentReleaseOperations interface {
 	ExecuteRelease(context.Context, config.ReleaseExecutionRequest) (config.ReleaseExecutionResult, error)
 	ReleaseProgress(context.Context, config.ReleaseExecutionRequest) (config.ReleaseExecutionResult, error)
 	RecoverRelease(context.Context, config.ReleaseExecutionRequest) (config.ReleaseExecutionResult, error)
+}
+
+type agentRecoveryOperations interface {
+	VerifyBackup(context.Context, config.BackupID) (config.BackupEvidence, error)
+	DeleteBackup(context.Context, config.BackupDeletionRequest) error
+	PrepareRestore(context.Context, config.RestoreExecutionRequest) (config.RestorePreparationResult, error)
+	ExecuteRestore(context.Context, config.RestoreExecutionRequest) (config.RestoreExecutionResult, error)
+	RestoreProgress(context.Context, config.RestoreExecutionRequest) (config.RestoreExecutionResult, error)
+	RecoverRestore(context.Context, config.RestoreExecutionRequest) (config.RestoreExecutionResult, error)
+	ExecuteRestart(context.Context, config.RestartExecutionRequest) (config.RestartExecutionResult, error)
+	RestartProgress(context.Context, config.RestartExecutionRequest) (config.RestartExecutionResult, error)
+	RecoverRestart(context.Context, config.RestartExecutionRequest) (config.RestartExecutionResult, error)
+	VerifyRuntime(context.Context, config.RuntimeVerificationRequest) (config.RuntimeVerificationResult, error)
 }
 
 // AgentProtocolError is one stable, non-sensitive error returned by the local Agent.
@@ -132,6 +156,7 @@ func (h *agentProtocolHandler) ServeHTTP(writer http.ResponseWriter, request *ht
 	var snapshotID config.WorkspaceID
 	var candidateRequest config.CandidateValidationRequest
 	var releaseRequest config.ReleaseExecutionRequest
+	var recoveryRequest agentRecoveryRequest
 	if agentActionRequiresRequestID(action) {
 		requestID = agentRequestID(request)
 		if requestID == "" {
@@ -169,13 +194,21 @@ func (h *agentProtocolHandler) ServeHTTP(writer http.ResponseWriter, request *ht
 			return
 		}
 		releaseRequest = decoded
+	} else if isAgentRecoveryAction(action) {
+		decoded, err := decodeAgentRecoveryRequest(request, action)
+		if err != nil {
+			bytesWritten := writeAgentProtocolError(writer, http.StatusBadRequest, agentErrorCodeInvalidRequest, "agent request is invalid")
+			h.log(action, agentErrorCodeInvalidRequest, requestID, startedAt, bytesWritten)
+			return
+		}
+		recoveryRequest = decoded
 	} else if hasBody, err := agentRequestHasBody(request); err != nil || hasBody {
 		bytesWritten := writeAgentProtocolError(writer, http.StatusBadRequest, agentErrorCodeInvalidRequest, "agent request is invalid")
 		h.log(action, agentErrorCodeInvalidRequest, requestID, startedAt, bytesWritten)
 		return
 	}
 
-	response, err := h.execute(request.Context(), action, snapshotID, candidateRequest, releaseRequest)
+	response, err := h.execute(request.Context(), action, snapshotID, candidateRequest, releaseRequest, recoveryRequest)
 	if err != nil {
 		status, protocolError := classifyAgentOperationError(action, err)
 		bytesWritten := writeAgentProtocolError(writer, status, protocolError.Code, protocolError.Message)
@@ -222,6 +255,26 @@ func agentAction(path string) (string, bool) {
 		return "release_progress", true
 	case agentProtocolReleaseRecoveryPath:
 		return "release_recovery", true
+	case agentProtocolBackupVerifyPath:
+		return "backup_verify", true
+	case agentProtocolBackupDeletePath:
+		return "backup_delete", true
+	case agentProtocolRestorePreparePath:
+		return "restore_prepare", true
+	case agentProtocolRestorePath:
+		return "restore", true
+	case agentProtocolRestoreProgressPath:
+		return "restore_progress", true
+	case agentProtocolRestoreRecoveryPath:
+		return "restore_recovery", true
+	case agentProtocolRestartPath:
+		return "restart", true
+	case agentProtocolRestartProgressPath:
+		return "restart_progress", true
+	case agentProtocolRestartRecoveryPath:
+		return "restart_recovery", true
+	case agentProtocolRuntimeVerificationPath:
+		return "runtime_verification", true
 	default:
 		return "reject_request", false
 	}
@@ -229,7 +282,7 @@ func agentAction(path string) (string, bool) {
 
 func agentActionMethod(action string) string {
 	if action == "config_snapshot" || action == "candidate_validation" || action == "release" ||
-		action == "release_progress" || action == "release_recovery" {
+		action == "release_progress" || action == "release_recovery" || isAgentRecoveryAction(action) {
 		return http.MethodPost
 	}
 	return http.MethodGet
@@ -237,7 +290,8 @@ func agentActionMethod(action string) string {
 
 func agentActionRequiresRequestID(action string) bool {
 	return action == "config_snapshot" || action == "config_digest" || action == "candidate_validation" ||
-		action == "release" || action == "release_progress" || action == "release_recovery"
+		action == "release" || action == "release_progress" || action == "release_recovery" ||
+		isAgentRecoveryAction(action)
 }
 
 func agentRequestHasBody(request *http.Request) (bool, error) {
@@ -427,6 +481,7 @@ func (h *agentProtocolHandler) execute(
 	snapshotID config.WorkspaceID,
 	candidateRequest config.CandidateValidationRequest,
 	releaseRequest config.ReleaseExecutionRequest,
+	recoveryRequest agentRecoveryRequest,
 ) (any, error) {
 	switch action {
 	case "health":
@@ -501,6 +556,13 @@ func (h *agentProtocolHandler) execute(
 			return newAgentReleaseResponse(result), nil
 		}
 		return nil, err
+	case "backup_verify", "backup_delete", "restore_prepare", "restore", "restore_progress",
+		"restore_recovery", "restart", "restart_progress", "restart_recovery", "runtime_verification":
+		operations, ok := h.operations.(agentRecoveryOperations)
+		if !ok {
+			return nil, errors.New("recovery operation is unavailable")
+		}
+		return executeAgentRecovery(ctx, operations, action, recoveryRequest)
 	default:
 		return nil, fmt.Errorf("execute agent operation: unknown action")
 	}
@@ -509,6 +571,8 @@ func (h *agentProtocolHandler) execute(
 func classifyAgentOperationError(action string, err error) (int, *AgentProtocolError) {
 	if agentActionRequiresRequestID(action) {
 		switch {
+		case errors.Is(err, fs.ErrNotExist):
+			return http.StatusNotFound, &AgentProtocolError{Code: agentErrorCodeObjectNotFound, Message: "configuration object was not found"}
 		case errors.Is(err, config.ErrPathInvalid):
 			return http.StatusBadRequest, &AgentProtocolError{Code: agentErrorCodeConfigPathInvalid, Message: "configuration path is invalid"}
 		case errors.Is(err, config.ErrLimitExceeded):
@@ -703,6 +767,8 @@ type agentReleaseStageResponse struct {
 
 type agentBackupEvidenceResponse struct {
 	BackupID         string    `json:"backup_id"`
+	OriginType       string    `json:"origin_type,omitempty"`
+	OriginID         string    `json:"origin_id,omitempty"`
 	ReleaseID        string    `json:"release_id"`
 	ProductionDigest string    `json:"production_digest"`
 	TreeDigest       string    `json:"tree_digest"`
@@ -735,7 +801,8 @@ func newAgentReleaseResponse(result config.ReleaseExecutionResult) agentReleaseR
 	return agentReleaseResponse{
 		ReleaseID: string(result.ReleaseID), State: result.State, Stage: result.Stage,
 		Backup: agentBackupEvidenceResponse{
-			BackupID: string(result.Backup.BackupID), ReleaseID: string(result.Backup.ReleaseID),
+			BackupID: string(result.Backup.BackupID), OriginType: string(result.Backup.OriginType),
+			OriginID: result.Backup.OriginID, ReleaseID: string(result.Backup.ReleaseID),
 			ProductionDigest: result.Backup.ProductionDigest.String(),
 			TreeDigest:       result.Backup.TreeDigest.String(), EntryCount: result.Backup.EntryCount,
 			TotalBytes: result.Backup.TotalBytes, VerifiedAt: result.Backup.VerifiedAt,

@@ -48,7 +48,9 @@ function workspaceReturnTarget(): RouteLocationRaw | null {
   const redirect = router.currentRoute.value.query.redirect
   if (typeof redirect === 'string') {
     const resolved = router.resolve(redirect)
-    if (resolved.name === 'config-workspaces') return { path: resolved.fullPath }
+    if (resolved.name === 'config-workspaces' || resolved.name === 'config-operations') {
+      return { path: resolved.path, query: resolved.query, hash: resolved.hash }
+    }
   }
   if (workspaces.state.active !== null) {
     return {

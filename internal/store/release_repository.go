@@ -82,6 +82,20 @@ func (d *DB) CreateRelease(ctx context.Context, release config.Release, stage co
 		if !errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("inspect active release: %w", err)
 		}
+		lease, err := connection.ExecContext(ctx, `UPDATE config_production_lease
+			SET owner_type = 'release', owner_id = ?, acquired_at = ?
+			WHERE singleton = 1 AND owner_type IS NULL AND owner_id IS NULL AND acquired_at IS NULL`,
+			release.ID, formatTime(release.CreatedAt))
+		if err != nil {
+			return fmt.Errorf("acquire release production lease: %w", err)
+		}
+		matched, err := lease.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("read release production lease count: %w", err)
+		}
+		if matched != 1 {
+			return config.ErrOperationInProgress
+		}
 		if _, err := connection.ExecContext(ctx, `INSERT INTO config_releases(
 			id, workspace_id, check_id, backup_id, state, stage, production_digest, draft_digest,
 			candidate_digest, last_error_code, created_by, request_id, created_at, updated_at, finished_at
@@ -101,6 +115,9 @@ func (d *DB) CreateRelease(ctx context.Context, release config.Release, stage co
 	if err != nil {
 		if errors.Is(err, config.ErrReleaseInProgress) {
 			return fmt.Errorf("create release: %w", config.ErrReleaseInProgress)
+		}
+		if errors.Is(err, config.ErrOperationInProgress) {
+			return fmt.Errorf("create release: %w", config.ErrOperationInProgress)
 		}
 		return fmt.Errorf("create release: %w", err)
 	}
@@ -155,7 +172,25 @@ func (d *DB) TransitionRelease(
 		if err := insertReleaseStage(ctx, connection, stage); err != nil {
 			return err
 		}
-		return insertReleaseStageAudit(ctx, connection, next, stage)
+		if err := insertReleaseStageAudit(ctx, connection, next, stage); err != nil {
+			return err
+		}
+		if terminalStoredReleaseState(next.State) {
+			lease, err := connection.ExecContext(ctx, `UPDATE config_production_lease
+				SET owner_type = NULL, owner_id = NULL, acquired_at = NULL
+				WHERE singleton = 1 AND owner_type = 'release' AND owner_id = ?`, next.ID)
+			if err != nil {
+				return fmt.Errorf("release production lease: %w", err)
+			}
+			matched, err := lease.RowsAffected()
+			if err != nil {
+				return fmt.Errorf("read released production lease count: %w", err)
+			}
+			if matched != 1 {
+				return config.ErrConflict
+			}
+		}
+		return nil
 	})
 	if err != nil {
 		return fmt.Errorf("transition release: %w", err)
@@ -225,16 +260,29 @@ func (d *DB) PutBackup(ctx context.Context, backup config.Backup) error {
 		return err
 	}
 	_, err := d.sql.ExecContext(ctx, `INSERT INTO config_backups(
-		id, release_id, state, entry_count, total_bytes, created_at, verified_at
-	) VALUES (?, ?, ?, ?, ?, ?, ?)
+		id, origin_type, origin_id, release_id, production_digest, tree_digest, state,
+		entry_count, total_bytes, manually_protected, protection_reason, protected_by,
+		protected_at, body_present, delete_run_id, delete_reason, created_at, verified_at, deleted_at
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	ON CONFLICT(id) DO UPDATE SET
-		state = excluded.state, entry_count = excluded.entry_count, total_bytes = excluded.total_bytes,
+		tree_digest = excluded.tree_digest, state = excluded.state,
+		entry_count = excluded.entry_count, total_bytes = excluded.total_bytes,
 		verified_at = excluded.verified_at
-	WHERE config_backups.release_id = excluded.release_id
-		AND config_backups.state = 'creating'
-		AND excluded.state IN ('complete', 'invalid')`,
-		backup.ID, backup.ReleaseID, backup.State, backup.EntryCount, backup.TotalBytes,
-		formatTime(backup.CreatedAt), nullableTime(backup.VerifiedAt),
+	WHERE config_backups.origin_type = excluded.origin_type
+		AND config_backups.origin_id = excluded.origin_id
+		AND config_backups.production_digest = excluded.production_digest
+		AND (
+			(config_backups.state = 'creating' AND excluded.state IN ('complete', 'invalid'))
+			OR
+			(config_backups.state = 'complete' AND config_backups.tree_digest IS NULL
+				AND excluded.state = 'complete')
+		)`,
+		backup.ID, backup.OriginType, backup.OriginID, nullableReleaseID(backup.ReleaseID),
+		backup.ProductionDigest[:], nullableReleaseDigest(backup.TreeDigest), backup.State,
+		backup.EntryCount, backup.TotalBytes, boolInteger(backup.ManuallyProtected),
+		backup.ProtectionReason, nullablePositiveInt64(backup.ProtectedBy), nullableTime(backup.ProtectedAt),
+		boolInteger(backup.BodyPresent), nullableOpaqueString(backup.DeleteRunID), backup.DeleteReason,
+		formatTime(backup.CreatedAt), nullableTime(backup.VerifiedAt), nullableTime(backup.DeletedAt),
 	)
 	if err != nil {
 		return mapConfigConstraint("put backup", err)
@@ -247,8 +295,7 @@ func (d *DB) Backup(ctx context.Context, id config.BackupID) (config.Backup, err
 	if _, err := config.ParseBackupID(string(id)); err != nil {
 		return config.Backup{}, fmt.Errorf("read backup: %w", err)
 	}
-	backup, err := scanBackup(d.sql.QueryRowContext(ctx, `SELECT id, release_id, state,
-		entry_count, total_bytes, created_at, verified_at FROM config_backups WHERE id = ?`, id))
+	backup, err := scanBackup(d.sql.QueryRowContext(ctx, backupSelect+" WHERE id = ?", id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return config.Backup{}, fmt.Errorf("read backup: %w", fs.ErrNotExist)
 	}
@@ -266,6 +313,11 @@ const publishCheckSelect = `SELECT id, workspace_id, workspace_revision, product
 const releaseSelect = `SELECT id, workspace_id, check_id, backup_id, state, stage,
 	production_digest, draft_digest, candidate_digest, last_error_code, created_by, request_id,
 	created_at, updated_at, finished_at FROM config_releases`
+
+const backupSelect = `SELECT id, origin_type, origin_id, release_id, production_digest,
+	tree_digest, state, entry_count, total_bytes, manually_protected, protection_reason,
+	protected_by, protected_at, body_present, delete_run_id, delete_reason, created_at,
+	verified_at, deleted_at FROM config_backups`
 
 func insertReleaseStage(ctx context.Context, connection *sql.Conn, stage config.ReleaseStage) error {
 	_, err := connection.ExecContext(ctx, `INSERT INTO config_release_stages(
@@ -445,18 +497,55 @@ func scanReleaseStage(row rowScanner) (config.ReleaseStage, error) {
 
 func scanBackup(row rowScanner) (config.Backup, error) {
 	var backup config.Backup
+	var releaseID, protectedAt, deleteRunID, verifiedAt, deletedAt sql.NullString
+	var productionDigest, treeDigest []byte
+	var manuallyProtected, bodyPresent int
+	var protectedBy sql.NullInt64
 	var createdAt string
-	var verifiedAt sql.NullString
-	if err := row.Scan(&backup.ID, &backup.ReleaseID, &backup.State, &backup.EntryCount,
-		&backup.TotalBytes, &createdAt, &verifiedAt); err != nil {
+	if err := row.Scan(&backup.ID, &backup.OriginType, &backup.OriginID, &releaseID,
+		&productionDigest, &treeDigest, &backup.State, &backup.EntryCount, &backup.TotalBytes,
+		&manuallyProtected, &backup.ProtectionReason, &protectedBy, &protectedAt, &bodyPresent,
+		&deleteRunID, &backup.DeleteReason, &createdAt, &verifiedAt, &deletedAt); err != nil {
 		return config.Backup{}, err
+	}
+	if releaseID.Valid {
+		backup.ReleaseID = config.ReleaseID(releaseID.String)
+	}
+	if !copyDigest(&backup.ProductionDigest, productionDigest) {
+		return config.Backup{}, fmt.Errorf("decode backup: invalid production digest")
+	}
+	if treeDigest != nil {
+		if !copyDigest(&backup.TreeDigest, treeDigest) {
+			return config.Backup{}, fmt.Errorf("decode backup: invalid tree digest")
+		}
+	}
+	if manuallyProtected != 0 && manuallyProtected != 1 || bodyPresent != 0 && bodyPresent != 1 {
+		return config.Backup{}, fmt.Errorf("decode backup: invalid boolean metadata")
+	}
+	backup.ManuallyProtected = manuallyProtected == 1
+	backup.BodyPresent = bodyPresent == 1
+	if protectedBy.Valid {
+		backup.ProtectedBy = protectedBy.Int64
+	}
+	if deleteRunID.Valid {
+		backup.DeleteRunID = deleteRunID.String
 	}
 	var err error
 	if backup.CreatedAt, err = parseTime("backup creation", createdAt); err != nil {
 		return config.Backup{}, err
 	}
+	if protectedAt.Valid {
+		if backup.ProtectedAt, err = parseTime("backup protection", protectedAt.String); err != nil {
+			return config.Backup{}, err
+		}
+	}
 	if verifiedAt.Valid {
 		if backup.VerifiedAt, err = parseTime("backup verification", verifiedAt.String); err != nil {
+			return config.Backup{}, err
+		}
+	}
+	if deletedAt.Valid {
+		if backup.DeletedAt, err = parseTime("backup deletion", deletedAt.String); err != nil {
 			return config.Backup{}, err
 		}
 	}
@@ -533,6 +622,18 @@ func validateRelease(release config.Release) error {
 	return nil
 }
 
+func terminalStoredReleaseState(state config.ReleaseState) bool {
+	switch state {
+	case config.ReleaseStateSucceeded, config.ReleaseStateFailed, config.ReleaseStateRolledBack,
+		config.ReleaseStateNeedsAttention, config.ReleaseStateCancelled:
+		return true
+	case config.ReleaseStateQueued, config.ReleaseStateRunning, config.ReleaseStateRollingBack:
+		return false
+	default:
+		return false
+	}
+}
+
 func validateReleaseStage(stage config.ReleaseStage) error {
 	if _, err := config.ParseReleaseID(string(stage.ReleaseID)); err != nil {
 		return fmt.Errorf("validate release stage: %w", err)
@@ -554,20 +655,39 @@ func validateBackup(backup config.Backup) error {
 	if _, err := config.ParseBackupID(string(backup.ID)); err != nil {
 		return fmt.Errorf("validate backup: %w", err)
 	}
-	if _, err := config.ParseReleaseID(string(backup.ReleaseID)); err != nil {
-		return fmt.Errorf("validate backup: %w", err)
+	switch backup.OriginType {
+	case config.BackupOriginRelease:
+		if _, err := config.ParseReleaseID(backup.OriginID); err != nil || string(backup.ReleaseID) != backup.OriginID {
+			return fmt.Errorf("validate backup: invalid release origin")
+		}
+	case config.BackupOriginRestore:
+		if _, err := config.ParseRestoreID(backup.OriginID); err != nil || backup.ReleaseID != "" {
+			return fmt.Errorf("validate backup: invalid restore origin")
+		}
+	default:
+		return fmt.Errorf("validate backup: invalid origin")
 	}
-	if backup.EntryCount < 0 || backup.TotalBytes < 0 || backup.CreatedAt.IsZero() {
+	if backup.ProductionDigest == (config.Digest{}) || backup.EntryCount < 0 || backup.TotalBytes < 0 ||
+		backup.CreatedAt.IsZero() || backup.ProtectedBy < 0 ||
+		(backup.ManuallyProtected && (backup.ProtectionReason == "" || backup.ProtectedBy <= 0 || backup.ProtectedAt.IsZero())) ||
+		(!backup.ManuallyProtected && (backup.ProtectionReason != "" || backup.ProtectedBy != 0 || !backup.ProtectedAt.IsZero())) {
 		return fmt.Errorf("validate backup: invalid metadata")
 	}
 	switch backup.State {
 	case config.BackupStateCreating:
-		if !backup.VerifiedAt.IsZero() {
+		if !backup.VerifiedAt.IsZero() || !backup.BodyPresent || !backup.DeletedAt.IsZero() {
 			return fmt.Errorf("validate backup: creating backup is verified")
 		}
-	case config.BackupStateComplete, config.BackupStateInvalid:
-		if backup.VerifiedAt.IsZero() {
+	case config.BackupStateComplete, config.BackupStateInvalid, config.BackupStateDeleting:
+		if backup.VerifiedAt.IsZero() || !backup.BodyPresent || !backup.DeletedAt.IsZero() {
 			return fmt.Errorf("validate backup: terminal backup lacks verification time")
+		}
+	case config.BackupStateDeleted:
+		if backup.VerifiedAt.IsZero() || backup.BodyPresent || backup.DeletedAt.IsZero() || backup.DeleteRunID == "" {
+			return fmt.Errorf("validate backup: invalid deleted backup")
+		}
+		if _, err := config.ParseRetentionRunID(backup.DeleteRunID); err != nil {
+			return fmt.Errorf("validate backup: invalid deletion run")
 		}
 	default:
 		return fmt.Errorf("validate backup: invalid state")
@@ -595,6 +715,20 @@ func nullableBackupID(id config.BackupID) any {
 		return nil
 	}
 	return id
+}
+
+func nullablePositiveInt64(value int64) any {
+	if value <= 0 {
+		return nil
+	}
+	return value
+}
+
+func nullableOpaqueString(value string) any {
+	if value == "" {
+		return nil
+	}
+	return value
 }
 
 func nullableTime(value time.Time) any {

@@ -13,6 +13,8 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -262,6 +264,42 @@ func TestReleaseTaskOwnerStopReturnsAtDeadlineWhenRunnerDoesNotObserveCancellati
 	case <-finished:
 	case <-time.After(time.Second):
 		t.Fatal("runner did not finish after test cleanup")
+	}
+}
+
+func TestRecoveryTaskOwnerStartsEachTypedOperationAndStopsNewWork(t *testing.T) {
+	var mutex sync.Mutex
+	started := make([]string, 0, 3)
+	record := func(value string) {
+		mutex.Lock()
+		started = append(started, value)
+		mutex.Unlock()
+	}
+	owner := newRecoveryTaskOwner(
+		context.Background(),
+		func(context.Context, configservice.RestoreID) error { record("restore"); return nil },
+		func(context.Context, configservice.RestartID) error { record("restart"); return nil },
+		func(context.Context, configservice.RetentionRunID) error { record("retention"); return nil },
+		slog.New(slog.DiscardHandler),
+	)
+	if !owner.StartRestore("11111111111111111111111111111111") ||
+		!owner.StartRestart("22222222222222222222222222222222") ||
+		!owner.StartRetention("33333333333333333333333333333333") {
+		t.Fatal("typed recovery task start was rejected")
+	}
+	stopCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := owner.Stop(stopCtx); err != nil {
+		t.Fatalf("Stop() error = %v", err)
+	}
+	mutex.Lock()
+	defer mutex.Unlock()
+	slices.Sort(started)
+	if !slices.Equal(started, []string{"restart", "restore", "retention"}) {
+		t.Fatalf("started = %v", started)
+	}
+	if owner.StartRestore("44444444444444444444444444444444") {
+		t.Fatal("StartRestore() accepted work after shutdown")
 	}
 }
 

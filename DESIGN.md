@@ -623,7 +623,7 @@ Static badges need no live-region role. For asynchronous status changes, put one
 
 ### Configuration Workspace
 
-The configuration workspace extends the read-only configuration surface. v0.2.1 editing remains confined to the draft; v0.2.2 adds an explicit checked publication flow that can back up and update production and reload Nginx. Publication is never implicit in Save, diff, navigation, modal close, or browser disconnect. Restart, arbitrary restore, and arbitrary commands remain unavailable. Use the existing system font, spacing, radii, neutral borders, and Action Blue focus treatment; do not introduce a gradient, decorative shadow, second accent color, or a business-component hex value.
+The configuration workspace extends the read-only configuration surface. v0.2.1 editing remains confined to the draft; v0.2.2 adds an explicit checked publication flow that can back up and update production and reload Nginx. Publication is never implicit in Save, diff, navigation, modal close, or browser disconnect. v0.2.3 adds a separate recovery-and-history surface for verified-backup restore, fixed Nginx restart, retention, audit, and `needs_attention` disposition; none of those controls are embedded as an editor shortcut. Arbitrary commands, paths, signals, backup content, and force actions remain unavailable. Use the existing system font, spacing, radii, neutral borders, and Action Blue focus treatment; do not introduce a gradient, decorative shadow, second accent color, or a business-component hex value.
 
 #### Operational Tokens
 
@@ -641,6 +641,10 @@ The following literal token contract is stable for CSS and tests:
 --component-modal-width: min(calc(100vw - 32px), 480px)
 --component-release-timeline-marker: 24px
 --component-release-diagnostic-max-height: 240px
+--component-operations-summary-min-height: 144px
+--component-operations-table-min-width: 720px
+--component-operations-detail-width: min(92vw, 640px)
+--component-attention-panel-border-width: 2px
 ```
 
 `--color-state-success`, `--color-state-warning`, `--color-state-danger`, and `--color-state-info` are semantic status tokens only, never brand emphasis. `--color-diff-added`, `--color-diff-removed`, and `--color-diff-context` are status surfaces only; every added, removed, and context line also has its visible `+`, `−`, or context-line label. These tokens inherit the existing semantic foreground/surface approach and must never make a colored surface the sole state signal.
@@ -663,7 +667,33 @@ At desktop width, the workspace is a continuous three-pane review: tree, editor,
 
 **`release-confirmation-modal`** — A named confirmation modal at `--component-modal-width`. It states that the system will recheck production and the draft, create a complete backup, update production files, run full validation, reload Nginx, and automatically roll back when the result is safely knowable. The confirmation input must exactly equal the visible workspace name before the primary action is enabled. It follows `workspace-modal` focus trap, Escape, inert background, 44px target, and trigger-focus restoration rules. Closing it before submission has no effect; after a task is queued, closing it or leaving the page does not cancel the task.
 
-**`release-stage-timeline`** — An ordered list of persisted release stages. Each row contains a `--component-release-timeline-marker` icon/shape, visible stage name, visible status word, and timestamp; the connecting hairline is neutral and never a progress gradient. Only the current concise stage phrase uses a local `aria-live="polite"`/`aria-atomic="true"`; historical rows and SSE heartbeats are not live. Refresh and reconnect rebuild the list from the release resource and `Last-Event-ID`, never from elapsed browser time. Terminal panels remain inline and distinguish: published and healthy; failed before production changed; failed but rolled back and healthy; or `needs_attention`. The last case is a blocking alert with evidence-only actions and no v0.2.3 restore control.
+**`release-stage-timeline`** — An ordered list of persisted release stages. Each row contains a `--component-release-timeline-marker` icon/shape, visible stage name, visible status word, and timestamp; the connecting hairline is neutral and never a progress gradient. Only the current concise stage phrase uses a local `aria-live="polite"`/`aria-atomic="true"`; historical rows and SSE heartbeats are not live. Refresh and reconnect rebuild the list from the release resource and `Last-Event-ID`, never from elapsed browser time. Terminal panels remain inline and distinguish: published and healthy; failed before production changed; failed but rolled back and healthy; or `needs_attention`. The last case is a blocking alert; the workspace remains evidence-only and may link to the separate v0.2.3 Recovery & History route, but never embeds restore or restart controls.
+
+#### Configuration Recovery and History
+
+The v0.2.3 recovery surface lives at the named “Recovery & History” route. It is an operational evidence surface, not a second configuration editor. Its default reading order is: open attention cases, current runtime control, backup summary, then the selected Backups, History, or Audit task. Restore, restart, protection removal, and retention execution always use named confirmation and never become row-click side effects.
+
+**`operations-task-tabs`** — A semantic tablist for Overview, Backups, History, and Audit. Each tab has a 44px minimum target, visible selected text and Action Blue focus. Arrow keys move within the tablist, Home/End select the first/last tab, and the active tab is reflected in the route query so refresh restores the same non-sensitive view. Switching tabs retains already loaded items and visible errors; it never cancels an active operation.
+
+**`attention-case-panel`** — A persistent, labelled blocking panel with `--component-attention-panel-border-width`, a status shape, the visible words “Needs attention”, the safe reason, abbreviated subject IDs, opened time, and only evidence-backed actions. The first newly opened case may announce one concise alert; the panel itself remains ordinary readable content afterward. There is no acknowledge, dismiss, force-close, edit, or publish action. Successful restore, fixed restart, or current-state verification may resolve a case; the resolution row remains visible with its operation ID and time.
+
+**`runtime-control-panel`** — A neutral card of at least `--component-operations-summary-min-height`. It presents sampled state, production-validation evidence, current master/worker counts, the most recent restart result, and a separate 44px “Restart Nginx” button. The button opens a named modal and is disabled with an inline reason while Agent evidence is unavailable or another production operation owns the lease. Never place PID input, signal selection, command text, timeout, host, or path controls in this panel.
+
+**`backup-table`** and **`backup-card`** — Two responsive projections of the same explicit backup DTO. At widths that fit `--component-operations-table-min-width`, use a native `<table>` with caption, `<thead>`, row headers or scoped column headers, and columns for ID, source, state, verified time, size, protection, and actions. At narrow widths render a list of labelled cards; do not apply non-table display roles to table descendants. A deleted tombstone remains readable but has no restore/protection action. Invalid, deleting, and protected states include visible text and shape/icon in addition to semantic color.
+
+**`backup-protection-badge`** — A non-interactive specialization of `status-badge` whose visible label is one of “System protected”, “Manually protected”, “Unprotected”, or “Deleted”. Protection reasons are adjacent text, not tooltip-only content. The badge never toggles itself; protect/unprotect uses a separate labelled button, and removing manual protection requires the full backup ID in a modal. System protection has no removal action.
+
+**`restore-confirmation-modal`** — A named `workspace-modal` at `--component-modal-width`. It shows the target backup ID, source operation, verification time, production identity abbreviation, size, attention case when applicable, and the exact sequence: validate target, create a safety backup, restore production, validate, reload, and confirm health. The confirmation value must exactly equal the full visible backup ID. Closing before submission has no effect; after 202 it never cancels the task. Invalid targets retain a persistent inline explanation and do not offer force restore.
+
+**`restart-confirmation-modal`** — A named `workspace-modal` that states Nginx will briefly stop serving, the master process must be replaced, the current production configuration will be validated first, and configuration files are not modified. The primary action is enabled only when the value exactly equals `RESTART NGINX`. Do not prefill the value, accept case variants, or provide a bypass for invalid production configuration.
+
+**`retention-plan-panel`** — A neutral evidence panel showing fixed count, byte, minimum-age, and minimum-recovery-point policy; current totals; protected totals; plan expiry; and an ordered deletion preview. Dry-run never implies deletion. Execution requires the complete visible run ID, retains each `deleted`, `kept`, `skipped — protected`, or `needs attention` item result, and uses no transient toast for terminal outcomes. A plan that expires or changes remains visible with the reason and a fresh-plan action.
+
+**`operations-history-list`** — A server-ordered list of release, restore, restart, and retention summaries. Every row exposes kind, terminal/running state word, timestamp, actor, abbreviated ID, and safe result before its detail control. Expanded detail uses the existing stage timeline inside a labelled region no wider than `--component-operations-detail-width`. Client code never merges or re-sorts independently fetched pages using browser time.
+
+**`audit-table`** and **`audit-card`** — Responsive native table/card projections of bounded audit DTOs. Show time, actor display name, action label, object kind/abbreviated ID, result, request ID, and a preformatted safe detail summary. Do not expose raw JSON, absolute paths, configuration/diff content, confirmation values, private hashes, or raw command output. “Load more” appends in server order and restores focus to the first new row or an adjacent status message.
+
+Restore, restart, and retention progress reuse `release-stage-timeline` visual grammar and accessibility behavior, but each timeline keeps its own operation-specific stage names. A timeline must not show a stage that the server did not persist.
 
 #### Operational State Examples
 

@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"mime"
 	"net"
 	"net/http"
@@ -457,6 +458,8 @@ func newAgentClientProtocolError(code string) *AgentProtocolError {
 		return &AgentProtocolError{Code: code, Message: "configuration changed during snapshot", cause: config.ErrSnapshotChanged}
 	case agentErrorCodeConfigOperationTimeout:
 		return &AgentProtocolError{Code: code, Message: "configuration operation timed out", cause: context.DeadlineExceeded}
+	case agentErrorCodeObjectNotFound:
+		return &AgentProtocolError{Code: code, Message: "configuration object was not found", cause: fs.ErrNotExist}
 	case agentErrorCodeInternal:
 		return &AgentProtocolError{Code: code, Message: "agent operation failed"}
 	default:
@@ -555,7 +558,8 @@ func releaseFromAgentResponse(response agentReleaseResponse) (config.ReleaseExec
 			return config.ReleaseExecutionResult{}, errAgentInvalidResponse
 		}
 		result.Backup = config.BackupEvidence{
-			BackupID: backupID, ReleaseID: backupReleaseID,
+			BackupID: backupID, OriginType: config.BackupOriginType(response.Backup.OriginType),
+			OriginID: response.Backup.OriginID, ReleaseID: backupReleaseID,
 			ProductionDigest: productionDigest, TreeDigest: treeDigest,
 			EntryCount: response.Backup.EntryCount, TotalBytes: response.Backup.TotalBytes, VerifiedAt: response.Backup.VerifiedAt,
 		}
@@ -586,6 +590,8 @@ func terminalAgentResultRequiresBackup(result config.ReleaseExecutionResult) boo
 	switch result.State {
 	case config.ReleaseStateSucceeded, config.ReleaseStateRolledBack, config.ReleaseStateNeedsAttention:
 		return true
+	case config.ReleaseStateQueued, config.ReleaseStateRunning, config.ReleaseStateRollingBack,
+		config.ReleaseStateFailed, config.ReleaseStateCancelled:
 	}
 	for _, stage := range result.Stages {
 		if stage.Stage == config.ReleaseStageBackupVerified {

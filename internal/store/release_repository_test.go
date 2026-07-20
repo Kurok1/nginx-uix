@@ -61,8 +61,10 @@ func TestReleaseRepositoryPersistsCheckReleaseStagesAndBackup(t *testing.T) {
 	}
 
 	backup := config.Backup{
-		ID: config.BackupID("00000000000000000000000000000004"), ReleaseID: release.ID,
-		State: config.BackupStateComplete, EntryCount: 7, TotalBytes: 2048,
+		ID:         config.BackupID("00000000000000000000000000000004"),
+		OriginType: config.BackupOriginRelease, OriginID: string(release.ID), ReleaseID: release.ID,
+		ProductionDigest: release.ProductionDigest, TreeDigest: testDigest(0x55),
+		State: config.BackupStateComplete, EntryCount: 7, TotalBytes: 2048, BodyPresent: true,
 		CreatedAt: testTime(6), VerifiedAt: testTime(7),
 	}
 	if err := database.PutBackup(context.Background(), backup); err != nil {
@@ -104,6 +106,50 @@ func TestReleaseRepositoryPersistsCheckReleaseStagesAndBackup(t *testing.T) {
 		if count != want {
 			t.Fatalf("audit events for %s = %d, want %d", objectID, count, want)
 		}
+	}
+}
+
+func TestReleaseRepositoryCompletesLegacyBackupIntegrityIndex(t *testing.T) {
+	database := openRepositoryDatabase(t)
+	workspace := testWorkspace(1, "Legacy recovery", testTime(2))
+	createWorkspaceRecord(t, database, workspace, "config.workspace.create-legacy-backup")
+	check := testPublishCheck(workspace)
+	if err := database.CreatePublishCheck(context.Background(), check); err != nil {
+		t.Fatal(err)
+	}
+	release := testRelease(workspace, check)
+	release.State = config.ReleaseStateSucceeded
+	release.Stage = config.ReleaseStageCommitted
+	release.FinishedAt = release.UpdatedAt
+	release.BackupID = "00000000000000000000000000000004"
+	if _, err := database.sql.ExecContext(context.Background(), `INSERT INTO config_releases(
+		id, workspace_id, check_id, backup_id, state, stage, production_digest, draft_digest,
+		candidate_digest, last_error_code, created_by, request_id, created_at, updated_at, finished_at
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?)`, release.ID, release.WorkspaceID,
+		release.CheckID, release.BackupID, release.State, release.Stage, release.ProductionDigest[:],
+		release.DraftDigest[:], release.CandidateDigest[:], release.CreatedBy, release.RequestID,
+		formatTime(release.CreatedAt), formatTime(release.UpdatedAt), formatTime(release.FinishedAt)); err != nil {
+		t.Fatal(err)
+	}
+	legacy := config.Backup{
+		ID: release.BackupID, OriginType: config.BackupOriginRelease, OriginID: string(release.ID),
+		ReleaseID: release.ID, ProductionDigest: release.ProductionDigest, State: config.BackupStateComplete,
+		EntryCount: 7, TotalBytes: 2048, BodyPresent: true, CreatedAt: testTime(6), VerifiedAt: testTime(7),
+	}
+	if err := database.PutBackup(context.Background(), legacy); err != nil {
+		t.Fatal(err)
+	}
+	completed := legacy
+	completed.TreeDigest = testDigest(0x55)
+	if err := database.PutBackup(context.Background(), completed); err != nil {
+		t.Fatal(err)
+	}
+	got, err := database.Backup(context.Background(), legacy.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.TreeDigest != completed.TreeDigest {
+		t.Fatalf("legacy tree digest = %x, want %x", got.TreeDigest, completed.TreeDigest)
 	}
 }
 
@@ -153,6 +199,56 @@ func TestReleaseRepositoryAllowsOnlyOneActiveReleaseAndExactStageCAS(t *testing.
 	}
 	if len(stages) != 1 {
 		t.Fatalf("stages after stale transition = %d, want 1", len(stages))
+	}
+}
+
+func TestReleaseRepositoryOwnsProductionLeaseUntilTerminalTransition(t *testing.T) {
+	database := openRepositoryDatabase(t)
+	ctx := context.Background()
+	workspace := testWorkspace(1, "Primary", testTime(2))
+	createWorkspaceRecord(t, database, workspace, "config.workspace.create-release-lease")
+	check := testPublishCheck(workspace)
+	if err := database.CreatePublishCheck(ctx, check); err != nil {
+		t.Fatal(err)
+	}
+	release := testRelease(workspace, check)
+	initial := config.ReleaseStage{
+		ReleaseID: release.ID, Sequence: 1, Stage: config.ReleaseStageQueued,
+		Result: config.StageResultPending, PublicDetailsJSON: `{}`, OccurredAt: release.CreatedAt,
+	}
+	restoreID := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	if err := database.AcquireProductionLease(ctx, config.ProductionOperationRestore, restoreID, testTime(3)); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.CreateRelease(ctx, release, initial); !errors.Is(err, config.ErrOperationInProgress) {
+		t.Fatalf("CreateRelease() with restore lease error = %v, want ErrOperationInProgress", err)
+	}
+	if _, err := database.Release(ctx, release.ID); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("Release() after blocked create error = %v, want fs.ErrNotExist", err)
+	}
+	if err := database.ReleaseProductionLease(ctx, config.ProductionOperationRestore, restoreID); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.CreateRelease(ctx, release, initial); err != nil {
+		t.Fatalf("CreateRelease() error = %v", err)
+	}
+	lease, err := database.ProductionLease(ctx)
+	if err != nil || lease.OwnerType != config.ProductionOperationRelease || lease.OwnerID != string(release.ID) {
+		t.Fatalf("release lease = %#v, error = %v", lease, err)
+	}
+	release.State = config.ReleaseStateSucceeded
+	release.Stage = config.ReleaseStageCommitted
+	release.UpdatedAt = testTime(6)
+	release.FinishedAt = testTime(6)
+	if err := database.TransitionRelease(ctx, config.ReleaseStateQueued, config.ReleaseStageQueued, release, config.ReleaseStage{
+		ReleaseID: release.ID, Sequence: 2, Stage: config.ReleaseStageCommitted,
+		Result: config.StageResultSuccess, PublicDetailsJSON: `{}`, OccurredAt: release.UpdatedAt,
+	}); err != nil {
+		t.Fatalf("TransitionRelease() error = %v", err)
+	}
+	lease, err = database.ProductionLease(ctx)
+	if err != nil || lease != (config.ProductionLease{}) {
+		t.Fatalf("terminal release lease = %#v, error = %v, want empty", lease, err)
 	}
 }
 
@@ -295,8 +391,10 @@ func TestReleaseRepositoryPersistsTerminalEvidenceAcrossReopen(t *testing.T) {
 		t.Fatal(err)
 	}
 	backup := config.Backup{
-		ID: release.BackupID, ReleaseID: release.ID, State: config.BackupStateComplete,
-		EntryCount: 3, TotalBytes: 512, CreatedAt: testTime(4), VerifiedAt: testTime(5),
+		ID: release.BackupID, OriginType: config.BackupOriginRelease, OriginID: string(release.ID),
+		ReleaseID: release.ID, ProductionDigest: release.ProductionDigest, TreeDigest: testDigest(0x55),
+		State: config.BackupStateComplete, EntryCount: 3, TotalBytes: 512, BodyPresent: true,
+		CreatedAt: testTime(4), VerifiedAt: testTime(5),
 	}
 	if err := database.PutBackup(context.Background(), backup); err != nil {
 		t.Fatal(err)

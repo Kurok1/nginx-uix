@@ -21,6 +21,8 @@ type Dependencies struct {
 	Groups          GroupAPI
 	Releases        ReleaseAPI
 	ReleaseTasks    ReleaseTaskStarter
+	Recovery        RecoveryAPI
+	RecoveryTasks   RecoveryTaskStarter
 	Agent           Agent
 	Database        DatabaseProbe
 	PublicURL       *url.URL
@@ -47,6 +49,10 @@ func NewHandler(dependencies Dependencies) http.Handler {
 		service: dependencies.Releases, tasks: dependencies.ReleaseTasks,
 		sessions: dependencies.Sessions, publicURL: dependencies.PublicURL,
 	}
+	recovery := &recoveryHandler{
+		service: dependencies.Recovery, tasks: dependencies.RecoveryTasks,
+		sessions: dependencies.Sessions, publicURL: dependencies.PublicURL,
+	}
 	mux.HandleFunc("GET /api/v1/config/workspaces", configuration.workspacesCollection)
 	mux.HandleFunc("POST /api/v1/config/workspaces", configuration.workspacesCollection)
 	mux.HandleFunc("GET /api/v1/config/workspaces/{workspace_id}", configuration.workspace)
@@ -64,6 +70,25 @@ func NewHandler(dependencies Dependencies) http.Handler {
 	mux.HandleFunc("POST /api/v1/config/workspaces/{workspace_id}/releases", releases.queue)
 	mux.HandleFunc("GET /api/v1/config/releases/{release_id}", releases.release)
 	mux.HandleFunc("GET /api/v1/config/releases/{release_id}/events", releases.events)
+	mux.HandleFunc("GET /api/v1/config/history/releases", recovery.historyReleases)
+	mux.HandleFunc("GET /api/v1/config/history/restores", recovery.historyRestores)
+	mux.HandleFunc("GET /api/v1/config/history/restarts", recovery.historyRestarts)
+	mux.HandleFunc("GET /api/v1/config/backups", recovery.backups)
+	mux.HandleFunc("GET /api/v1/config/backups/{backup_id}", recovery.backup)
+	mux.HandleFunc("PUT /api/v1/config/backups/{backup_id}/protection", recovery.protection)
+	mux.HandleFunc("POST /api/v1/config/backup-retention-runs", recovery.planRetention)
+	mux.HandleFunc("GET /api/v1/config/backup-retention-runs/{retention_id}", recovery.retention)
+	mux.HandleFunc("POST /api/v1/config/backup-retention-runs/{retention_id}/executions", recovery.executeRetention)
+	mux.HandleFunc("POST /api/v1/config/backups/{backup_id}/restores", recovery.queueRestore)
+	mux.HandleFunc("GET /api/v1/config/restores/{restore_id}", recovery.restore)
+	mux.HandleFunc("GET /api/v1/config/restores/{restore_id}/events", recovery.restoreEvents)
+	mux.HandleFunc("POST /api/v1/nginx/restarts", recovery.restartCollection)
+	mux.HandleFunc("GET /api/v1/nginx/restarts/{restart_id}", recovery.restart)
+	mux.HandleFunc("GET /api/v1/nginx/restarts/{restart_id}/events", recovery.restartEvents)
+	mux.HandleFunc("GET /api/v1/config/audit-events", recovery.audit)
+	mux.HandleFunc("GET /api/v1/config/attention-cases", recovery.attentionCollection)
+	mux.HandleFunc("GET /api/v1/config/attention-cases/{attention_id}", recovery.attention)
+	mux.HandleFunc("POST /api/v1/config/attention-cases/{attention_id}/verifications", recovery.verifyAttention)
 	mux.HandleFunc("GET /api/v1/config/groups", configuration.groupsCollection)
 	mux.HandleFunc("POST /api/v1/config/groups", configuration.groupsCollection)
 	mux.HandleFunc("PUT /api/v1/config/groups/{group_id}", configuration.group)
@@ -106,7 +131,7 @@ func spaFallback(assets fs.FS) http.Handler {
 
 func isKnownSPANavigation(path string) bool {
 	switch path {
-	case "/login", "/configuration", "/config/workspaces":
+	case "/login", "/configuration", "/config/workspaces", "/config/operations":
 		return true
 	}
 	const workspacePrefix = "/config/workspaces/"

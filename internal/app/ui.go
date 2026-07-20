@@ -32,6 +32,7 @@ type uiDatabase interface {
 	configservice.WorkspaceReader
 	configservice.WorkspaceWriter
 	configservice.GroupRepository
+	configservice.AttentionReader
 	Ping(context.Context) error
 	Close() error
 }
@@ -101,6 +102,7 @@ func runUI(ctx context.Context, applicationConfig Config, operations uiOperation
 		Reader:        database,
 		Writer:        database,
 		Groups:        database,
+		Attention:     database,
 		Clock:         systemClock{},
 		Random:        rand.Reader,
 		Limits:        configservice.DefaultLimits(),
@@ -147,6 +149,29 @@ func runUI(ctx context.Context, applicationConfig Config, operations uiOperation
 		releases = releaseService
 		releaseTasks = newReleaseTaskOwner(ctx, releaseService.Run, logger)
 	}
+	var recovery httpapi.RecoveryAPI
+	var recoveryTasks *recoveryTaskOwner
+	recoveryRepository, recoveryRepositoryOK := database.(configservice.RecoveryRepository)
+	recoveryAgent, recoveryAgentOK := agent.(configservice.RecoveryAgent)
+	if recoveryRepositoryOK && recoveryAgentOK {
+		recoveryService, recoveryErr := configservice.NewRecoveryService(configservice.RecoveryDependencies{
+			Repository: recoveryRepository, Agent: recoveryAgent, Clock: systemClock{},
+			Random: rand.Reader, Policy: configservice.DefaultRetentionPolicy(),
+		})
+		if recoveryErr == nil {
+			recoveryErr = recoveryService.Reconcile(ctx)
+		}
+		if recoveryErr != nil {
+			if closeErr := database.Close(); closeErr != nil {
+				return errors.Join(fmt.Errorf("reconcile configuration recovery: %w", recoveryErr), closeErr)
+			}
+			return fmt.Errorf("reconcile configuration recovery: %w", recoveryErr)
+		}
+		recovery = recoveryService
+		recoveryTasks = newRecoveryTaskOwner(
+			ctx, recoveryService.RunRestore, recoveryService.RunRestart, recoveryService.RunRetention, logger,
+		)
+	}
 	if err := configurationService.Reconcile(ctx); err != nil {
 		if closeErr := database.Close(); closeErr != nil {
 			return errors.Join(fmt.Errorf("reconcile configuration workspaces: %w", err), closeErr)
@@ -158,6 +183,7 @@ func runUI(ctx context.Context, applicationConfig Config, operations uiOperation
 		Handler: httpapi.NewHandler(httpapi.Dependencies{
 			Assets: uiassets.FS(), Sessions: sessions, PublicURL: applicationConfig.PublicURL,
 			Workspaces: workspaces, Groups: groups, Releases: releases, ReleaseTasks: releaseTasks,
+			Recovery: recovery, RecoveryTasks: recoveryTasks,
 			Agent: agent, Database: databasePingProbe(database.Ping), Logger: logger,
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
@@ -168,13 +194,18 @@ func runUI(ctx context.Context, applicationConfig Config, operations uiOperation
 
 	runErr := operations.runServer(ctx, server, logger, applicationConfig.ShutdownTimeout)
 	var taskErr error
-	if releaseTasks != nil {
+	if releaseTasks != nil || recoveryTasks != nil {
 		shutdownTimeout := applicationConfig.ShutdownTimeout
 		if shutdownTimeout <= 0 {
 			shutdownTimeout = 10 * time.Second
 		}
 		taskCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
-		taskErr = releaseTasks.Stop(taskCtx)
+		if recoveryTasks != nil {
+			taskErr = errors.Join(taskErr, recoveryTasks.Stop(taskCtx))
+		}
+		if releaseTasks != nil {
+			taskErr = errors.Join(taskErr, releaseTasks.Stop(taskCtx))
+		}
 		cancel()
 	}
 	closeErr := database.Close()

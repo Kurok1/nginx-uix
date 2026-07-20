@@ -69,6 +69,52 @@ func TestReleaseServiceCreatesBoundCheckAndPublishesWorkspace(t *testing.T) {
 	}
 }
 
+func TestReleaseServiceBlocksQueueWhileAnyAttentionCaseIsOpen(t *testing.T) {
+	fixture := newServiceFixture(t)
+	workspace, err := fixture.service.Create(
+		context.Background(), Actor{UserID: 7, RequestID: "create-request"}, "Blocked production change",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mutation, err := fixture.service.ReplaceFile(
+		context.Background(), Actor{UserID: 7, RequestID: "edit-request"}, workspace.ID,
+		ReplaceFileInput{
+			Path: "conf.d/site.conf", Content: []byte("server { listen 8081; }\n"), IfMatch: workspace.ETag(),
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace = mutation.Workspace
+	repository := newMemoryReleaseRepository()
+	agent := &recordingReleaseAgent{candidate: CandidateValidation{
+		Valid: true, CandidateDigest: Digest{9}, ValidatorVersion: 1,
+		ValidatorBuildID: "build-id", CheckedAt: fixture.clock.Now(), Diagnostics: []CandidateDiagnostic{},
+	}}
+	service, err := NewReleaseService(ReleaseDependencies{
+		Workspaces: fixture.service, Repository: repository, Agent: agent,
+		Clock: fixture.clock, Random: &incrementingReader{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	actor := Actor{UserID: 7, RequestID: "publish-request"}
+	check, err := service.Check(
+		context.Background(), actor, PublishCheckInput{WorkspaceID: workspace.ID, IfMatch: workspace.ETag()},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository.openAttention = true
+	_, err = service.Queue(context.Background(), actor, QueueReleaseInput{
+		WorkspaceID: workspace.ID, CheckID: check.ID, IfMatch: workspace.ETag(), ConfirmName: workspace.Name,
+	})
+	if !errors.Is(err, ErrAttentionUnresolved) || len(repository.releases) != 0 {
+		t.Fatalf("Queue() error/releases = %v/%d", err, len(repository.releases))
+	}
+}
+
 func TestReleaseServiceMirrorsDurableAgentProgressBeforeExecutionCompletes(t *testing.T) {
 	fixture := newServiceFixture(t)
 	workspace, err := fixture.service.Create(context.Background(), Actor{UserID: 7, RequestID: "create-request"}, "Live progress")
@@ -596,6 +642,13 @@ type memoryReleaseRepository struct {
 	backups                     map[BackupID]Backup
 	requireBackupBeforeTerminal bool
 	putBackupErr                error
+	openAttention               bool
+}
+
+func (r *memoryReleaseRepository) HasOpenAttentionCases(context.Context) (bool, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.openAttention, nil
 }
 
 func newMemoryReleaseRepository() *memoryReleaseRepository {

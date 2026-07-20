@@ -9,6 +9,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -29,10 +30,13 @@ func TestMigrateAddsConfigSchemaWithoutChangingV1Data(t *testing.T) {
 	assertTables(t, database,
 		"config_workspaces", "config_group_collection", "config_groups", "config_group_members",
 		"config_publish_checks", "config_releases", "config_release_stages", "config_backups",
+		"config_production_lease", "config_restores", "config_restore_stages", "config_restarts",
+		"config_restart_stages", "config_retention_runs", "config_retention_items", "config_attention_cases",
+		"config_verifications",
 	)
 	assertV1UserAndSession(t, database)
-	if got := migrationVersions(t, database); !reflect.DeepEqual(got, []int{1, 2, 3}) {
-		t.Fatalf("versions = %v, want [1 2 3]", got)
+	if got := migrationVersions(t, database); !reflect.DeepEqual(got, []int{1, 2, 3, 4}) {
+		t.Fatalf("versions = %v, want [1 2 3 4]", got)
 	}
 }
 
@@ -138,6 +142,86 @@ func TestMigrateV021WorkspaceDataIntoReleaseSchema(t *testing.T) {
 	}
 }
 
+func TestMigrateV022RecoveryEvidenceIntoControlSchema(t *testing.T) {
+	database := openMigrationFixture(t, 3)
+	digest := bytes.Repeat([]byte{0x55}, 32)
+	workspaceID := "11111111111111111111111111111111"
+	checkID := "22222222222222222222222222222222"
+	releaseID := "33333333333333333333333333333333"
+	backupID := "44444444444444444444444444444444"
+	statements := []struct {
+		query string
+		args  []any
+	}{
+		{`INSERT INTO users(id, username, normalized_name, password_hash, disabled, created_at)
+			VALUES (41, 'operator', 'operator', 'hash', 0, '2026-07-18T01:00:00Z')`, nil},
+		{`INSERT INTO config_workspaces(
+			id, name, state, state_reason_code, production_digest, base_digest, draft_digest,
+			manifest_version, policy_version, entry_count, managed_bytes, workspace_bytes,
+			revision, last_release_id, created_by, created_at, updated_at
+		) VALUES (?, 'Production recovery', 'needs_attention', 'rollback_health_failed', ?, ?, ?,
+			1, 1, 2, 128, 256, 7, NULL, 41, '2026-07-18T01:01:00Z', '2026-07-18T01:02:00Z')`,
+			[]any{workspaceID, digest, digest, digest}},
+		{`INSERT INTO config_publish_checks(
+			id, workspace_id, workspace_revision, production_digest, base_digest, draft_digest,
+			candidate_digest, manifest_version, policy_version, validator_version, validator_build_id,
+			state, diagnostic_count, public_details_json, created_by, request_id, started_at, finished_at, expires_at
+		) VALUES (?, ?, 7, ?, ?, ?, ?, 1, 1, 1, 'build-v1', 'valid', 0, '[]', 41,
+			'check-request', '2026-07-18T01:03:00Z', '2026-07-18T01:03:01Z', '2026-07-18T01:13:01Z')`,
+			[]any{checkID, workspaceID, digest, digest, digest, digest}},
+		{`INSERT INTO config_releases(
+			id, workspace_id, check_id, backup_id, state, stage, production_digest, draft_digest,
+			candidate_digest, last_error_code, created_by, request_id, created_at, updated_at, finished_at
+		) VALUES (?, ?, ?, ?, 'needs_attention', 'needs_attention', ?, ?, ?, 'rollback_health_failed',
+			41, 'release-request', '2026-07-18T01:04:00Z', '2026-07-18T01:05:00Z', '2026-07-18T01:05:00Z')`,
+			[]any{releaseID, workspaceID, checkID, backupID, digest, digest, digest}},
+		{`INSERT INTO config_backups(id, release_id, state, entry_count, total_bytes, created_at, verified_at)
+			VALUES (?, ?, 'complete', 7, 2048, '2026-07-18T01:04:10Z', '2026-07-18T01:04:20Z')`,
+			[]any{backupID, releaseID}},
+	}
+	for _, statement := range statements {
+		if _, err := database.sql.ExecContext(context.Background(), statement.query, statement.args...); err != nil {
+			t.Fatalf("seed v0.2.2 fixture: %v", err)
+		}
+	}
+
+	if err := database.Migrate(context.Background()); err != nil {
+		t.Fatalf("Migrate() error = %v", err)
+	}
+	var originType, originID, state string
+	var productionDigest []byte
+	var manuallyProtected, bodyPresent int
+	if err := database.sql.QueryRowContext(context.Background(), `SELECT origin_type, origin_id,
+		production_digest, state, manually_protected, body_present FROM config_backups WHERE id = ?`, backupID).Scan(
+		&originType, &originID, &productionDigest, &state, &manuallyProtected, &bodyPresent,
+	); err != nil {
+		t.Fatalf("read migrated backup: %v", err)
+	}
+	if originType != "release" || originID != releaseID || !bytes.Equal(productionDigest, digest) ||
+		state != "complete" || manuallyProtected != 0 || bodyPresent != 1 {
+		t.Fatalf("migrated backup = %q/%q/%x/%q/%d/%d", originType, originID,
+			productionDigest, state, manuallyProtected, bodyPresent)
+	}
+	var caseState, subjectType, subjectID, reasonCode string
+	if err := database.sql.QueryRowContext(context.Background(), `SELECT state, subject_type, subject_id, reason_code
+		FROM config_attention_cases WHERE workspace_id = ?`, workspaceID).Scan(
+		&caseState, &subjectType, &subjectID, &reasonCode,
+	); err != nil {
+		t.Fatalf("read migrated attention case: %v", err)
+	}
+	if caseState != "open" || subjectType != "release" || subjectID != releaseID || reasonCode != "rollback_health_failed" {
+		t.Fatalf("migrated attention case = %q/%q/%q/%q", caseState, subjectType, subjectID, reasonCode)
+	}
+	var leaseOwnerType, leaseOwnerID sql.NullString
+	if err := database.sql.QueryRowContext(context.Background(), `SELECT owner_type, owner_id
+		FROM config_production_lease WHERE singleton = 1`).Scan(&leaseOwnerType, &leaseOwnerID); err != nil {
+		t.Fatalf("read production lease: %v", err)
+	}
+	if leaseOwnerType.Valid || leaseOwnerID.Valid {
+		t.Fatalf("initial production lease = %v/%v, want empty", leaseOwnerType, leaseOwnerID)
+	}
+}
+
 func TestMigrateIsIdempotent(t *testing.T) {
 	t.Parallel()
 
@@ -164,8 +248,8 @@ func TestMigrateIsIdempotent(t *testing.T) {
 	if err := database.sql.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM schema_migrations").Scan(&count); err != nil {
 		t.Fatalf("count migrations: %v", err)
 	}
-	if count != 3 {
-		t.Fatalf("migration count = %d, want 3", count)
+	if count != 4 {
+		t.Fatalf("migration count = %d, want 4", count)
 	}
 }
 
@@ -188,7 +272,7 @@ func TestMigrateRollsBackFailedMigration(t *testing.T) {
 
 	database := openTestDatabase(t)
 	broken := fstest.MapFS{
-		"migrations/0004_broken.sql": {Data: []byte(`
+		"migrations/0005_broken.sql": {Data: []byte(`
 			CREATE TABLE migration_probe(id INTEGER PRIMARY KEY);
 			INSERT INTO table_that_does_not_exist(id) VALUES (1);
 		`)},
@@ -200,7 +284,7 @@ func TestMigrateRollsBackFailedMigration(t *testing.T) {
 
 	for query, label := range map[string]string{
 		"SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'migration_probe'": "probe table",
-		"SELECT COUNT(*) FROM schema_migrations WHERE version = 4":                             "migration row",
+		"SELECT COUNT(*) FROM schema_migrations WHERE version = 5":                             "migration row",
 	} {
 		var count int
 		if err := database.sql.QueryRowContext(context.Background(), query).Scan(&count); err != nil {
@@ -302,6 +386,37 @@ func openV1Fixture(t *testing.T) *DB {
 			t.Errorf("Close() error = %v", err)
 		}
 	})
+	return database
+}
+
+func openMigrationFixture(t *testing.T, maximumVersion int) *DB {
+	t.Helper()
+	path := filepath.Join(secureTempDir(t), "migration-fixture.db")
+	connection, err := sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(1)")
+	if err != nil {
+		t.Fatalf("open migration fixture: %v", err)
+	}
+	database := &DB{sql: connection}
+	t.Cleanup(func() {
+		if err := database.Close(); err != nil {
+			t.Errorf("Close() error = %v", err)
+		}
+	})
+	files := make(fstest.MapFS, maximumVersion)
+	for version := 1; version <= maximumVersion; version++ {
+		matches, err := fs.Glob(embeddedMigrations, fmt.Sprintf("migrations/%04d_*.sql", version))
+		if err != nil || len(matches) != 1 {
+			t.Fatalf("find migration %d: matches=%v error=%v", version, matches, err)
+		}
+		payload, err := fs.ReadFile(embeddedMigrations, matches[0])
+		if err != nil {
+			t.Fatalf("read migration %d: %v", version, err)
+		}
+		files[matches[0]] = &fstest.MapFile{Data: payload}
+	}
+	if err := database.migrate(context.Background(), files); err != nil {
+		t.Fatalf("create migration fixture through %d: %v", maximumVersion, err)
+	}
 	return database
 }
 

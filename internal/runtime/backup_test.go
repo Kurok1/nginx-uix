@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/kuroky/nginx-uix/internal/config"
 )
@@ -47,6 +48,9 @@ func TestCreateBackupWritesCompleteImmutableTreeAndDetectsTampering(t *testing.T
 	})
 	if evidence.BackupID != request.BackupID || evidence.ReleaseID != request.ReleaseID || evidence.TreeDigest == (config.Digest{}) || evidence.EntryCount != 6 || evidence.TotalBytes <= 0 || evidence.VerifiedAt.IsZero() {
 		t.Fatalf("evidence = %+v", evidence)
+	}
+	if evidence.OriginType != config.BackupOriginRelease || evidence.OriginID != string(request.ReleaseID) {
+		t.Fatalf("release backup origin = %+v", evidence)
 	}
 	backupPath := filepath.Join(backups, string(request.BackupID))
 	for _, relative := range []string{"control/manifest.bin", "control/complete.json", "tree/ssl/site.key"} {
@@ -111,6 +115,64 @@ func TestCreateBackupWritesCompleteImmutableTreeAndDetectsTampering(t *testing.T
 		ReleaseID: metadataRequest.ReleaseID, BackupID: metadataRequest.BackupID, ProductionDigest: metadataRequest.ProductionDigest,
 	}); !errors.Is(err, config.ErrSnapshotChanged) {
 		t.Fatalf("verifyReleaseBackup(tampered release identity) error = %v", err)
+	}
+}
+
+func TestCreateRestoreBackupUsesV2OriginAndRetentionDeletionRequiresExactEvidence(t *testing.T) {
+	root := t.TempDir()
+	production := filepath.Join(root, "production")
+	backups := filepath.Join(root, "backups")
+	for _, directory := range []string{production, backups} {
+		mustMkdirCandidate(t, directory)
+	}
+	mustWriteCandidate(t, filepath.Join(production, "nginx.conf"), "events {}\n", 0o640)
+	productionDigest := mustProductionDigest(t, production)
+	service := mustBackupService(t, backupOptions{NginxRoot: production, BackupRoot: backups, Limits: config.DefaultLimits()})
+	request := config.RestoreBackupRequest{
+		RestoreID: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", BackupID: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		ProductionDigest: productionDigest,
+	}
+	evidence, err := service.CreateRestoreBackup(context.Background(), request)
+	if err != nil {
+		t.Fatalf("CreateRestoreBackup() error = %v", err)
+	}
+	backupPath := filepath.Join(backups, string(request.BackupID))
+	t.Cleanup(func() {
+		if _, err := os.Stat(backupPath); err == nil {
+			if err := thawBackupFixture(backupPath); err != nil {
+				t.Errorf("thaw backup fixture: %v", err)
+			}
+		}
+	})
+	if evidence.OriginType != config.BackupOriginRestore || evidence.OriginID != string(request.RestoreID) ||
+		evidence.ReleaseID != "" || evidence.BackupID != request.BackupID {
+		t.Fatalf("restore backup evidence = %+v", evidence)
+	}
+	verified, err := service.VerifyBackup(context.Background(), request.BackupID)
+	if err != nil || verified.OriginType != config.BackupOriginRestore || verified.OriginID != string(request.RestoreID) {
+		t.Fatalf("VerifyBackup(restore) = %+v, %v", verified, err)
+	}
+	wrong := config.BackupDeletionRequest{
+		RunID: "cccccccccccccccccccccccccccccccc", BackupID: request.BackupID,
+		ProductionDigest: productionDigest, TreeDigest: config.Digest{9},
+		SnapshotCreatedAt: time.Now().UTC(), SnapshotTotalBytes: evidence.TotalBytes,
+	}
+	if err := service.DeleteBackup(context.Background(), wrong); !errors.Is(err, config.ErrSnapshotChanged) {
+		t.Fatalf("DeleteBackup(wrong digest) error = %v", err)
+	}
+	if _, err := os.Stat(backupPath); err != nil {
+		t.Fatalf("backup removed after rejected deletion: %v", err)
+	}
+	exact := wrong
+	exact.TreeDigest = evidence.TreeDigest
+	if err := service.DeleteBackup(context.Background(), exact); err != nil {
+		t.Fatalf("DeleteBackup() error = %v", err)
+	}
+	if _, err := os.Stat(backupPath); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("deleted backup path error = %v", err)
+	}
+	if err := service.DeleteBackup(context.Background(), exact); err != nil {
+		t.Fatalf("idempotent DeleteBackup() error = %v", err)
 	}
 }
 

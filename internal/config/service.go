@@ -44,6 +44,7 @@ type Dependencies struct {
 	Reader        WorkspaceReader
 	Writer        WorkspaceWriter
 	Groups        GroupRepository
+	Attention     AttentionReader
 	Clock         Clock
 	Random        io.Reader
 	Limits        Limits
@@ -56,6 +57,7 @@ type Service struct {
 	reader        WorkspaceReader
 	writer        WorkspaceWriter
 	groups        GroupRepository
+	attention     AttentionReader
 	clock         Clock
 	random        io.Reader
 	limits        Limits
@@ -65,7 +67,8 @@ type Service struct {
 // NewService validates and retains the explicit configuration lifecycle dependencies.
 func NewService(dependencies Dependencies) (*Service, error) {
 	if dependencies.Production == nil || dependencies.Reader == nil || dependencies.Writer == nil ||
-		dependencies.Groups == nil || dependencies.Clock == nil || dependencies.Random == nil {
+		dependencies.Groups == nil || dependencies.Attention == nil ||
+		dependencies.Clock == nil || dependencies.Random == nil {
 		return nil, fmt.Errorf("create config service: dependencies are required")
 	}
 	if dependencies.WorkspaceRoot == "" || !filepath.IsAbs(dependencies.WorkspaceRoot) ||
@@ -88,6 +91,7 @@ func NewService(dependencies Dependencies) (*Service, error) {
 		reader:        dependencies.Reader,
 		writer:        dependencies.Writer,
 		groups:        dependencies.Groups,
+		attention:     dependencies.Attention,
 		clock:         dependencies.Clock,
 		random:        dependencies.Random,
 		limits:        dependencies.Limits,
@@ -109,6 +113,9 @@ func (s *Service) Create(ctx context.Context, actor Actor, name string) (_ Works
 		return Workspace{}, fmt.Errorf("create workspace: %w", err)
 	}
 	if err := validateActor(actor); err != nil {
+		return Workspace{}, fmt.Errorf("create workspace: %w", err)
+	}
+	if err := s.requireResolvedAttention(ctx); err != nil {
 		return Workspace{}, fmt.Errorf("create workspace: %w", err)
 	}
 	capacityLock, err := acquireWorkspaceRootLock(ctx, s.workspaceRoot)
@@ -300,6 +307,17 @@ func (s *Service) Create(ctx context.Context, actor Actor, name string) (_ Works
 		return Workspace{}, fmt.Errorf("reread created workspace: %w", ErrConflict)
 	}
 	return persisted, nil
+}
+
+func (s *Service) requireResolvedAttention(ctx context.Context) error {
+	open, err := s.attention.HasOpenAttentionCases(ctx)
+	if err != nil {
+		return fmt.Errorf("read open attention cases: %w", err)
+	}
+	if open {
+		return ErrAttentionUnresolved
+	}
+	return nil
 }
 
 // List returns the stable repository order after refreshing only ready workspaces.

@@ -255,6 +255,11 @@ type GroupRepository interface {
 	ChangeGroupCollection(context.Context, GroupChange) (GroupCollection, error)
 }
 
+// AttentionReader reports whether uncertain production evidence blocks ordinary draft mutation.
+type AttentionReader interface {
+	HasOpenAttentionCases(context.Context) (bool, error)
+}
+
 // ProductionReader provides immutable snapshots and current production digests.
 type ProductionReader interface {
 	ConfigSnapshot(context.Context, string, WorkspaceID) (Snapshot, error)

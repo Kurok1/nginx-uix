@@ -6,6 +6,10 @@ import type {
   APIError,
   APIErrorCode,
   APIErrorEnvelope,
+	AttentionCase,
+	AuditEvent,
+	ConfigBackup,
+	ConfigRestore,
   ConfigDependency,
   ConfigFile,
   ConfigGroup,
@@ -20,10 +24,16 @@ import type {
   GroupMutationRequest,
   LoginRequest,
   NginxBuild,
+	NginxRestart,
   NginxProcess,
 	PublishCheck,
 	Release,
 	ReleaseStage,
+	RestartStage,
+	RestoreStage,
+	RetentionRun,
+	RuntimeVerification,
+	CursorPage,
   RecoveryStatus,
   SearchMatch,
   SearchResponse,
@@ -328,6 +338,143 @@ export class APIClient {
 		return parseRelease(await readJSON(response), response.status)
 	}
 
+	async listBackups(
+		options: { cursor?: string; includeDeleted?: boolean; signal?: AbortSignal } = {},
+	): Promise<CursorPage<ConfigBackup>> {
+		const response = await this.send(
+			optionalQuery('/api/v1/config/backups', {
+				cursor: options.cursor,
+				include_deleted: options.includeDeleted === undefined ? undefined : String(options.includeDeleted),
+			}),
+			{ method: 'GET', signal: options.signal },
+		)
+		return parseCursorPage(await readJSON(response), response.status, parseBackup)
+	}
+
+	async getBackup(id: string, signal?: AbortSignal): Promise<ConfigBackup> {
+		const response = await this.send(`/api/v1/config/backups/${id}`, { method: 'GET', signal })
+		return parseBackup(await readJSON(response), response.status)
+	}
+
+	async changeBackupProtection(
+		id: string,
+		input: {
+			expected_protected: boolean
+			protected: boolean
+			reason: string
+			confirmation: string
+		},
+		csrfToken: string,
+	): Promise<ConfigBackup> {
+		const response = await this.send(`/api/v1/config/backups/${id}/protection`, {
+			method: 'PUT', headers: jsonMutationHeaders(csrfToken), body: JSON.stringify(input),
+		})
+		return parseBackup(await readJSON(response), response.status)
+	}
+
+	async planBackupRetention(csrfToken: string): Promise<RetentionRun> {
+		const response = await this.send('/api/v1/config/backup-retention-runs', {
+			method: 'POST', headers: jsonMutationHeaders(csrfToken), body: '{}',
+		})
+		const run = parseRetentionRun(await readJSON(response), response.status)
+		requireLocation(response, 201, `/api/v1/config/backup-retention-runs/${run.id}`)
+		return run
+	}
+
+	async executeBackupRetention(
+		id: string,
+		confirmation: string,
+		csrfToken: string,
+	): Promise<RetentionRun> {
+		const response = await this.send(`/api/v1/config/backup-retention-runs/${id}/executions`, {
+			method: 'POST', headers: jsonMutationHeaders(csrfToken), body: JSON.stringify({ confirmation }),
+		})
+		const run = parseRetentionRun(await readJSON(response), response.status)
+		requireLocation(response, 202, `/api/v1/config/backup-retention-runs/${run.id}`)
+		return run
+	}
+
+	async getBackupRetention(id: string, signal?: AbortSignal): Promise<RetentionRun> {
+		const response = await this.send(`/api/v1/config/backup-retention-runs/${id}`, {
+			method: 'GET', signal,
+		})
+		return parseRetentionRun(await readJSON(response), response.status)
+	}
+
+	async createRestore(
+		backupId: string,
+		input: { attention_case_id: string; reason: string; confirm_backup_id: string },
+		csrfToken: string,
+	): Promise<ConfigRestore> {
+		const response = await this.send(`/api/v1/config/backups/${backupId}/restores`, {
+			method: 'POST', headers: jsonMutationHeaders(csrfToken), body: JSON.stringify(input),
+		})
+		const restore = parseRestore(await readJSON(response), response.status)
+		requireLocation(response, 202, `/api/v1/config/restores/${restore.id}`)
+		return restore
+	}
+
+	async getRestore(id: string, signal?: AbortSignal): Promise<ConfigRestore> {
+		const response = await this.send(`/api/v1/config/restores/${id}`, { method: 'GET', signal })
+		return parseRestore(await readJSON(response), response.status)
+	}
+
+	async createRestart(
+		input: { attention_case_id: string; reason: string; confirmation: string },
+		csrfToken: string,
+	): Promise<NginxRestart> {
+		const response = await this.send('/api/v1/nginx/restarts', {
+			method: 'POST', headers: jsonMutationHeaders(csrfToken), body: JSON.stringify(input),
+		})
+		const restart = parseRestart(await readJSON(response), response.status)
+		requireLocation(response, 202, `/api/v1/nginx/restarts/${restart.id}`)
+		return restart
+	}
+
+	async getRestart(id: string, signal?: AbortSignal): Promise<NginxRestart> {
+		const response = await this.send(`/api/v1/nginx/restarts/${id}`, { method: 'GET', signal })
+		return parseRestart(await readJSON(response), response.status)
+	}
+
+	async listReleaseHistory(cursor?: string, signal?: AbortSignal): Promise<CursorPage<Release>> {
+		return this.historyPage('/api/v1/config/history/releases', cursor, signal, parseRelease)
+	}
+
+	async listRestoreHistory(cursor?: string, signal?: AbortSignal): Promise<CursorPage<ConfigRestore>> {
+		return this.historyPage('/api/v1/config/history/restores', cursor, signal, parseRestore)
+	}
+
+	async listRestartHistory(cursor?: string, signal?: AbortSignal): Promise<CursorPage<NginxRestart>> {
+		return this.historyPage('/api/v1/config/history/restarts', cursor, signal, parseRestart)
+	}
+
+	async listAuditEvents(cursor?: string, signal?: AbortSignal): Promise<CursorPage<AuditEvent>> {
+		return this.historyPage('/api/v1/config/audit-events', cursor, signal, parseAuditEvent)
+	}
+
+	async listAttentionCases(
+		options: { state?: 'open' | 'resolved'; cursor?: string; signal?: AbortSignal } = {},
+	): Promise<CursorPage<AttentionCase>> {
+		const response = await this.send(optionalQuery('/api/v1/config/attention-cases', {
+			state: options.state, cursor: options.cursor,
+		}), { method: 'GET', signal: options.signal })
+		return parseCursorPage(await readJSON(response), response.status, parseAttentionCase)
+	}
+
+	async getAttentionCase(id: string, signal?: AbortSignal): Promise<AttentionCase> {
+		const response = await this.send(`/api/v1/config/attention-cases/${id}`, {
+			method: 'GET', signal,
+		})
+		return parseAttentionCase(await readJSON(response), response.status)
+	}
+
+	async verifyAttentionCase(id: string, csrfToken: string): Promise<RuntimeVerification> {
+		const response = await this.send(`/api/v1/config/attention-cases/${id}/verifications`, {
+			method: 'POST', headers: jsonMutationHeaders(csrfToken), body: '{}',
+		})
+		return parseRuntimeVerification(await readJSON(response), response.status)
+	}
+
   async listConfigGroups(
     workspaceId?: string,
     signal?: AbortSignal,
@@ -417,6 +564,16 @@ export class APIClient {
     return parseGroupCollectionResponse(response)
   }
 
+	private async historyPage<T>(
+		path: string,
+		cursor: string | undefined,
+		signal: AbortSignal | undefined,
+		parseItem: (value: unknown, status: number) => T,
+	): Promise<CursorPage<T>> {
+		const response = await this.send(optionalQuery(path, { cursor }), { method: 'GET', signal })
+		return parseCursorPage(await readJSON(response), response.status, parseItem)
+	}
+
 	private async send(path: string, init: RequestInit, acceptedStatuses: readonly number[] = []): Promise<Response> {
     let response: Response
     try {
@@ -459,6 +616,14 @@ function withQuery(path: string, query: Readonly<Record<string, string>>): strin
   return `${path}?${new URLSearchParams(query).toString()}`
 }
 
+function optionalQuery(
+	path: string,
+	query: Readonly<Record<string, string | undefined>>,
+): string {
+	const defined = Object.entries(query).filter((entry): entry is [string, string] => entry[1] !== undefined)
+	return defined.length === 0 ? path : withQuery(path, Object.fromEntries(defined))
+}
+
 function jsonMutationHeaders(csrfToken: string, etag?: string): HeadersInit {
   return {
     'Content-Type': 'application/json',
@@ -477,6 +642,12 @@ function requireMatchingETag(response: Response, dtoETag: string): void {
   if (response.headers.get('ETag') !== dtoETag) {
     throw malformedResponse(response.status)
   }
+}
+
+function requireLocation(response: Response, status: number, location: string): void {
+	if (response.status !== status || response.headers.get('Location') !== location) {
+		throw malformedResponse(response.status)
+	}
 }
 
 async function parseGroupCollectionResponse(response: Response): Promise<GroupCollection> {
@@ -1141,6 +1312,309 @@ function isReleaseStageName(value: unknown): value is ReleaseStage['stage'] {
 	])
 }
 
+function parseCursorPage<T>(
+	value: unknown,
+	status: number,
+	parseItem: (item: unknown, status: number) => T,
+): CursorPage<T> {
+	if (
+		!hasExactKeys(value, ['items'], ['next_cursor']) ||
+		!Array.isArray(value.items) ||
+		value.items.length > 100 ||
+		(value.next_cursor !== undefined &&
+			(typeof value.next_cursor !== 'string' || !/^[A-Za-z0-9_-]{1,1024}$/.test(value.next_cursor)))
+	) {
+		throw malformedResponse(status)
+	}
+	return {
+		items: value.items.map((item) => parseItem(item, status)),
+		...(value.next_cursor === undefined ? {} : { next_cursor: value.next_cursor }),
+	}
+}
+
+function parseBackup(value: unknown, status: number): ConfigBackup {
+	if (
+		!hasExactKeys(
+			value,
+			[
+				'id', 'origin_type', 'origin_id', 'production_digest', 'state', 'entry_count',
+				'total_bytes', 'body_present', 'protected', 'manually_protected', 'protections', 'created_at',
+			],
+			['release_id', 'protection_reason', 'verified_at', 'deleted_at'],
+		) ||
+		!isOpaqueID(value.id) ||
+		!isOneOf(value.origin_type, ['release', 'restore']) ||
+		!isOpaqueID(value.origin_id) ||
+		(value.release_id !== undefined && !isOpaqueID(value.release_id)) ||
+		(value.origin_type === 'release' && value.release_id !== value.origin_id) ||
+		(value.origin_type === 'restore' && value.release_id !== undefined) ||
+		!isDigest(value.production_digest) ||
+		!isOneOf(value.state, ['creating', 'complete', 'invalid', 'deleting', 'deleted']) ||
+		!isIntegerInRange(value.entry_count, 0, 4096) ||
+		!isIntegerInRange(value.total_bytes, 0) ||
+		typeof value.body_present !== 'boolean' ||
+		typeof value.protected !== 'boolean' ||
+		typeof value.manually_protected !== 'boolean' ||
+		(value.protection_reason !== undefined && !isBoundedString(value.protection_reason, 1, 256)) ||
+		!Array.isArray(value.protections) || value.protections.length > 16 ||
+		!isRFC3339(value.created_at) ||
+		(value.verified_at !== undefined && !isRFC3339(value.verified_at)) ||
+		(value.deleted_at !== undefined && !isRFC3339(value.deleted_at)) ||
+		(value.state === 'deleted') !== (value.deleted_at !== undefined) ||
+		(value.state === 'deleted' && value.body_present)
+	) {
+		throw malformedResponse(status)
+	}
+	const protections = value.protections.map((reason) => parseBackupProtection(reason, status))
+	return {
+		id: value.id, origin_type: value.origin_type, origin_id: value.origin_id,
+		...(value.release_id === undefined ? {} : { release_id: value.release_id }),
+		production_digest: value.production_digest, state: value.state,
+		entry_count: value.entry_count as number, total_bytes: value.total_bytes as number,
+		body_present: value.body_present, protected: value.protected,
+		manually_protected: value.manually_protected,
+		...(value.protection_reason === undefined ? {} : { protection_reason: value.protection_reason }),
+		protections, created_at: value.created_at,
+		...(value.verified_at === undefined ? {} : { verified_at: value.verified_at }),
+		...(value.deleted_at === undefined ? {} : { deleted_at: value.deleted_at }),
+	}
+}
+
+function parseBackupProtection(value: unknown, status: number): ConfigBackup['protections'][number] {
+	if (!hasExactKeys(value, ['kind', 'code']) || !isBoundedCode(value.kind) || !isBoundedCode(value.code)) {
+		throw malformedResponse(status)
+	}
+	return { kind: value.kind, code: value.code }
+}
+
+function parseRestore(value: unknown, status: number): ConfigRestore {
+	if (
+		!hasExactKeys(
+			value,
+			['id', 'target_backup_id', 'safety_backup_id', 'state', 'stage', 'source_digest',
+				'target_digest', 'reason', 'request_id', 'created_at', 'updated_at', 'stages'],
+			['attention_case_id', 'last_error_code', 'finished_at'],
+		) ||
+		!isOpaqueID(value.id) || !isOpaqueID(value.target_backup_id) || !isOpaqueID(value.safety_backup_id) ||
+		(value.attention_case_id !== undefined && !isOpaqueID(value.attention_case_id)) ||
+		!isOneOf(value.state, ['queued', 'running', 'rolling_back', 'succeeded', 'failed', 'rolled_back', 'needs_attention', 'cancelled']) ||
+		!isRestoreStageName(value.stage) || !isDigest(value.source_digest) || !isDigest(value.target_digest) ||
+		(value.last_error_code !== undefined && !isBoundedCode(value.last_error_code)) ||
+		!isBoundedString(value.reason, 1, 256) || !isRequestID(value.request_id) ||
+		!isRFC3339(value.created_at) || !isRFC3339(value.updated_at) ||
+		(value.finished_at !== undefined && !isRFC3339(value.finished_at)) ||
+		!Array.isArray(value.stages) || value.stages.length > 512
+	) {
+		throw malformedResponse(status)
+	}
+	const terminal = isOneOf(value.state, ['succeeded', 'failed', 'rolled_back', 'needs_attention', 'cancelled'])
+	if (terminal !== (value.finished_at !== undefined)) throw malformedResponse(status)
+	const stages = value.stages.map((stage, index) => parseRestoreStage(stage, index + 1, status))
+	return {
+		id: value.id, target_backup_id: value.target_backup_id, safety_backup_id: value.safety_backup_id,
+		...(value.attention_case_id === undefined ? {} : { attention_case_id: value.attention_case_id }),
+		state: value.state, stage: value.stage, source_digest: value.source_digest,
+		target_digest: value.target_digest,
+		...(value.last_error_code === undefined ? {} : { last_error_code: value.last_error_code }),
+		reason: value.reason, request_id: value.request_id, created_at: value.created_at,
+		updated_at: value.updated_at,
+		...(value.finished_at === undefined ? {} : { finished_at: value.finished_at }), stages,
+	}
+}
+
+function parseRestoreStage(value: unknown, sequence: number, status: number): RestoreStage {
+	if (!hasExactKeys(value, ['sequence', 'stage', 'result', 'details', 'occurred_at'], ['code']) ||
+		value.sequence !== sequence || !isRestoreStageName(value.stage) ||
+		!isOneOf(value.result, ['pending', 'running', 'success', 'failed', 'warning']) ||
+		(value.code !== undefined && !isBoundedCode(value.code)) || !isRecord(value.details) ||
+		!isRFC3339(value.occurred_at)) throw malformedResponse(status)
+	return { sequence, stage: value.stage, result: value.result,
+		...(value.code === undefined ? {} : { code: value.code }), details: { ...value.details },
+		occurred_at: value.occurred_at }
+}
+
+function isRestoreStageName(value: unknown): value is RestoreStage['stage'] {
+	return isOneOf(value, [
+		'queued', 'target_verifying', 'target_validated', 'safety_backup_creating',
+		'safety_backup_verified', 'files_restoring', 'files_restored', 'production_validated',
+		'reload_requested', 'runtime_confirmed', 'succeeded', 'rollback_applying',
+		'rollback_files_restored', 'rollback_validated', 'rollback_reload_requested',
+		'rolled_back', 'failed', 'needs_attention',
+	])
+}
+
+function parseRestart(value: unknown, status: number): NginxRestart {
+	if (!hasExactKeys(value,
+		['id', 'state', 'stage', 'production_digest', 'worker_count', 'reason', 'request_id',
+			'created_at', 'updated_at', 'stages'],
+		['attention_case_id', 'before_master_pid', 'after_master_pid', 'http_status',
+			'last_error_code', 'finished_at']) ||
+		!isOpaqueID(value.id) || (value.attention_case_id !== undefined && !isOpaqueID(value.attention_case_id)) ||
+		!isOneOf(value.state, ['queued', 'running', 'succeeded', 'failed', 'needs_attention', 'cancelled']) ||
+		!isRestartStageName(value.stage) || !isDigest(value.production_digest) ||
+		(value.before_master_pid !== undefined && !isIntegerInRange(value.before_master_pid, 1)) ||
+		(value.after_master_pid !== undefined && !isIntegerInRange(value.after_master_pid, 1)) ||
+		!isIntegerInRange(value.worker_count, 0) ||
+		(value.http_status !== undefined && !isIntegerInRange(value.http_status, 100, 599)) ||
+		(value.last_error_code !== undefined && !isBoundedCode(value.last_error_code)) ||
+		!isBoundedString(value.reason, 1, 256) || !isRequestID(value.request_id) ||
+		!isRFC3339(value.created_at) || !isRFC3339(value.updated_at) ||
+		(value.finished_at !== undefined && !isRFC3339(value.finished_at)) ||
+		!Array.isArray(value.stages) || value.stages.length > 512) throw malformedResponse(status)
+	const terminal = isOneOf(value.state, ['succeeded', 'failed', 'needs_attention', 'cancelled'])
+	if (terminal !== (value.finished_at !== undefined)) throw malformedResponse(status)
+	const stages = value.stages.map((stage, index) => parseRestartStage(stage, index + 1, status))
+	return {
+		id: value.id, ...(value.attention_case_id === undefined ? {} : { attention_case_id: value.attention_case_id }),
+		state: value.state, stage: value.stage, production_digest: value.production_digest,
+		...(value.before_master_pid === undefined ? {} : { before_master_pid: value.before_master_pid as number }),
+		...(value.after_master_pid === undefined ? {} : { after_master_pid: value.after_master_pid as number }),
+		worker_count: value.worker_count as number,
+		...(value.http_status === undefined ? {} : { http_status: value.http_status as number }),
+		...(value.last_error_code === undefined ? {} : { last_error_code: value.last_error_code }),
+		reason: value.reason, request_id: value.request_id, created_at: value.created_at, updated_at: value.updated_at,
+		...(value.finished_at === undefined ? {} : { finished_at: value.finished_at }), stages,
+	}
+}
+
+function parseRestartStage(value: unknown, sequence: number, status: number): RestartStage {
+	if (!hasExactKeys(value, ['sequence', 'stage', 'result', 'details', 'occurred_at'], ['code']) ||
+		value.sequence !== sequence || !isRestartStageName(value.stage) ||
+		!isOneOf(value.result, ['pending', 'running', 'success', 'failed', 'warning']) ||
+		(value.code !== undefined && !isBoundedCode(value.code)) || !isRecord(value.details) ||
+		!isRFC3339(value.occurred_at)) throw malformedResponse(status)
+	return { sequence, stage: value.stage, result: value.result,
+		...(value.code === undefined ? {} : { code: value.code }), details: { ...value.details },
+		occurred_at: value.occurred_at }
+}
+
+function isRestartStageName(value: unknown): value is RestartStage['stage'] {
+	return isOneOf(value, ['queued', 'production_validating', 'runtime_sampling', 'restart_requested',
+		'runtime_confirming', 'succeeded', 'failed', 'needs_attention'])
+}
+
+function parseRetentionRun(value: unknown, status: number): RetentionRun {
+	if (!hasExactKeys(value,
+		['id', 'state', 'policy', 'backup_count', 'total_bytes', 'protected_count', 'delete_count',
+			'delete_bytes', 'deleted_count', 'deleted_bytes', 'created_at', 'expires_at', 'items'],
+		['last_error_code', 'started_at', 'finished_at']) || !isOpaqueID(value.id) ||
+		!isOneOf(value.state, ['planned', 'executing', 'succeeded', 'failed', 'needs_attention', 'expired']) ||
+		!hasExactKeys(value.policy, ['minimum_complete', 'maximum_complete', 'maximum_total_bytes', 'minimum_age_seconds']) ||
+		!isIntegerInRange(value.policy.minimum_complete, 1) ||
+		!isIntegerInRange(value.policy.maximum_complete, value.policy.minimum_complete as number) ||
+		!isIntegerInRange(value.policy.maximum_total_bytes, 1) || !isIntegerInRange(value.policy.minimum_age_seconds, 0) ||
+		!isIntegerInRange(value.backup_count, 0, 4096) || !isIntegerInRange(value.total_bytes, 0) ||
+		!isIntegerInRange(value.protected_count, 0) || !isIntegerInRange(value.delete_count, 0) ||
+		!isIntegerInRange(value.delete_bytes, 0) || !isIntegerInRange(value.deleted_count, 0) ||
+		!isIntegerInRange(value.deleted_bytes, 0) ||
+		(value.last_error_code !== undefined && !isBoundedCode(value.last_error_code)) ||
+		!isRFC3339(value.created_at) || !isRFC3339(value.expires_at) ||
+		(value.started_at !== undefined && !isRFC3339(value.started_at)) ||
+		(value.finished_at !== undefined && !isRFC3339(value.finished_at)) ||
+		!Array.isArray(value.items) || value.items.length > 4096) throw malformedResponse(status)
+	const items = value.items.map((item) => parseRetentionItem(item, status))
+	return {
+		id: value.id, state: value.state,
+		policy: {
+			minimum_complete: value.policy.minimum_complete as number,
+			maximum_complete: value.policy.maximum_complete as number,
+			maximum_total_bytes: value.policy.maximum_total_bytes as number,
+			minimum_age_seconds: value.policy.minimum_age_seconds as number,
+		},
+		backup_count: value.backup_count as number, total_bytes: value.total_bytes as number,
+		protected_count: value.protected_count as number, delete_count: value.delete_count as number,
+		delete_bytes: value.delete_bytes as number, deleted_count: value.deleted_count as number,
+		deleted_bytes: value.deleted_bytes as number,
+		...(value.last_error_code === undefined ? {} : { last_error_code: value.last_error_code }),
+		created_at: value.created_at, expires_at: value.expires_at,
+		...(value.started_at === undefined ? {} : { started_at: value.started_at }),
+		...(value.finished_at === undefined ? {} : { finished_at: value.finished_at }), items,
+	}
+}
+
+function parseRetentionItem(value: unknown, status: number): RetentionRun['items'][number] {
+	if (!hasExactKeys(value, ['ordinal', 'backup_id', 'decision', 'reason_code', 'state',
+		'snapshot_created_at', 'snapshot_total_bytes']) || !isIntegerInRange(value.ordinal, 0, 4095) ||
+		!isOpaqueID(value.backup_id) || !isOneOf(value.decision, ['keep', 'delete']) ||
+		!isBoundedCode(value.reason_code) || !isOneOf(value.state, ['planned', 'kept', 'deleting',
+			'deleted', 'skipped_protected', 'failed', 'needs_attention']) ||
+		!isRFC3339(value.snapshot_created_at) || !isIntegerInRange(value.snapshot_total_bytes, 0)) {
+		throw malformedResponse(status)
+	}
+	return { ordinal: value.ordinal as number, backup_id: value.backup_id, decision: value.decision,
+		reason_code: value.reason_code, state: value.state, snapshot_created_at: value.snapshot_created_at,
+		snapshot_total_bytes: value.snapshot_total_bytes as number }
+}
+
+function parseAttentionCase(value: unknown, status: number): AttentionCase {
+	if (!hasExactKeys(value, ['id', 'subject_type', 'subject_id', 'state', 'reason_code', 'opened_at'],
+		['workspace_id', 'backup_id', 'resolved_at', 'resolution_type', 'resolution_id']) ||
+		!isOpaqueID(value.id) || !isOneOf(value.subject_type, ['workspace', 'release', 'restore', 'restart']) ||
+		!isOpaqueID(value.subject_id) || (value.workspace_id !== undefined && !isOpaqueID(value.workspace_id)) ||
+		(value.backup_id !== undefined && !isOpaqueID(value.backup_id)) ||
+		!isOneOf(value.state, ['open', 'resolved']) || !isBoundedCode(value.reason_code) ||
+		!isRFC3339(value.opened_at) || (value.resolved_at !== undefined && !isRFC3339(value.resolved_at)) ||
+		(value.resolution_type !== undefined && !isOneOf(value.resolution_type, ['restore', 'restart', 'verification'])) ||
+		(value.resolution_id !== undefined && !isOpaqueID(value.resolution_id))) throw malformedResponse(status)
+	const resolvedFields = value.resolved_at !== undefined && value.resolution_type !== undefined && value.resolution_id !== undefined
+	if ((value.state === 'resolved') !== resolvedFields || (value.state === 'open' &&
+		(value.resolved_at !== undefined || value.resolution_type !== undefined || value.resolution_id !== undefined))) {
+		throw malformedResponse(status)
+	}
+	return { id: value.id, subject_type: value.subject_type, subject_id: value.subject_id,
+		...(value.workspace_id === undefined ? {} : { workspace_id: value.workspace_id }),
+		...(value.backup_id === undefined ? {} : { backup_id: value.backup_id }), state: value.state,
+		reason_code: value.reason_code, opened_at: value.opened_at,
+		...(value.resolved_at === undefined ? {} : { resolved_at: value.resolved_at }),
+		...(value.resolution_type === undefined ? {} : { resolution_type: value.resolution_type }),
+		...(value.resolution_id === undefined ? {} : { resolution_id: value.resolution_id }) }
+}
+
+function parseRuntimeVerification(value: unknown, status: number): RuntimeVerification {
+	if (!hasExactKeys(value, ['id', 'attention_case_id', 'state', 'production_digest', 'worker_count',
+		'request_id', 'created_at', 'finished_at'], ['master_pid', 'http_status', 'last_error_code']) ||
+		!isOpaqueID(value.id) || !isOpaqueID(value.attention_case_id) ||
+		!isOneOf(value.state, ['succeeded', 'failed']) || !isDigest(value.production_digest) ||
+		(value.master_pid !== undefined && !isIntegerInRange(value.master_pid, 1)) ||
+		!isIntegerInRange(value.worker_count, 0) ||
+		(value.http_status !== undefined && !isIntegerInRange(value.http_status, 100, 599)) ||
+		(value.last_error_code !== undefined && !isBoundedCode(value.last_error_code)) ||
+		!isRequestID(value.request_id) || !isRFC3339(value.created_at) || !isRFC3339(value.finished_at)) {
+		throw malformedResponse(status)
+	}
+	return { id: value.id, attention_case_id: value.attention_case_id, state: value.state,
+		production_digest: value.production_digest,
+		...(value.master_pid === undefined ? {} : { master_pid: value.master_pid as number }),
+		worker_count: value.worker_count as number,
+		...(value.http_status === undefined ? {} : { http_status: value.http_status as number }),
+		...(value.last_error_code === undefined ? {} : { last_error_code: value.last_error_code }),
+		request_id: value.request_id, created_at: value.created_at, finished_at: value.finished_at }
+}
+
+function parseAuditEvent(value: unknown, status: number): AuditEvent {
+	if (!hasExactKeys(value, ['id', 'occurred_at', 'actor_name', 'action', 'object_type', 'object_id',
+		'result', 'request_id', 'details']) || !isIntegerInRange(value.id, 1) ||
+		!isRFC3339(value.occurred_at) || !isBoundedString(value.actor_name, 0, 128) ||
+		!isBoundedCode(value.action, 128, /^[a-z0-9._-]+$/) ||
+		!isBoundedCode(value.object_type) || !isOpaqueID(value.object_id) ||
+		!isBoundedCode(value.result) || !isRequestID(value.request_id) || !isRecord(value.details) ||
+		!Object.values(value.details).every((detail) => ['string', 'number', 'boolean'].includes(typeof detail))) {
+		throw malformedResponse(status)
+	}
+	return { id: value.id as number, occurred_at: value.occurred_at, actor_name: value.actor_name,
+		action: value.action, object_type: value.object_type, object_id: value.object_id,
+		result: value.result, request_id: value.request_id,
+		details: { ...value.details } as Record<string, string | number | boolean> }
+}
+
+function isBoundedCode(value: unknown, maximum = 128, pattern = /^[a-z0-9_]+$/): value is string {
+	return isBoundedString(value, 1, maximum) && pattern.test(value)
+}
+
+function isRequestID(value: unknown): value is string {
+	return typeof value === 'string' && /^[A-Za-z0-9._-]{1,64}$/.test(value)
+}
+
 function parseFileDiffSummary(value: unknown, status: number): FileDiffSummary {
   if (
     !hasExactKeys(value, ['path', 'status', 'added_lines', 'removed_lines']) ||
@@ -1302,6 +1776,8 @@ function errorDetailKeys(code: APIErrorCode): readonly string[] {
       return ['limit_name', 'limit_value', 'actual']
     case 'CONFIG_WORKSPACE_CONFLICT':
       return ['current_etag', 'field', 'path']
+		case 'CONFIG_BACKUP_PROTECTED':
+			return ['backup_id']
     default:
       return []
   }
@@ -1315,20 +1791,32 @@ function isSafeErrorDetail(key: string, value: unknown): value is string | numbe
       return isDraftETag(value) || isGroupsETag(value)
     case 'field':
       return isOneOf(value, [
+				'attention_case_id',
+				'backup_id',
         'body',
         'confirm_name',
         'confirm_path',
         'content',
+				'confirm_backup_id',
+				'confirmation',
         'destination_path',
         'group_id',
         'members',
         'name',
+				'expected_protected',
         'path',
+				'protected',
         'query',
         'source_path',
+				'reason',
+				'restart_id',
+				'restore_id',
+				'retention_id',
         'workspace_id',
         'username',
       ])
+		case 'backup_id':
+			return isOpaqueID(value)
     case 'limit_name':
       return isOneOf(value, [
         'request_body_bytes',
@@ -1407,6 +1895,20 @@ const apiErrorCodes = [
 	'CONFIG_NO_CHANGES',
 	'CONFIG_PUBLISH_CHECK_EXPIRED',
 	'CONFIG_PUBLISH_IN_PROGRESS',
+	'CONFIG_OPERATION_IN_PROGRESS',
+	'CONFIG_BACKUP_PROTECTED',
+	'CONFIG_RETENTION_PLAN_EXPIRED',
+	'CONFIG_ATTENTION_UNRESOLVED',
+	'CONFIG_BACKUP_TARGET_INVALID',
+	'CONFIG_RESTORE_NEEDS_ATTENTION',
+	'NGINX_RESTART_CONFIG_INVALID',
+	'NGINX_RESTART_FAILED',
+	'NGINX_RESTART_NEEDS_ATTENTION',
+	'CONFIG_BACKUP_NOT_FOUND',
+	'CONFIG_RETENTION_RUN_NOT_FOUND',
+	'CONFIG_RESTORE_NOT_FOUND',
+	'NGINX_RESTART_NOT_FOUND',
+	'CONFIG_ATTENTION_CASE_NOT_FOUND',
 ] as const satisfies readonly APIErrorCode[]
 
 function isAPIErrorCode(value: unknown): value is APIErrorCode {

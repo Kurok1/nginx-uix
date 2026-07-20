@@ -3,7 +3,7 @@
 openapi: 3.1.0
 info:
   title: Nginx UIX API
-  version: 0.2.2
+  version: 0.2.3
 servers:
   - url: /
 paths:
@@ -1174,6 +1174,539 @@ paths:
           $ref: "#/components/responses/ConfigAPIError"
         "504":
           $ref: "#/components/responses/ConfigAPIError"
+  /api/v1/config/history/releases:
+    get:
+      operationId: listConfigReleaseHistory
+      summary: List persisted configuration release history
+      description: Returns one bounded newest-first keyset page. Cursor and limit are each accepted exactly once when present.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/RecoveryCursor"
+        - $ref: "#/components/parameters/RecoveryLimit"
+        - $ref: "#/components/parameters/RequestID"
+      responses:
+        "200":
+          description: Bounded release history page
+          headers:
+            X-Request-ID: { $ref: "#/components/headers/RequestID" }
+            Cache-Control: &RecoveryNoStoreHeader
+              schema: { type: string, enum: [no-store] }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReleaseHistoryPage" }
+        "400": { $ref: "#/components/responses/ConfigAPIError" }
+        "401": { $ref: "#/components/responses/ConfigAPIError" }
+        "500": { $ref: "#/components/responses/ConfigAPIError" }
+        "503": { $ref: "#/components/responses/ConfigAPIError" }
+  /api/v1/config/history/restores:
+    get:
+      operationId: listConfigRestoreHistory
+      summary: List persisted manual restore history
+      description: Returns one bounded newest-first keyset page. Cursor and limit are each accepted exactly once when present.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/RecoveryCursor"
+        - $ref: "#/components/parameters/RecoveryLimit"
+        - $ref: "#/components/parameters/RequestID"
+      responses:
+        "200":
+          description: Bounded restore history page
+          headers:
+            X-Request-ID: { $ref: "#/components/headers/RequestID" }
+            Cache-Control: *RecoveryNoStoreHeader
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RestoreHistoryPage" }
+        "400": { $ref: "#/components/responses/ConfigAPIError" }
+        "401": { $ref: "#/components/responses/ConfigAPIError" }
+        "500": { $ref: "#/components/responses/ConfigAPIError" }
+        "503": { $ref: "#/components/responses/ConfigAPIError" }
+  /api/v1/config/history/restarts:
+    get:
+      operationId: listNginxRestartHistory
+      summary: List persisted fixed Nginx restart history
+      description: Returns one bounded newest-first keyset page. Cursor and limit are each accepted exactly once when present.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/RecoveryCursor"
+        - $ref: "#/components/parameters/RecoveryLimit"
+        - $ref: "#/components/parameters/RequestID"
+      responses:
+        "200":
+          description: Bounded restart history page
+          headers:
+            X-Request-ID: { $ref: "#/components/headers/RequestID" }
+            Cache-Control: *RecoveryNoStoreHeader
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RestartHistoryPage" }
+        "400": { $ref: "#/components/responses/ConfigAPIError" }
+        "401": { $ref: "#/components/responses/ConfigAPIError" }
+        "500": { $ref: "#/components/responses/ConfigAPIError" }
+        "503": { $ref: "#/components/responses/ConfigAPIError" }
+  /api/v1/config/backups:
+    get:
+      operationId: listConfigBackups
+      summary: List immutable backup index and protection evidence
+      description: Cursor, limit, and include_deleted are each accepted exactly once when present. Backup content is never returned.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/RecoveryCursor"
+        - $ref: "#/components/parameters/RecoveryLimit"
+        - $ref: "#/components/parameters/IncludeDeleted"
+        - $ref: "#/components/parameters/RequestID"
+      responses:
+        "200":
+          description: Bounded backup index page
+          headers:
+            X-Request-ID: { $ref: "#/components/headers/RequestID" }
+            Cache-Control: *RecoveryNoStoreHeader
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BackupPage" }
+        "400": { $ref: "#/components/responses/ConfigAPIError" }
+        "401": { $ref: "#/components/responses/ConfigAPIError" }
+        "500": { $ref: "#/components/responses/ConfigAPIError" }
+        "503": { $ref: "#/components/responses/ConfigAPIError" }
+  /api/v1/config/backups/{backup_id}:
+    get:
+      operationId: getConfigBackup
+      summary: Get one content-free immutable backup index
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/BackupID"
+        - $ref: "#/components/parameters/RequestID"
+      responses:
+        "200":
+          description: Current backup and dynamic protection evidence
+          headers:
+            X-Request-ID: { $ref: "#/components/headers/RequestID" }
+            Cache-Control: *RecoveryNoStoreHeader
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConfigBackup" }
+        "400": { $ref: "#/components/responses/ConfigAPIError" }
+        "401": { $ref: "#/components/responses/ConfigAPIError" }
+        "404": { $ref: "#/components/responses/ConfigAPIError" }
+        "500": { $ref: "#/components/responses/ConfigAPIError" }
+        "503": { $ref: "#/components/responses/ConfigAPIError" }
+  /api/v1/config/backups/{backup_id}/protection:
+    put:
+      operationId: changeConfigBackupProtection
+      summary: Set or remove manual protection on one immutable backup
+      description: Uses an expected-state guard. System protection cannot be removed through this operation.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/BackupID"
+        - $ref: "#/components/parameters/Origin"
+        - $ref: "#/components/parameters/CSRFToken"
+        - $ref: "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        description: Strict JSON object limited to 4096 bytes.
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BackupProtectionRequest" }
+      responses:
+        "200":
+          description: Updated manual and dynamic protection evidence
+          headers:
+            X-Request-ID: { $ref: "#/components/headers/RequestID" }
+            Cache-Control: *RecoveryNoStoreHeader
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConfigBackup" }
+        "400": { $ref: "#/components/responses/ConfigAPIError" }
+        "401": { $ref: "#/components/responses/ConfigAPIError" }
+        "403": { $ref: "#/components/responses/ConfigAPIError" }
+        "404": { $ref: "#/components/responses/ConfigAPIError" }
+        "409": { $ref: "#/components/responses/ConfigAPIError" }
+        "413": { $ref: "#/components/responses/ConfigAPIError" }
+        "415": { $ref: "#/components/responses/ConfigAPIError" }
+        "422": { $ref: "#/components/responses/ConfigAPIError" }
+        "500": { $ref: "#/components/responses/ConfigAPIError" }
+        "503": { $ref: "#/components/responses/ConfigAPIError" }
+  /api/v1/config/backup-retention-runs:
+    post:
+      operationId: createConfigBackupRetentionPlan
+      summary: Create a deterministic backup retention dry-run
+      description: Creates evidence only and never deletes backup content.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/Origin"
+        - $ref: "#/components/parameters/CSRFToken"
+        - $ref: "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        description: Strict JSON object limited to 4096 bytes.
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EmptyObject" }
+      responses:
+        "201":
+          description: Persisted dry-run plan; no backup has been deleted
+          headers:
+            X-Request-ID: { $ref: "#/components/headers/RequestID" }
+            Cache-Control: *RecoveryNoStoreHeader
+            Location: &RecoveryLocationHeader
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RetentionRun" }
+        "400": { $ref: "#/components/responses/ConfigAPIError" }
+        "401": { $ref: "#/components/responses/ConfigAPIError" }
+        "403": { $ref: "#/components/responses/ConfigAPIError" }
+        "409": { $ref: "#/components/responses/ConfigAPIError" }
+        "413": { $ref: "#/components/responses/ConfigAPIError" }
+        "415": { $ref: "#/components/responses/ConfigAPIError" }
+        "500": { $ref: "#/components/responses/ConfigAPIError" }
+        "503": { $ref: "#/components/responses/ConfigAPIError" }
+  /api/v1/config/backup-retention-runs/{retention_id}:
+    get:
+      operationId: getConfigBackupRetentionRun
+      summary: Get one retention plan and its persisted item results
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/RetentionID"
+        - $ref: "#/components/parameters/RequestID"
+      responses:
+        "200":
+          description: Current retention run projection
+          headers:
+            X-Request-ID: { $ref: "#/components/headers/RequestID" }
+            Cache-Control: *RecoveryNoStoreHeader
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RetentionRun" }
+        "400": { $ref: "#/components/responses/ConfigAPIError" }
+        "401": { $ref: "#/components/responses/ConfigAPIError" }
+        "404": { $ref: "#/components/responses/ConfigAPIError" }
+        "500": { $ref: "#/components/responses/ConfigAPIError" }
+        "503": { $ref: "#/components/responses/ConfigAPIError" }
+  /api/v1/config/backup-retention-runs/{retention_id}/executions:
+    post:
+      operationId: executeConfigBackupRetentionRun
+      summary: Execute one exact unexpired retention dry-run
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/RetentionID"
+        - $ref: "#/components/parameters/Origin"
+        - $ref: "#/components/parameters/CSRFToken"
+        - $ref: "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        description: Strict JSON object limited to 4096 bytes.
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RetentionExecutionRequest" }
+      responses:
+        "202":
+          description: Durable queued retention execution; this is not deletion success
+          headers:
+            X-Request-ID: { $ref: "#/components/headers/RequestID" }
+            Cache-Control: *RecoveryNoStoreHeader
+            Location: *RecoveryLocationHeader
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RetentionRun" }
+        "400": { $ref: "#/components/responses/ConfigAPIError" }
+        "401": { $ref: "#/components/responses/ConfigAPIError" }
+        "403": { $ref: "#/components/responses/ConfigAPIError" }
+        "404": { $ref: "#/components/responses/ConfigAPIError" }
+        "409": { $ref: "#/components/responses/ConfigAPIError" }
+        "413": { $ref: "#/components/responses/ConfigAPIError" }
+        "415": { $ref: "#/components/responses/ConfigAPIError" }
+        "500": { $ref: "#/components/responses/ConfigAPIError" }
+        "503": { $ref: "#/components/responses/ConfigAPIError" }
+  /api/v1/config/backups/{backup_id}/restores:
+    post:
+      operationId: createConfigRestore
+      summary: Queue a verified immutable-backup restore
+      description: The durable task validates the target, creates a safety backup, restores production, validates, reloads, and confirms health.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/BackupID"
+        - $ref: "#/components/parameters/Origin"
+        - $ref: "#/components/parameters/CSRFToken"
+        - $ref: "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        description: Strict JSON object limited to 4096 bytes.
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RestoreRequest" }
+      responses:
+        "202":
+          description: Durable queued restore; this response is not restore success
+          headers:
+            X-Request-ID: { $ref: "#/components/headers/RequestID" }
+            Cache-Control: *RecoveryNoStoreHeader
+            Location: *RecoveryLocationHeader
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConfigRestore" }
+        "400": { $ref: "#/components/responses/ConfigAPIError" }
+        "401": { $ref: "#/components/responses/ConfigAPIError" }
+        "403": { $ref: "#/components/responses/ConfigAPIError" }
+        "404": { $ref: "#/components/responses/ConfigAPIError" }
+        "409": { $ref: "#/components/responses/ConfigAPIError" }
+        "413": { $ref: "#/components/responses/ConfigAPIError" }
+        "415": { $ref: "#/components/responses/ConfigAPIError" }
+        "422": { $ref: "#/components/responses/ConfigAPIError" }
+        "500": { $ref: "#/components/responses/ConfigAPIError" }
+        "503": { $ref: "#/components/responses/ConfigAPIError" }
+        "504": { $ref: "#/components/responses/ConfigAPIError" }
+  /api/v1/config/restores/{restore_id}:
+    get:
+      operationId: getConfigRestore
+      summary: Get one persisted restore task and its stages
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/RestoreID"
+        - $ref: "#/components/parameters/RequestID"
+      responses:
+        "200":
+          description: Current durable restore projection
+          headers:
+            X-Request-ID: { $ref: "#/components/headers/RequestID" }
+            Cache-Control: *RecoveryNoStoreHeader
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConfigRestore" }
+        "400": { $ref: "#/components/responses/ConfigAPIError" }
+        "401": { $ref: "#/components/responses/ConfigAPIError" }
+        "404": { $ref: "#/components/responses/ConfigAPIError" }
+        "500": { $ref: "#/components/responses/ConfigAPIError" }
+        "503": { $ref: "#/components/responses/ConfigAPIError" }
+  /api/v1/config/restores/{restore_id}/events:
+    get:
+      operationId: streamConfigRestoreEvents
+      summary: Resume persisted restore stages by Last-Event-ID
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/RestoreID"
+        - $ref: "#/components/parameters/LastEventID"
+        - $ref: "#/components/parameters/RequestID"
+      responses:
+        "200":
+          description: SSE snapshot, stage, terminal, and heartbeat events
+          headers:
+            X-Request-ID: { $ref: "#/components/headers/RequestID" }
+            Cache-Control: *RecoveryNoStoreHeader
+          content:
+            text/event-stream:
+              schema: { type: string }
+        "400": { $ref: "#/components/responses/ConfigAPIError" }
+        "401": { $ref: "#/components/responses/ConfigAPIError" }
+        "404": { $ref: "#/components/responses/ConfigAPIError" }
+        "500": { $ref: "#/components/responses/ConfigAPIError" }
+        "503": { $ref: "#/components/responses/ConfigAPIError" }
+  /api/v1/nginx/restarts:
+    post:
+      operationId: createNginxRestart
+      summary: Queue the fixed supervised Nginx restart
+      description: Validates production first and accepts no PID, signal, command, path, timeout, or health target.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/Origin"
+        - $ref: "#/components/parameters/CSRFToken"
+        - $ref: "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        description: Strict JSON object limited to 4096 bytes.
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RestartRequest" }
+      responses:
+        "202":
+          description: Durable queued fixed restart; this response is not runtime success
+          headers:
+            X-Request-ID: { $ref: "#/components/headers/RequestID" }
+            Cache-Control: *RecoveryNoStoreHeader
+            Location: *RecoveryLocationHeader
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NginxRestart" }
+        "400": { $ref: "#/components/responses/ConfigAPIError" }
+        "401": { $ref: "#/components/responses/ConfigAPIError" }
+        "403": { $ref: "#/components/responses/ConfigAPIError" }
+        "409": { $ref: "#/components/responses/ConfigAPIError" }
+        "413": { $ref: "#/components/responses/ConfigAPIError" }
+        "415": { $ref: "#/components/responses/ConfigAPIError" }
+        "422": { $ref: "#/components/responses/ConfigAPIError" }
+        "500": { $ref: "#/components/responses/ConfigAPIError" }
+        "503": { $ref: "#/components/responses/ConfigAPIError" }
+        "504": { $ref: "#/components/responses/ConfigAPIError" }
+  /api/v1/nginx/restarts/{restart_id}:
+    get:
+      operationId: getNginxRestart
+      summary: Get one persisted fixed restart task and its stages
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/RestartID"
+        - $ref: "#/components/parameters/RequestID"
+      responses:
+        "200":
+          description: Current durable restart projection
+          headers:
+            X-Request-ID: { $ref: "#/components/headers/RequestID" }
+            Cache-Control: *RecoveryNoStoreHeader
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NginxRestart" }
+        "400": { $ref: "#/components/responses/ConfigAPIError" }
+        "401": { $ref: "#/components/responses/ConfigAPIError" }
+        "404": { $ref: "#/components/responses/ConfigAPIError" }
+        "500": { $ref: "#/components/responses/ConfigAPIError" }
+        "503": { $ref: "#/components/responses/ConfigAPIError" }
+  /api/v1/nginx/restarts/{restart_id}/events:
+    get:
+      operationId: streamNginxRestartEvents
+      summary: Resume persisted fixed-restart stages by Last-Event-ID
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/RestartID"
+        - $ref: "#/components/parameters/LastEventID"
+        - $ref: "#/components/parameters/RequestID"
+      responses:
+        "200":
+          description: SSE snapshot, stage, terminal, and heartbeat events
+          headers:
+            X-Request-ID: { $ref: "#/components/headers/RequestID" }
+            Cache-Control: *RecoveryNoStoreHeader
+          content:
+            text/event-stream:
+              schema: { type: string }
+        "400": { $ref: "#/components/responses/ConfigAPIError" }
+        "401": { $ref: "#/components/responses/ConfigAPIError" }
+        "404": { $ref: "#/components/responses/ConfigAPIError" }
+        "500": { $ref: "#/components/responses/ConfigAPIError" }
+        "503": { $ref: "#/components/responses/ConfigAPIError" }
+  /api/v1/config/audit-events:
+    get:
+      operationId: listConfigAuditEvents
+      summary: List bounded redacted configuration audit events
+      description: Cursor and limit are each accepted exactly once when present. Details contain only public scalar evidence.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/RecoveryCursor"
+        - $ref: "#/components/parameters/RecoveryLimit"
+        - $ref: "#/components/parameters/RequestID"
+      responses:
+        "200":
+          description: Bounded newest-first audit page
+          headers:
+            X-Request-ID: { $ref: "#/components/headers/RequestID" }
+            Cache-Control: *RecoveryNoStoreHeader
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuditEventPage" }
+        "400": { $ref: "#/components/responses/ConfigAPIError" }
+        "401": { $ref: "#/components/responses/ConfigAPIError" }
+        "500": { $ref: "#/components/responses/ConfigAPIError" }
+        "503": { $ref: "#/components/responses/ConfigAPIError" }
+  /api/v1/config/attention-cases:
+    get:
+      operationId: listConfigAttentionCases
+      summary: List unresolved or resolved attention cases
+      description: State, cursor, and limit are each accepted exactly once when present. Cases contain safe evidence references only.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/AttentionState"
+        - $ref: "#/components/parameters/RecoveryCursor"
+        - $ref: "#/components/parameters/RecoveryLimit"
+        - $ref: "#/components/parameters/RequestID"
+      responses:
+        "200":
+          description: Bounded newest-first attention page
+          headers:
+            X-Request-ID: { $ref: "#/components/headers/RequestID" }
+            Cache-Control: *RecoveryNoStoreHeader
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AttentionCasePage" }
+        "400": { $ref: "#/components/responses/ConfigAPIError" }
+        "401": { $ref: "#/components/responses/ConfigAPIError" }
+        "500": { $ref: "#/components/responses/ConfigAPIError" }
+        "503": { $ref: "#/components/responses/ConfigAPIError" }
+  /api/v1/config/attention-cases/{attention_id}:
+    get:
+      operationId: getConfigAttentionCase
+      summary: Get one attention case and its durable resolution reference
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/AttentionID"
+        - $ref: "#/components/parameters/RequestID"
+      responses:
+        "200":
+          description: Current attention-case projection
+          headers:
+            X-Request-ID: { $ref: "#/components/headers/RequestID" }
+            Cache-Control: *RecoveryNoStoreHeader
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AttentionCase" }
+        "400": { $ref: "#/components/responses/ConfigAPIError" }
+        "401": { $ref: "#/components/responses/ConfigAPIError" }
+        "404": { $ref: "#/components/responses/ConfigAPIError" }
+        "500": { $ref: "#/components/responses/ConfigAPIError" }
+        "503": { $ref: "#/components/responses/ConfigAPIError" }
+  /api/v1/config/attention-cases/{attention_id}/verifications:
+    post:
+      operationId: createConfigAttentionVerification
+      summary: Verify current production and runtime evidence for one attention case
+      description: Runs only fixed production validation, unique runtime sampling, and loopback HTTP health checks.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/AttentionID"
+        - $ref: "#/components/parameters/Origin"
+        - $ref: "#/components/parameters/CSRFToken"
+        - $ref: "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        description: Strict JSON object limited to 4096 bytes.
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EmptyObject" }
+      responses:
+        "201":
+          description: Persisted verification; only a succeeded result resolves the attention case
+          headers:
+            X-Request-ID: { $ref: "#/components/headers/RequestID" }
+            Cache-Control: *RecoveryNoStoreHeader
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RuntimeVerification" }
+        "400": { $ref: "#/components/responses/ConfigAPIError" }
+        "401": { $ref: "#/components/responses/ConfigAPIError" }
+        "403": { $ref: "#/components/responses/ConfigAPIError" }
+        "404": { $ref: "#/components/responses/ConfigAPIError" }
+        "409": { $ref: "#/components/responses/ConfigAPIError" }
+        "413": { $ref: "#/components/responses/ConfigAPIError" }
+        "415": { $ref: "#/components/responses/ConfigAPIError" }
+        "422": { $ref: "#/components/responses/ConfigAPIError" }
+        "500": { $ref: "#/components/responses/ConfigAPIError" }
+        "503": { $ref: "#/components/responses/ConfigAPIError" }
+        "504": { $ref: "#/components/responses/ConfigAPIError" }
 components:
   securitySchemes:
     sessionCookie:
@@ -1236,6 +1769,89 @@ components:
       schema:
         type: string
         pattern: "^[0-9a-f]{32}$"
+    BackupID:
+      name: backup_id
+      in: path
+      required: true
+      description: Opaque immutable backup identifier.
+      schema:
+        type: string
+        pattern: "^[0-9a-f]{32}$"
+    RetentionID:
+      name: retention_id
+      in: path
+      required: true
+      description: Opaque retention dry-run identifier.
+      schema:
+        type: string
+        pattern: "^[0-9a-f]{32}$"
+    RestoreID:
+      name: restore_id
+      in: path
+      required: true
+      description: Opaque manual restore task identifier.
+      schema:
+        type: string
+        pattern: "^[0-9a-f]{32}$"
+    RestartID:
+      name: restart_id
+      in: path
+      required: true
+      description: Opaque fixed restart task identifier.
+      schema:
+        type: string
+        pattern: "^[0-9a-f]{32}$"
+    AttentionID:
+      name: attention_id
+      in: path
+      required: true
+      description: Opaque attention-case identifier.
+      schema:
+        type: string
+        pattern: "^[0-9a-f]{32}$"
+    RecoveryCursor:
+      name: cursor
+      in: query
+      required: false
+      description: Opaque versioned keyset cursor accepted exactly once when present.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 2048
+        pattern: "^[A-Za-z0-9_-]+$"
+    RecoveryLimit:
+      name: limit
+      in: query
+      required: false
+      description: Page size from 1 through 100 accepted exactly once when present; defaults to 50.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+    IncludeDeleted:
+      name: include_deleted
+      in: query
+      required: false
+      description: Boolean tombstone selector accepted exactly once when present; defaults to false.
+      schema:
+        type: boolean
+    AttentionState:
+      name: state
+      in: query
+      required: false
+      description: Optional case-state selector accepted exactly once when present.
+      schema:
+        type: string
+        enum: [open, resolved]
+    LastEventID:
+      name: Last-Event-ID
+      in: header
+      required: false
+      description: Last persisted stage sequence received by the client.
+      schema:
+        type: integer
+        minimum: 0
+        maximum: 512
     RequiredConfigPath:
       name: path
       in: query
@@ -2046,6 +2662,345 @@ components:
           type: string
           minLength: 1
           maxLength: 64
+    RecoveryCursorValue:
+      type: string
+      minLength: 1
+      maxLength: 2048
+      pattern: "^[A-Za-z0-9_-]+$"
+    ReleaseHistoryPage:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          minItems: 0
+          maxItems: 100
+          items: { $ref: "#/components/schemas/Release" }
+        next_cursor: { $ref: "#/components/schemas/RecoveryCursorValue" }
+    RestoreHistoryPage:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          minItems: 0
+          maxItems: 100
+          items: { $ref: "#/components/schemas/ConfigRestore" }
+        next_cursor: { $ref: "#/components/schemas/RecoveryCursorValue" }
+    RestartHistoryPage:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          minItems: 0
+          maxItems: 100
+          items: { $ref: "#/components/schemas/NginxRestart" }
+        next_cursor: { $ref: "#/components/schemas/RecoveryCursorValue" }
+    BackupPage:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          minItems: 0
+          maxItems: 100
+          items: { $ref: "#/components/schemas/ConfigBackup" }
+        next_cursor: { $ref: "#/components/schemas/RecoveryCursorValue" }
+    BackupProtectionReason:
+      type: object
+      additionalProperties: false
+      required: [kind, code]
+      properties:
+        kind: { type: string, pattern: "^[a-z0-9_]+$", minLength: 1, maxLength: 64 }
+        code: { type: string, pattern: "^[a-z0-9_]+$", minLength: 1, maxLength: 64 }
+    ConfigBackup:
+      type: object
+      additionalProperties: false
+      required: [id, origin_type, origin_id, production_digest, state, entry_count, total_bytes, body_present, protected, manually_protected, protections, created_at]
+      properties:
+        id: { type: string, pattern: "^[0-9a-f]{32}$" }
+        origin_type: { type: string, enum: [release, restore] }
+        origin_id: { type: string, pattern: "^[0-9a-f]{32}$" }
+        release_id: { type: string, pattern: "^[0-9a-f]{32}$" }
+        production_digest: { type: string, pattern: "^[0-9a-f]{64}$" }
+        state: { type: string, enum: [creating, complete, invalid, deleting, deleted] }
+        entry_count: { type: integer, minimum: 0, maximum: 4096 }
+        total_bytes: { type: integer, format: int64, minimum: 0 }
+        body_present:
+          type: boolean
+          description: Integrity evidence only; backup file content is never returned.
+        protected: { type: boolean }
+        manually_protected: { type: boolean }
+        protection_reason: { type: string, pattern: "^[a-z0-9_]+$", maxLength: 64 }
+        protections:
+          type: array
+          minItems: 0
+          maxItems: 16
+          items: { $ref: "#/components/schemas/BackupProtectionReason" }
+        created_at: { type: string, format: date-time }
+        verified_at: { type: string, format: date-time }
+        deleted_at: { type: string, format: date-time }
+    BackupProtectionRequest:
+      type: object
+      additionalProperties: false
+      required: [expected_protected, protected, reason, confirmation]
+      properties:
+        expected_protected: { type: boolean }
+        protected: { type: boolean }
+        reason:
+          type: string
+          maxLength: 256
+          description: Required, trimmed operator reason when adding manual protection; empty when removing it.
+        confirmation:
+          type: string
+          maxLength: 32
+          description: Empty when protecting; exact full backup ID when removing manual protection.
+    RetentionExecutionRequest:
+      type: object
+      additionalProperties: false
+      required: [confirmation]
+      properties:
+        confirmation:
+          type: string
+          pattern: "^[0-9a-f]{32}$"
+          description: Exact full visible retention run ID.
+    RetentionPolicy:
+      type: object
+      additionalProperties: false
+      required: [minimum_complete, maximum_complete, maximum_total_bytes, minimum_age_seconds]
+      properties:
+        minimum_complete: { type: integer, minimum: 1 }
+        maximum_complete: { type: integer, minimum: 1 }
+        maximum_total_bytes: { type: integer, format: int64, minimum: 1 }
+        minimum_age_seconds: { type: integer, format: int64, minimum: 0 }
+    RetentionItem:
+      type: object
+      additionalProperties: false
+      required: [ordinal, backup_id, decision, reason_code, state, snapshot_created_at, snapshot_total_bytes]
+      properties:
+        ordinal: { type: integer, minimum: 1 }
+        backup_id: { type: string, pattern: "^[0-9a-f]{32}$" }
+        decision: { type: string, enum: [keep, delete] }
+        reason_code: { type: string, pattern: "^[a-z0-9_]+$", minLength: 1, maxLength: 64 }
+        state: { type: string, enum: [planned, kept, deleting, deleted, skipped_protected, failed, needs_attention] }
+        snapshot_created_at: { type: string, format: date-time }
+        snapshot_total_bytes: { type: integer, format: int64, minimum: 0 }
+    RetentionRun:
+      type: object
+      additionalProperties: false
+      required: [id, state, policy, backup_count, total_bytes, protected_count, delete_count, delete_bytes, deleted_count, deleted_bytes, created_at, expires_at, items]
+      properties:
+        id: { type: string, pattern: "^[0-9a-f]{32}$" }
+        state: { type: string, enum: [planned, executing, succeeded, failed, needs_attention, expired] }
+        policy: { $ref: "#/components/schemas/RetentionPolicy" }
+        backup_count: { type: integer, minimum: 0 }
+        total_bytes: { type: integer, format: int64, minimum: 0 }
+        protected_count: { type: integer, minimum: 0 }
+        delete_count: { type: integer, minimum: 0 }
+        delete_bytes: { type: integer, format: int64, minimum: 0 }
+        deleted_count: { type: integer, minimum: 0 }
+        deleted_bytes: { type: integer, format: int64, minimum: 0 }
+        last_error_code: { type: string, pattern: "^[A-Z0-9_]+$", maxLength: 64 }
+        created_at: { type: string, format: date-time }
+        expires_at: { type: string, format: date-time }
+        started_at: { type: string, format: date-time }
+        finished_at: { type: string, format: date-time }
+        items:
+          type: array
+          minItems: 0
+          maxItems: 4096
+          items: { $ref: "#/components/schemas/RetentionItem" }
+    RestoreRequest:
+      type: object
+      additionalProperties: false
+      required: [attention_case_id, reason, confirm_backup_id]
+      properties:
+        attention_case_id:
+          type: string
+          pattern: "^(?:[0-9a-f]{32})?$"
+          description: Optional open attention case represented by an empty string when absent.
+        reason: { type: string, minLength: 1, maxLength: 256 }
+        confirm_backup_id:
+          type: string
+          pattern: "^[0-9a-f]{32}$"
+          description: Exact full target backup ID.
+    RestoreStage:
+      type: object
+      additionalProperties: false
+      required: [sequence, stage, result, details, occurred_at]
+      properties:
+        sequence: { type: integer, minimum: 1, maximum: 512 }
+        stage:
+          type: string
+          enum: [queued, target_verifying, target_validated, safety_backup_creating, safety_backup_verified, files_restoring, files_restored, production_validated, reload_requested, runtime_confirmed, succeeded, rollback_applying, rollback_files_restored, rollback_validated, rollback_reload_requested, rolled_back, failed, needs_attention]
+        result: { type: string, enum: [pending, running, success, failed, warning] }
+        code: { type: string, pattern: "^[A-Z0-9_]+$", maxLength: 64 }
+        details:
+          type: object
+          description: Bounded public stage evidence without paths, content, or raw process output.
+          additionalProperties: true
+        occurred_at: { type: string, format: date-time }
+    ConfigRestore:
+      type: object
+      additionalProperties: false
+      required: [id, target_backup_id, safety_backup_id, state, stage, source_digest, target_digest, reason, request_id, created_at, updated_at, stages]
+      properties:
+        id: { type: string, pattern: "^[0-9a-f]{32}$" }
+        target_backup_id: { type: string, pattern: "^[0-9a-f]{32}$" }
+        safety_backup_id: { type: string, pattern: "^[0-9a-f]{32}$" }
+        attention_case_id: { type: string, pattern: "^[0-9a-f]{32}$" }
+        state: { type: string, enum: [queued, running, rolling_back, succeeded, failed, rolled_back, needs_attention, cancelled] }
+        stage:
+          type: string
+          enum: [queued, target_verifying, target_validated, safety_backup_creating, safety_backup_verified, files_restoring, files_restored, production_validated, reload_requested, runtime_confirmed, succeeded, rollback_applying, rollback_files_restored, rollback_validated, rollback_reload_requested, rolled_back, failed, needs_attention]
+        source_digest: { type: string, pattern: "^[0-9a-f]{64}$" }
+        target_digest: { type: string, pattern: "^[0-9a-f]{64}$" }
+        last_error_code: { type: string, pattern: "^[A-Z0-9_]+$", maxLength: 64 }
+        reason: { type: string, minLength: 1, maxLength: 256 }
+        request_id: { type: string, pattern: "^[A-Za-z0-9._-]{1,64}$" }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        finished_at: { type: string, format: date-time }
+        stages:
+          type: array
+          minItems: 0
+          maxItems: 512
+          items: { $ref: "#/components/schemas/RestoreStage" }
+    RestartRequest:
+      type: object
+      additionalProperties: false
+      required: [attention_case_id, reason, confirmation]
+      properties:
+        attention_case_id:
+          type: string
+          pattern: "^(?:[0-9a-f]{32})?$"
+          description: Optional open attention case represented by an empty string when absent.
+        reason: { type: string, minLength: 1, maxLength: 256 }
+        confirmation: { type: string, enum: [RESTART NGINX] }
+    RestartStage:
+      type: object
+      additionalProperties: false
+      required: [sequence, stage, result, details, occurred_at]
+      properties:
+        sequence: { type: integer, minimum: 1, maximum: 512 }
+        stage:
+          type: string
+          enum: [queued, production_validating, runtime_sampling, restart_requested, runtime_confirming, succeeded, failed, needs_attention]
+        result: { type: string, enum: [pending, running, success, failed, warning] }
+        code: { type: string, pattern: "^[A-Z0-9_]+$", maxLength: 64 }
+        details:
+          type: object
+          description: Bounded public runtime evidence without process lists or raw output.
+          additionalProperties: true
+        occurred_at: { type: string, format: date-time }
+    NginxRestart:
+      type: object
+      additionalProperties: false
+      required: [id, state, stage, production_digest, worker_count, reason, request_id, created_at, updated_at, stages]
+      properties:
+        id: { type: string, pattern: "^[0-9a-f]{32}$" }
+        attention_case_id: { type: string, pattern: "^[0-9a-f]{32}$" }
+        state: { type: string, enum: [queued, running, succeeded, failed, needs_attention, cancelled] }
+        stage:
+          type: string
+          enum: [queued, production_validating, runtime_sampling, restart_requested, runtime_confirming, succeeded, failed, needs_attention]
+        production_digest: { type: string, pattern: "^[0-9a-f]{64}$" }
+        before_master_pid: { type: integer, minimum: 1 }
+        after_master_pid: { type: integer, minimum: 1 }
+        worker_count: { type: integer, minimum: 0 }
+        http_status: { type: integer, minimum: 100, maximum: 599 }
+        last_error_code: { type: string, pattern: "^[A-Z0-9_]+$", maxLength: 64 }
+        reason: { type: string, minLength: 1, maxLength: 256 }
+        request_id: { type: string, pattern: "^[A-Za-z0-9._-]{1,64}$" }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        finished_at: { type: string, format: date-time }
+        stages:
+          type: array
+          minItems: 0
+          maxItems: 512
+          items: { $ref: "#/components/schemas/RestartStage" }
+    AuditEventPage:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          minItems: 0
+          maxItems: 100
+          items: { $ref: "#/components/schemas/AuditEvent" }
+        next_cursor: { $ref: "#/components/schemas/RecoveryCursorValue" }
+    AuditEvent:
+      type: object
+      additionalProperties: false
+      required: [id, occurred_at, actor_name, action, object_type, object_id, result, request_id, details]
+      properties:
+        id: { type: integer, format: int64, minimum: 1 }
+        occurred_at: { type: string, format: date-time }
+        actor_name: { type: string, maxLength: 128 }
+        action: { type: string, pattern: "^[a-z0-9_.]+$", maxLength: 128 }
+        object_type: { type: string, pattern: "^[a-z0-9_]+$", maxLength: 64 }
+        object_id: { type: string, pattern: "^[A-Za-z0-9._-]{1,128}$" }
+        result: { type: string, pattern: "^[a-z0-9_]+$", maxLength: 64 }
+        request_id: { type: string, pattern: "^[A-Za-z0-9._-]{1,64}$" }
+        details:
+          type: object
+          description: Server-whitelisted public scalar details; never raw JSON, configuration content, paths, confirmations, or process output.
+          maxProperties: 16
+          additionalProperties:
+            oneOf:
+              - { type: string, maxLength: 128 }
+              - { type: integer }
+              - { type: boolean }
+    AttentionCasePage:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          minItems: 0
+          maxItems: 100
+          items: { $ref: "#/components/schemas/AttentionCase" }
+        next_cursor: { $ref: "#/components/schemas/RecoveryCursorValue" }
+    AttentionCase:
+      type: object
+      additionalProperties: false
+      required: [id, subject_type, subject_id, state, reason_code, opened_at]
+      properties:
+        id: { type: string, pattern: "^[0-9a-f]{32}$" }
+        subject_type: { type: string, enum: [workspace, release, restore, restart] }
+        subject_id: { type: string, pattern: "^[0-9a-f]{32}$" }
+        workspace_id: { type: string, pattern: "^[0-9a-f]{32}$" }
+        backup_id: { type: string, pattern: "^[0-9a-f]{32}$" }
+        state: { type: string, enum: [open, resolved] }
+        reason_code: { type: string, pattern: "^[a-z0-9_]+$", minLength: 1, maxLength: 64 }
+        opened_at: { type: string, format: date-time }
+        resolved_at: { type: string, format: date-time }
+        resolution_type: { type: string, enum: [restore, restart, verification] }
+        resolution_id: { type: string, pattern: "^[0-9a-f]{32}$" }
+    RuntimeVerification:
+      type: object
+      additionalProperties: false
+      required: [id, attention_case_id, state, production_digest, worker_count, request_id, created_at, finished_at]
+      properties:
+        id: { type: string, pattern: "^[0-9a-f]{32}$" }
+        attention_case_id: { type: string, pattern: "^[0-9a-f]{32}$" }
+        state: { type: string, enum: [succeeded, failed] }
+        production_digest: { type: string, pattern: "^[0-9a-f]{64}$" }
+        master_pid: { type: integer, minimum: 1 }
+        worker_count: { type: integer, minimum: 0 }
+        http_status: { type: integer, minimum: 100, maximum: 599 }
+        last_error_code: { type: string, pattern: "^[A-Z0-9_]+$", maxLength: 64 }
+        request_id: { type: string, pattern: "^[A-Za-z0-9._-]{1,64}$" }
+        created_at: { type: string, format: date-time }
+        finished_at: { type: string, format: date-time }
     ConfigErrorCode:
       type: string
       enum:
@@ -2069,6 +3024,20 @@ components:
         - CONFIG_NO_CHANGES
         - CONFIG_PUBLISH_CHECK_EXPIRED
         - CONFIG_PUBLISH_IN_PROGRESS
+        - CONFIG_OPERATION_IN_PROGRESS
+        - CONFIG_BACKUP_PROTECTED
+        - CONFIG_RETENTION_PLAN_EXPIRED
+        - CONFIG_ATTENTION_UNRESOLVED
+        - CONFIG_BACKUP_TARGET_INVALID
+        - CONFIG_RESTORE_NEEDS_ATTENTION
+        - NGINX_RESTART_CONFIG_INVALID
+        - NGINX_RESTART_FAILED
+        - NGINX_RESTART_NEEDS_ATTENTION
+        - CONFIG_BACKUP_NOT_FOUND
+        - CONFIG_RETENTION_RUN_NOT_FOUND
+        - CONFIG_RESTORE_NOT_FOUND
+        - NGINX_RESTART_NOT_FOUND
+        - CONFIG_ATTENTION_CASE_NOT_FOUND
     ConfigAPIErrorCode:
       oneOf:
         - $ref: "#/components/schemas/ConfigErrorCode"
@@ -2083,7 +3052,26 @@ components:
           description: Safe configuration-root relative path; semantic limit is 1024 UTF-8 bytes and 64 components.
         field:
           type: string
-          enum: [body, confirm_name, confirm_path, content, destination_path, group_id, members, name, path, query, source_path, workspace_id]
+          enum: [attention_case_id, attention_id, backup_id, body, confirm_backup_id, confirm_name, confirm_path, confirmation, content, destination_path, expected_protected, group_id, include_deleted, limit, members, name, path, protected, query, reason, restart_id, restore_id, retention_id, source_path, state, workspace_id]
+        backup_id:
+          type: string
+          pattern: "^[0-9a-f]{32}$"
+        stage:
+          type: string
+          pattern: "^[a-z0-9_]+$"
+        state:
+          type: string
+          pattern: "^[a-z0-9_]+$"
+        reason_code:
+          type: string
+          pattern: "^[a-z0-9_]+$"
+        object_id:
+          type: string
+          pattern: "^[0-9a-f]{32}$"
+        http_status:
+          type: integer
+          minimum: 100
+          maximum: 599
         current_etag:
           type: string
           pattern: '^"(?:draft|groups)-v1:[0-9a-f]{64}"$'

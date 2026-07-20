@@ -18,6 +18,7 @@ import ConfigWorkspaceView from './views/ConfigWorkspaceView.vue'
 import DashboardView from './views/DashboardView.vue'
 import EffectiveConfigView from './views/EffectiveConfigView.vue'
 import LoginView from './views/LoginView.vue'
+import OperationsView from './views/OperationsView.vue'
 
 declare module 'vue-router' {
   interface RouteMeta {
@@ -45,6 +46,12 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true },
   },
   {
+    path: '/config/operations',
+    name: 'config-operations',
+    component: OperationsView,
+    meta: { requiresAuth: true },
+  },
+  {
     path: '/login',
     name: 'login',
     component: LoginView,
@@ -63,8 +70,8 @@ export function createAppRouter(
       const redirect = typeof to.query.redirect === 'string' ? to.query.redirect : ''
       if (redirect !== '') {
         const resolved = router.resolve(redirect)
-        if (resolved.name === 'config-workspaces') {
-          return { path: resolved.fullPath }
+        if (resolved.name === 'config-workspaces' || resolved.name === 'config-operations') {
+          return { path: resolved.path, query: resolved.query, hash: resolved.hash }
         }
       }
       return { name: 'dashboard' }

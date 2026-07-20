@@ -284,7 +284,8 @@ func TestCreateWorkspaceRejectsCapacityBeforeAgentSnapshot(t *testing.T) {
 	service, err := NewService(Dependencies{
 		WorkspaceRoot: fixture.workspaceRoot, Production: fixture.production,
 		Reader: fixture.repository, Writer: fixture.repository, Groups: fixture.repository,
-		Clock: fixture.clock, Random: &incrementingReader{}, Limits: limits,
+		Attention: fixedAttentionReader{},
+		Clock:     fixture.clock, Random: &incrementingReader{}, Limits: limits,
 	})
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
@@ -296,6 +297,20 @@ func TestCreateWorkspaceRejectsCapacityBeforeAgentSnapshot(t *testing.T) {
 	}
 	if fixture.production.snapshotCalls != 0 {
 		t.Fatalf("ConfigSnapshot() calls = %d, want 0", fixture.production.snapshotCalls)
+	}
+}
+
+func TestCreateWorkspaceRejectsOpenAttentionBeforeReadingProduction(t *testing.T) {
+	fixture := newServiceFixture(t)
+	fixture.service.attention = fixedAttentionReader{open: true}
+	_, err := fixture.service.Create(
+		context.Background(), Actor{UserID: 7, RequestID: "req-attention-create"}, "review",
+	)
+	if !errors.Is(err, ErrAttentionUnresolved) {
+		t.Fatalf("Create() error = %v, want ErrAttentionUnresolved", err)
+	}
+	if fixture.production.digestCalls != 0 || fixture.production.snapshotCalls != 0 {
+		t.Fatalf("production calls = digest %d snapshot %d", fixture.production.digestCalls, fixture.production.snapshotCalls)
 	}
 }
 
@@ -362,6 +377,15 @@ type serviceFixture struct {
 	clock         *fixedClock
 }
 
+type fixedAttentionReader struct {
+	open bool
+	err  error
+}
+
+func (r fixedAttentionReader) HasOpenAttentionCases(context.Context) (bool, error) {
+	return r.open, r.err
+}
+
 func newServiceFixture(t *testing.T) *serviceFixture {
 	t.Helper()
 	root := t.TempDir()
@@ -387,6 +411,7 @@ func newServiceFixture(t *testing.T) *serviceFixture {
 		Reader:        repository,
 		Writer:        repository,
 		Groups:        repository,
+		Attention:     fixedAttentionReader{},
 		Clock:         clock,
 		Random:        &incrementingReader{},
 		Limits:        DefaultLimits(),

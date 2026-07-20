@@ -159,6 +159,28 @@ func TestReplaceFileRequiresCurrentWorkspaceETag(t *testing.T) {
 	assertNoFileAudit(t, fixture.repository, "config.file.replace")
 }
 
+func TestReplaceFileRejectsOpenAttentionBeforeOpeningWorkspaceDraft(t *testing.T) {
+	fixture := newServiceFixture(t)
+	workspace := fixture.mustCreate(t)
+	path := fixture.path(workspace.ID, "draft/nginx.conf")
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.service.attention = fixedAttentionReader{open: true}
+	_, err = fixture.service.ReplaceFile(
+		context.Background(), Actor{UserID: 7, RequestID: "req-attention-edit"}, workspace.ID,
+		ReplaceFileInput{Path: "nginx.conf", Content: []byte("events { worker_connections 128; }\n"), IfMatch: workspace.ETag()},
+	)
+	if !errors.Is(err, ErrAttentionUnresolved) {
+		t.Fatalf("ReplaceFile() error = %v, want ErrAttentionUnresolved", err)
+	}
+	after, readErr := os.ReadFile(path)
+	if readErr != nil || !bytes.Equal(before, after) {
+		t.Fatalf("draft changed while attention open: read error = %v", readErr)
+	}
+}
+
 func TestReplaceFileUpdatesDraftManifestWorkspaceAndAudit(t *testing.T) {
 	fixture := newServiceFixture(t)
 	workspace := fixture.mustCreate(t)
