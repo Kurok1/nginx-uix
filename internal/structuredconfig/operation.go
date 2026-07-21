@@ -247,7 +247,7 @@ func (w *canonicalWriter) optionalUint16(value *uint16) {
 func (w *canonicalWriter) optionalInt(value *int) {
 	w.boolean(value != nil)
 	if value != nil {
-		w.uint64(uint64(int64(*value)))
+		w.uint64(uint64(int64(*value))) // #nosec G115 -- canonical encoding intentionally preserves the signed two's-complement bit pattern.
 	}
 }
 

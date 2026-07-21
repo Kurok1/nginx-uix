@@ -53,6 +53,16 @@ import {
   type StructuredConfig,
   type StructuredOperation,
 } from './structured'
+import {
+  parseRouteAnalysis,
+  parseRouteHistoryPage,
+  parseRouteRun,
+  type RouteAnalysis,
+  type RouteHistoryPage,
+  type RouteHistoryQuery,
+  type RouteTestRequest,
+  type RouteTestRun,
+} from './route_lab'
 
 const sessionPath = '/api/v1/auth/session'
 const systemStatusPath = '/api/v1/system/status'
@@ -360,6 +370,96 @@ export class APIClient {
     }
     requireMatchingETag(response, result.draft_etag)
     return result
+  }
+
+  async analyzeRoute(
+    workspaceId: string,
+    input: RouteTestRequest,
+    etag: string,
+    csrfToken: string,
+    signal?: AbortSignal,
+  ): Promise<RouteAnalysis> {
+    const response = await this.send(`${workspacePath(workspaceId)}/route-analyses`, {
+      method: 'POST',
+      headers: jsonMutationHeaders(csrfToken, etag),
+      body: JSON.stringify(input),
+      signal,
+    })
+    try {
+      return parseRouteAnalysis(await readJSON(response), response.status)
+    } catch {
+      throw malformedResponse(response.status)
+    }
+  }
+
+  async createRouteTest(
+    workspaceId: string,
+    input: RouteTestRequest,
+    etag: string,
+    csrfToken: string,
+    signal?: AbortSignal,
+  ): Promise<RouteTestRun> {
+    const response = await this.send(`${workspacePath(workspaceId)}/route-tests`, {
+      method: 'POST',
+      headers: jsonMutationHeaders(csrfToken, etag),
+      body: JSON.stringify(input),
+      signal,
+    })
+    let result: RouteTestRun
+    try {
+      result = parseRouteRun(await readJSON(response), response.status)
+    } catch {
+      throw malformedResponse(response.status)
+    }
+    requireLocation(response, 202, `/api/v1/route-tests/${result.id}`)
+    return result
+  }
+
+  async getRouteTest(id: string, signal?: AbortSignal): Promise<RouteTestRun> {
+    const response = await this.send(`/api/v1/route-tests/${id}`, { method: 'GET', signal })
+    try {
+      return parseRouteRun(await readJSON(response), response.status)
+    } catch {
+      throw malformedResponse(response.status)
+    }
+  }
+
+  async listRouteTests(
+    query: RouteHistoryQuery = {},
+    signal?: AbortSignal,
+  ): Promise<RouteHistoryPage> {
+    const response = await this.send(
+      optionalQuery('/api/v1/route-tests', {
+        workspace_id: query.workspace_id,
+        state: query.state,
+        cursor: query.cursor,
+        limit: query.limit === undefined ? undefined : String(query.limit),
+      }),
+      { method: 'GET', signal },
+    )
+    try {
+      return parseRouteHistoryPage(await readJSON(response), response.status)
+    } catch {
+      throw malformedResponse(response.status)
+    }
+  }
+
+  async cancelRouteTest(
+    id: string,
+    csrfToken: string,
+    signal?: AbortSignal,
+  ): Promise<RouteTestRun> {
+    const response = await this.send(`/api/v1/route-tests/${id}/cancellations`, {
+      method: 'POST',
+      headers: jsonMutationHeaders(csrfToken),
+      body: '{}',
+      signal,
+    })
+    try {
+      return parseRouteRun(await readJSON(response), response.status)
+    } catch {
+      throw malformedResponse(response.status)
+    }
   }
 
 	async createPublishCheck(
@@ -2041,6 +2141,22 @@ const apiErrorCodes = [
 	'LOCATION_INVALID',
 	'LOCATION_DUPLICATE',
 	'PROXY_PASS_INVALID',
+	'ROUTE_REQUEST_TOO_LARGE',
+	'ROUTE_REQUEST_INVALID',
+	'ROUTE_LAB_UNAVAILABLE',
+	'ROUTE_TEST_NOT_FOUND',
+	'ROUTE_WORKSPACE_CONFLICT',
+	'ROUTE_CONFIRMATION_REQUIRED',
+	'ROUTE_PROJECT_INCOMPLETE',
+	'ROUTE_LISTENER_AMBIGUOUS',
+	'ROUTE_LAB_BUSY',
+	'ROUTE_CANDIDATE_INVALID',
+	'ROUTE_SANDBOX_START_FAILED',
+	'ROUTE_CLEANUP_FAILED',
+	'ROUTE_REQUEST_TIMEOUT',
+	'ROUTE_EVIDENCE_INCOMPLETE',
+	'ROUTE_ALREADY_TERMINAL',
+	'ROUTE_LIMIT_EXCEEDED',
 ] as const satisfies readonly APIErrorCode[]
 
 function isAPIErrorCode(value: unknown): value is APIErrorCode {

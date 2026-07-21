@@ -701,7 +701,7 @@ func writeConfigUnavailable(writer http.ResponseWriter, request *http.Request) {
 
 func configNoStore(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if strings.HasPrefix(request.URL.Path, "/api/v1/config/") || request.URL.Path == "/api/v1/config" {
+		if strings.HasPrefix(request.URL.Path, "/api/v1/") || request.URL.Path == "/api/v1" {
 			writer.Header().Set("Cache-Control", "no-store")
 		}
 		next.ServeHTTP(writer, request)

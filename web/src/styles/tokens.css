@@ -100,6 +100,11 @@
   --component-structured-review-width: 420px;
   --component-structured-tree-indent: 20px;
   --component-structured-diagnostic-max-height: 240px;
+  --component-route-request-width: 360px;
+  --component-route-evidence-min-width: 420px;
+  --component-route-candidate-max-height: 360px;
+  --component-route-history-min-width: 760px;
+  --component-route-body-min-height: 120px;
 
   --focus-outline: 2px solid var(--color-primary-focus);
   --focus-offset: 2px;

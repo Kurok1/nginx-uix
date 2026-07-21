@@ -372,20 +372,24 @@ v0.2.1 验收记录中已经执行的 Docker、缓存和多架构步骤继续作
 
 **目标：** 在不影响生产 Nginx 的情况下，验证候选配置对指定 Host + URI 的真实匹配结果。
 
+**详细设计：** [v0.4.0 路径实验室设计](docs/superpowers/specs/2026-07-20-v0.4-route-lab-design.md)
+
+**验收：** [v0.4.0 验收证据](docs/release/v0.4.0-verification.md)
+
 **交付物：**
 
-- [ ] 实现 server/listen/server_name 的静态选择分析。
-- [ ] 实现 exact、prefix、`^~`、regex 和 nested location 的候选分析。
-- [ ] 展示候选规则、优先级和排除原因。
-- [ ] 实现 include 依赖复制和沙箱配置重写。
-- [ ] 实现随机回环端口、独立 PID/prefix/log/temp 目录。
-- [ ] 为沙箱 server/location 注入稳定且可追溯的 Route ID。
-- [ ] 支持 HTTP/HTTPS、Host、SNI、Method、URI、Query、Headers 和 Body。
-- [ ] 展示最终 server/location、最终 URI、upstream、状态码、响应头、受限响应片段和耗时。
-- [ ] 支持期望状态码、期望文本和禁止文本断言。
-- [ ] 支持用户取消、全局超时、输出大小限制和异常清理。
-- [ ] 对非幂等请求和真实 upstream 副作用给出明确确认。
-- [ ] 提供路径实验室、历史结果和可复制测试参数页面。
+- [x] 实现 server/listen/server_name 的静态选择分析。
+- [x] 实现 exact、prefix、`^~`、regex 和 nested location 的候选分析。
+- [x] 展示候选规则、优先级和排除原因。
+- [x] 实现 include 依赖复制和沙箱配置重写。
+- [x] 实现随机回环端口、独立 PID/prefix/log/temp 目录。
+- [x] 为沙箱 server/location 注入稳定且可追溯的 Route ID。
+- [x] 支持 HTTP/HTTPS、Host、SNI、Method、URI、Query、Headers 和 Body。
+- [x] 展示最终 server/location、最终 URI、upstream、状态码、响应头、受限响应片段和耗时。
+- [x] 支持期望状态码、期望文本和禁止文本断言。
+- [x] 支持用户取消、全局超时、输出大小限制和异常清理。
+- [x] 对非幂等请求和真实 upstream 副作用给出明确确认。
+- [x] 提供路径实验室、历史结果和可复制测试参数页面。
 
 **验收条件：**
 
@@ -571,7 +575,7 @@ v0.2.1 验收记录中已经执行的 Docker、缓存和多架构步骤继续作
 | v0.2.2 | 安全发布闭环版 | 已完成 | v0.2.1 |
 | v0.2.3 | 恢复与运行控制版 | 已完成 | v0.2.2 |
 | v0.3.0 | upstream 与 location | 已完成 | v0.2.3 |
-| v0.4.0 | 路径实验室 | 未开始 | v0.3.0 |
+| v0.4.0 | 路径实验室 | 已完成 | v0.3.0 |
 | v0.5.0 | Let's Encrypt | 未开始 | v0.4.0 |
 | v0.6.0 | 发布候选 | 未开始 | v0.5.0 |
 | v0.7.0 | Docker 一体化统一验证 | 未开始 | v0.6.0 |
@@ -617,4 +621,7 @@ v0.2.1 验收记录中已经执行的 Docker、缓存和多架构步骤继续作
 - [x] 实施并验收 v0.2.3 恢复与运行控制版。
 - [x] 评审并确认 v0.3.0 结构化 upstream 与 location 设计及 fail-closed 边界。
 - [x] 实施并验收 v0.3.0 结构化 upstream 与 location 版。
+- [x] 形成 v0.4.0 路径实验室唯一设计规格，明确静态预测、类型化 Agent 沙箱、固定回环请求和异常清理边界。
+- [x] 实施并验收 v0.4.0 路径实验室后端。
+- [x] 实施并验收 v0.4.0 路径实验室前端，将版本标记为完成。
 - [ ] v0.6.0 完成后，以 v0.7.0 统一执行全部 Docker 验证。

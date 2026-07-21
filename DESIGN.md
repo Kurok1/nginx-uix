@@ -650,6 +650,11 @@ The following literal token contract is stable for CSS and tests:
 --component-structured-review-width: 420px
 --component-structured-tree-indent: 20px
 --component-structured-diagnostic-max-height: 240px
+--component-route-request-width: 360px
+--component-route-evidence-min-width: 420px
+--component-route-candidate-max-height: 360px
+--component-route-history-min-width: 760px
+--component-route-body-min-height: 120px
 ```
 
 `--color-state-success`, `--color-state-warning`, `--color-state-danger`, and `--color-state-info` are semantic status tokens only, never brand emphasis. `--color-diff-added`, `--color-diff-removed`, and `--color-diff-context` are status surfaces only; every added, removed, and context line also has its visible `+`, `−`, or context-line label. These tokens inherit the existing semantic foreground/surface approach and must never make a colored surface the sole state signal.
@@ -703,6 +708,48 @@ Structured workbench breakpoints use the existing workspace thresholds:
 | `<= 640px` | Use Browse, Edit, and Review task tabs and show one task panel at a time. |
 
 At 320 CSS px there is no page-level horizontal overflow. Only the bounded diff pane may scroll horizontally. All mutation buttons, selectors, tree rows, drawer controls, and confirmation controls keep a 44 × 44px minimum target. Drawers and modals reuse the existing focus trap, Escape, inert-background, and trigger-focus-restoration rules.
+
+#### Route Lab
+
+v0.4 adds a named “Route Lab” page for static route explanation and optional execution inside an isolated Nginx instance. It always identifies the selected ready workspace and revision, and keeps the two evidence classes visibly separate: “Static analysis — prediction only” and “Isolated runtime result — production Nginx was not reloaded”. Static analysis may be incomplete or indeterminate and must never be presented as observed runtime behavior. Runtime execution uses only the server-persisted task, stages, and result; browser disconnect, navigation, or SSE reconnect does not imply cancellation or completion.
+
+**`route-lab-workbench`** — At desktop width, place the request form in a fixed pane no wider than `--component-route-request-width` and the current analysis/runtime evidence in a flexible pane no narrower than `--component-route-evidence-min-width`; history follows as a full-width section. Every pane uses `min-width: 0`. The page names the selected workspace, shows its state and abbreviated revision, and reloads analysis when the workspace revision changes instead of replaying stale evidence. Request values live in browser memory only and are never stored in the URL, `localStorage`, IndexedDB, Cache Storage, or a Service Worker cache.
+
+**`route-request-form`** — A native labelled form for scheme, Host, port, SNI, method, URI path, query, headers, bounded body, timeout, and assertions. The body control is at least `--component-route-body-min-height`; labels, constraints, and field errors use `aria-describedby`. Host and SNI remain distinct controls. Header rows have explicit name/value labels and 44 × 44px add/remove controls. Passwords, tokens, cookies, authorization values, private keys, and other sensitive values remain memory-only, are visually identified as sensitive, and are omitted from copied parameters and history. “Analyze route” is the default action. “Run isolated test” is a separate action and never runs production Nginx.
+
+**`route-side-effect-confirmation`** — A `workspace-modal` used before requests with a body, a non-idempotent method, or a statically detected upstream side-effect risk. It states that the request runs against an isolated loopback Nginx but may still reach a configured upstream. The primary action is enabled only when the value exactly equals `RUN SIDE-EFFECTING REQUEST`; it is never prefilled and accepts no case variants. Closing before submission has no effect. After the server accepts the task, closing the modal or page does not cancel it.
+
+**`route-static-explanation`** — A labelled prediction region that shows normalized request URI, selected server reasoning, location candidates, winner reasoning, diagnostics, and uncertainty. Candidate lists are bounded by `--component-route-candidate-max-height` and use semantic lists. Every candidate includes a visible state word such as “Selected”, “Matched”, “Excluded”, or “Indeterminate”, a redundant icon/shape, matcher text, reason code translated into readable copy, and a relative source location when available. Regex uncertainty, unknown directives, and incomplete parsing remain persistent inline evidence; an indeterminate result offers runtime testing but never silently chooses a winner.
+
+**`route-runtime-evidence`** — A labelled isolated-result region showing the persisted technical state, final server and location, final URI, upstream target when safe, response status, bounded safe headers, response snippet, timing, assertion outcomes, and cleanup result. Static prediction and runtime observation appear under separate headings; a mismatch places both values side by side with visible “Predicted” and “Observed” labels. Raw stderr, absolute paths, secret headers, complete response bodies, and unbounded output are never rendered. Cleanup failure or uncertainty is a blocking inline state and is not reduced to a toast.
+
+**`route-run-timeline`** — An ordered list of server-persisted stages using the existing neutral `--component-release-timeline-marker` grammar. Each row has a stage name, visible status word, timestamp, and safe message. Only the current concise phrase uses a local polite live region. Refresh and SSE reconnect rebuild from the route-test resource and `Last-Event-ID`; heartbeats are not announced. “Cancel test” is an explicit 44 × 44px control, disabled with a reason after a terminal state. A cancellation request shows “Cancelling…” until the server records a terminal result; browser disconnect never acts as cancellation.
+
+**`route-history-table`** and **`route-history-card`** — Responsive projections of the same bounded, server-ordered history DTO. At widths that fit `--component-route-history-min-width`, use a native table with caption and scoped headers; otherwise use labelled cards. Show run ID abbreviation, workspace, method and safe target summary, state, assertion summary, creation time, and actions. Pagination appends in server order. “Use these parameters” copies only replayable, non-sensitive values into the in-memory form; omitted secrets or bodies are explicitly named, and a non-replayable run explains why. Row selection never queues a test.
+
+Route Lab states remain local to the affected pane and use visible words plus icon/shape:
+
+| State | Required visible behavior |
+| --- | --- |
+| Empty | Explain that a ready workspace is required or that no history exists, and offer only the applicable navigation or refresh action. |
+| Loading | Preserve pane dimensions, set `aria-busy="true"`, and retain already loaded evidence when refreshing. |
+| Static indeterminate | State “Static analysis is indeterminate” and retain every uncertainty reason; do not imply a matched route. |
+| Running | Show the persisted current stage and explicit cancel control; navigation and disconnect have no task semantics. |
+| Assertion failed | Show the observed result separately from each failed assertion; the run is complete but not successful. |
+| Timed out | State which bounded phase timed out when supplied by the server and keep cleanup evidence visible. |
+| Cancelled | State that cancellation was recorded by the server; do not infer it from a closed stream. |
+| Cleanup failed | Use a blocking inline alert with safe diagnostics and the visible words “Cleanup could not be confirmed”. |
+
+Route Lab uses the existing workspace thresholds:
+
+| Width | Required Route Lab layout |
+| --- | --- |
+| `>= 1069px` | Show request and evidence panes side by side; history spans the content width below. |
+| `834–1068px` | Narrow the request pane without reducing target size; evidence remains beside it and history stays below. |
+| `735–833px` | Stack request, evidence, and history in reading order. |
+| `<= 640px` | Use Request, Analysis, Result, and History task tabs; show one panel at a time without destroying in-memory form values or an active run. |
+
+At 320 CSS px there is no page-level horizontal overflow. Candidate evidence, code snippets, and response details scroll only inside their labelled bounded regions. Below 480px, timeline timestamps and mismatch values stack under their labels. Keyboard focus remains visible, task-tab order follows reading order, and all form, history, modal, cancellation, and pagination controls retain 44 × 44px targets.
 
 #### Configuration Recovery and History
 

@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/kuroky/nginx-uix/internal/config"
+	"github.com/kuroky/nginx-uix/internal/routelab"
 )
 
 const (
@@ -37,6 +38,15 @@ const (
 	agentErrorCodeConfigSnapshotChanged  = "config_snapshot_changed"
 	agentErrorCodeConfigOperationTimeout = "config_operation_timeout"
 	agentErrorCodeObjectNotFound         = "config_object_not_found"
+	agentErrorCodeRouteProjectIncomplete = "route_project_incomplete"
+	agentErrorCodeRouteListenerAmbiguous = "route_listener_ambiguous"
+	agentErrorCodeRouteRequestInvalid    = "route_request_invalid"
+	agentErrorCodeRouteCandidateInvalid  = "route_candidate_invalid"
+	agentErrorCodeRouteSandboxStart      = "route_sandbox_start_failed"
+	agentErrorCodeRouteRequestTimeout    = "route_request_timeout"
+	agentErrorCodeRouteEvidence          = "route_evidence_incomplete"
+	agentErrorCodeRouteCleanup           = "route_cleanup_failed"
+	agentErrorCodeRouteLimit             = "route_limit_exceeded"
 	agentProtocolContentType             = "application/json"
 	agentProtocolVersion                 = uint16(1)
 	agentProtocolHealthPath              = "/v1/health"
@@ -60,6 +70,7 @@ const (
 	agentProtocolRestartProgressPath     = "/v1/nginx/restart/progress"
 	agentProtocolRestartRecoveryPath     = "/v1/nginx/restart/recovery"
 	agentProtocolRuntimeVerificationPath = "/v1/nginx/runtime-verification"
+	agentProtocolRouteTestPath           = "/v1/route-test/execute"
 	agentSnapshotRequestLimit            = 4 * 1024
 	agentSnapshotTimeout                 = configSnapshotTimeout
 	agentDigestTimeout                   = configDigestTimeout
@@ -95,6 +106,10 @@ type agentRecoveryOperations interface {
 	RestartProgress(context.Context, config.RestartExecutionRequest) (config.RestartExecutionResult, error)
 	RecoverRestart(context.Context, config.RestartExecutionRequest) (config.RestartExecutionResult, error)
 	VerifyRuntime(context.Context, config.RuntimeVerificationRequest) (config.RuntimeVerificationResult, error)
+}
+
+type agentRouteOperations interface {
+	ExecuteRouteTest(context.Context, routelab.AgentRequest) (routelab.AgentResult, error)
 }
 
 // AgentProtocolError is one stable, non-sensitive error returned by the local Agent.
@@ -158,6 +173,7 @@ func (h *agentProtocolHandler) ServeHTTP(writer http.ResponseWriter, request *ht
 	var candidateRequest config.CandidateValidationRequest
 	var releaseRequest config.ReleaseExecutionRequest
 	var recoveryRequest agentRecoveryRequest
+	var routeRequest routelab.AgentRequest
 	if agentActionRequiresRequestID(action) {
 		requestID = agentRequestID(request)
 		if requestID == "" {
@@ -195,6 +211,14 @@ func (h *agentProtocolHandler) ServeHTTP(writer http.ResponseWriter, request *ht
 			return
 		}
 		releaseRequest = decoded
+	} else if action == "route_test_execute" {
+		decoded, err := decodeAgentRouteTestRequest(request)
+		if err != nil || decoded.RequestID != requestID {
+			bytesWritten := writeAgentProtocolError(writer, http.StatusBadRequest, agentErrorCodeInvalidRequest, "agent request is invalid")
+			h.log(action, agentErrorCodeInvalidRequest, requestID, startedAt, bytesWritten)
+			return
+		}
+		routeRequest = decoded
 	} else if isAgentRecoveryAction(action) {
 		decoded, err := decodeAgentRecoveryRequest(request, action)
 		if err != nil {
@@ -209,7 +233,7 @@ func (h *agentProtocolHandler) ServeHTTP(writer http.ResponseWriter, request *ht
 		return
 	}
 
-	response, err := h.execute(request.Context(), action, snapshotID, candidateRequest, releaseRequest, recoveryRequest)
+	response, err := h.execute(request.Context(), action, snapshotID, candidateRequest, releaseRequest, recoveryRequest, routeRequest)
 	if err != nil {
 		status, protocolError := classifyAgentOperationError(action, err)
 		bytesWritten := writeAgentProtocolError(writer, status, protocolError.Code, protocolError.Message)
@@ -276,6 +300,8 @@ func agentAction(path string) (string, bool) {
 		return "restart_recovery", true
 	case agentProtocolRuntimeVerificationPath:
 		return "runtime_verification", true
+	case agentProtocolRouteTestPath:
+		return "route_test_execute", true
 	default:
 		return "reject_request", false
 	}
@@ -283,7 +309,7 @@ func agentAction(path string) (string, bool) {
 
 func agentActionMethod(action string) string {
 	if action == "config_snapshot" || action == "candidate_validation" || action == "release" ||
-		action == "release_progress" || action == "release_recovery" || isAgentRecoveryAction(action) {
+		action == "release_progress" || action == "release_recovery" || action == "route_test_execute" || isAgentRecoveryAction(action) {
 		return http.MethodPost
 	}
 	return http.MethodGet
@@ -292,7 +318,7 @@ func agentActionMethod(action string) string {
 func agentActionRequiresRequestID(action string) bool {
 	return action == "config_snapshot" || action == "config_digest" || action == "candidate_validation" ||
 		action == "release" || action == "release_progress" || action == "release_recovery" ||
-		isAgentRecoveryAction(action)
+		action == "route_test_execute" || isAgentRecoveryAction(action)
 }
 
 func agentRequestHasBody(request *http.Request) (bool, error) {
@@ -452,16 +478,20 @@ func decodeAgentReleaseRequest(request *http.Request) (config.ReleaseExecutionRe
 }
 
 func decodeAgentTypedRequest(request *http.Request, target any) error {
+	return decodeAgentTypedRequestLimit(request, target, agentSnapshotRequestLimit)
+}
+
+func decodeAgentTypedRequestLimit(request *http.Request, target any, limit int64) error {
 	contentTypes := request.Header.Values("Content-Type")
 	if len(contentTypes) != 1 {
 		return errors.New("agent content type is required")
 	}
 	mediaType, parameters, err := mime.ParseMediaType(contentTypes[0])
-	if err != nil || mediaType != agentProtocolContentType || len(parameters) != 0 || request.ContentLength > agentSnapshotRequestLimit {
+	if err != nil || mediaType != agentProtocolContentType || len(parameters) != 0 || request.ContentLength > limit {
 		return errors.New("agent content type is invalid")
 	}
-	payload, err := io.ReadAll(io.LimitReader(request.Body, agentSnapshotRequestLimit+1))
-	if err != nil || len(payload) > agentSnapshotRequestLimit || rejectDuplicateAgentJSONFields(payload) != nil {
+	payload, err := io.ReadAll(io.LimitReader(request.Body, limit+1))
+	if err != nil || int64(len(payload)) > limit || rejectDuplicateAgentJSONFields(payload) != nil {
 		return errors.New("agent request exceeds limit")
 	}
 	decoder := json.NewDecoder(bytes.NewReader(payload))
@@ -483,6 +513,7 @@ func (h *agentProtocolHandler) execute(
 	candidateRequest config.CandidateValidationRequest,
 	releaseRequest config.ReleaseExecutionRequest,
 	recoveryRequest agentRecoveryRequest,
+	routeRequest routelab.AgentRequest,
 ) (any, error) {
 	switch action {
 	case "health":
@@ -557,6 +588,18 @@ func (h *agentProtocolHandler) execute(
 			return newAgentReleaseResponse(result), nil
 		}
 		return nil, err
+	case "route_test_execute":
+		operations, ok := h.operations.(agentRouteOperations)
+		if !ok {
+			return nil, errors.New("route test operation is unavailable")
+		}
+		operationCtx, cancel := context.WithTimeout(ctx, routeLabExecutionTimeout)
+		defer cancel()
+		result, err := operations.ExecuteRouteTest(operationCtx, routeRequest)
+		if err != nil {
+			return nil, err
+		}
+		return newAgentRouteTestResponse(result), nil
 	case "backup_verify", "backup_delete", "restore_prepare", "restore", "restore_progress",
 		"restore_recovery", "restart", "restart_progress", "restart_recovery", "runtime_verification":
 		operations, ok := h.operations.(agentRecoveryOperations)
@@ -570,6 +613,28 @@ func (h *agentProtocolHandler) execute(
 }
 
 func classifyAgentOperationError(action string, err error) (int, *AgentProtocolError) {
+	if action == "route_test_execute" {
+		switch {
+		case errors.Is(err, routelab.ErrCleanupFailed):
+			return http.StatusInternalServerError, &AgentProtocolError{Code: agentErrorCodeRouteCleanup, Message: "route sandbox cleanup failed"}
+		case errors.Is(err, routelab.ErrInvalidRequest):
+			return http.StatusBadRequest, &AgentProtocolError{Code: agentErrorCodeRouteRequestInvalid, Message: "route request is invalid"}
+		case errors.Is(err, routelab.ErrProjectIncomplete):
+			return http.StatusUnprocessableEntity, &AgentProtocolError{Code: agentErrorCodeRouteProjectIncomplete, Message: "route project is incomplete"}
+		case errors.Is(err, routelab.ErrListenerAmbiguous):
+			return http.StatusUnprocessableEntity, &AgentProtocolError{Code: agentErrorCodeRouteListenerAmbiguous, Message: "route listener is ambiguous"}
+		case errors.Is(err, routelab.ErrLimitExceeded):
+			return http.StatusRequestEntityTooLarge, &AgentProtocolError{Code: agentErrorCodeRouteLimit, Message: "route operation exceeded a limit"}
+		case errors.Is(err, routelab.ErrCandidateInvalid):
+			return http.StatusUnprocessableEntity, &AgentProtocolError{Code: agentErrorCodeRouteCandidateInvalid, Message: "route candidate is invalid"}
+		case errors.Is(err, routelab.ErrSandboxStart):
+			return http.StatusServiceUnavailable, &AgentProtocolError{Code: agentErrorCodeRouteSandboxStart, Message: "route sandbox did not start"}
+		case errors.Is(err, routelab.ErrRequestTimeout), errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled):
+			return http.StatusGatewayTimeout, &AgentProtocolError{Code: agentErrorCodeRouteRequestTimeout, Message: "route request timed out"}
+		case errors.Is(err, routelab.ErrEvidenceIncomplete):
+			return http.StatusConflict, &AgentProtocolError{Code: agentErrorCodeRouteEvidence, Message: "route evidence is incomplete"}
+		}
+	}
 	if agentActionRequiresRequestID(action) {
 		switch {
 		case errors.Is(err, fs.ErrNotExist):

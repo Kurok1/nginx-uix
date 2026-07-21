@@ -29,6 +29,11 @@
           </RouterLink>
         </li>
         <li>
+          <RouterLink to="/config/route-lab">
+            Route Lab
+          </RouterLink>
+        </li>
+        <li>
           <RouterLink to="/config/operations">
             Recovery &amp; History
           </RouterLink>

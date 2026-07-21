@@ -20,6 +20,7 @@ import subNavSource from './components/SubNav.vue?raw'
 import ConfigWorkspaceView from './views/ConfigWorkspaceView.vue'
 import EffectiveConfigView from './views/EffectiveConfigView.vue'
 import OperationsView from './views/OperationsView.vue'
+import RouteLabView from './views/RouteLabView.vue'
 import StructuredConfigView from './views/StructuredConfigView.vue'
 
 const currentSession: SessionResponse = {
@@ -99,6 +100,7 @@ describe('application router', () => {
     ).toEqual([
       { name: 'dashboard', path: '/' },
       { name: 'config-operations', path: '/config/operations' },
+      { name: 'route-lab', path: '/config/route-lab' },
       { name: 'config-workspaces', path: '/config/workspaces/:workspaceId?' },
       { name: 'structured-servers', path: '/config/workspaces/:workspaceId/servers' },
       { name: 'structured-upstreams', path: '/config/workspaces/:workspaceId/upstreams' },
@@ -116,6 +118,17 @@ describe('application router', () => {
 
     expect(operationsRoute?.components?.default).toBe(OperationsView)
     expect(operationsRoute?.meta.requiresAuth).toBe(true)
+  })
+
+  it('routes the authenticated Route Lab URL to the isolated verification view', () => {
+    const store = createSessionStore(createClient(vi.fn().mockResolvedValue(currentSession)))
+    const router = createAppRouter(store, createMemoryHistory())
+    const routeLabRoute = router
+      .getRoutes()
+      .find((route) => route.name === 'route-lab')
+
+    expect(routeLabRoute?.components?.default).toBe(RouteLabView)
+    expect(routeLabRoute?.meta.requiresAuth).toBe(true)
   })
 
   it('routes the authenticated workspace URL to the configuration-workspace view', () => {
@@ -145,17 +158,21 @@ describe('application router', () => {
     expect(serverRoute?.meta.requiresAuth).toBe(true)
   })
 
-  it('adds Workspaces and Recovery & History to both navigation levels and bounds overflow', () => {
+  it('adds Workspaces, Route Lab and Recovery & History to both navigation levels and bounds overflow', () => {
     expect(globalNavSource.match(/to="\/config\/workspaces"/g)).toHaveLength(2)
     expect(globalNavSource).toContain('Workspaces')
     expect(globalNavSource).toContain('to="/configuration"')
     expect(globalNavSource.match(/to="\/config\/operations"/g)).toHaveLength(2)
     expect(globalNavSource).toContain('Recovery &amp; History')
+    expect(globalNavSource.match(/to="\/config\/route-lab"/g)).toHaveLength(2)
+    expect(globalNavSource).toContain('Route Lab')
     expect(subNavSource).toContain('to="/config/workspaces"')
     expect(subNavSource).toContain('Workspaces')
     expect(subNavSource).toContain('to="/configuration"')
     expect(subNavSource).toContain('to="/config/operations"')
     expect(subNavSource).toContain('Recovery &amp; History')
+    expect(subNavSource).toContain('to="/config/route-lab"')
+    expect(subNavSource).toContain('Route Lab')
     expect(appShellSource).toMatch(/\.app-shell\s*\{[\s\S]*overflow-x: hidden/)
   })
 

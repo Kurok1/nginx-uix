@@ -52,8 +52,9 @@ func (d *Document) Apply(edits []Edit) (string, error) {
 	for index := 1; index < len(ordered); index++ {
 		previous := ordered[index-1].Span
 		current := ordered[index].Span
-		if previous.End.Offset > current.Start.Offset ||
-			(previous.Start.Offset == previous.End.Offset && previous.Start.Offset == current.Start.Offset) {
+		previousIsInsertion := previous.Start.Offset == previous.End.Offset
+		sameInsertionPoint := previous.Start.Offset == current.Start.Offset
+		if previous.End.Offset > current.Start.Offset || previousIsInsertion && sameInsertionPoint {
 			return "", fmt.Errorf("apply nginx AST edits: %w", ErrEditOverlap)
 		}
 	}

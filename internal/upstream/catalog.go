@@ -68,7 +68,7 @@ func BuildCatalog(project *nginxast.Project) Catalog {
 			catalog.Diagnostics = append(catalog.Diagnostics, Diagnostic{
 				Code: DiagnosticReferenceUnknown, Source: proxyReference.Source, RelatedID: proxyReference.ID,
 			})
-		default:
+		case ReferenceResolved, ReferenceDangling, ReferenceExternal, ReferenceAmbiguous:
 			indexes := groupsByName[proxyReference.Host]
 			switch len(indexes) {
 			case 0:
@@ -96,6 +96,12 @@ func BuildCatalog(project *nginxast.Project) Catalog {
 					Code: DiagnosticReferenceAmbiguous, Source: proxyReference.Source, RelatedID: proxyReference.ID,
 				})
 			}
+		default:
+			catalog.ReferenceAnalysisComplete = false
+			proxyReference.State = ReferenceUnknown
+			catalog.Diagnostics = append(catalog.Diagnostics, Diagnostic{
+				Code: DiagnosticReferenceUnknown, Source: proxyReference.Source, RelatedID: proxyReference.ID,
+			})
 		}
 		catalog.References = append(catalog.References, proxyReference)
 	}
@@ -392,9 +398,10 @@ func likelyUpstreamName(host string) bool {
 		return false
 	}
 	for _, value := range host {
-		if !(unicode.IsLetter(value) || unicode.IsDigit(value) || value == '_' || value == '-') {
-			return false
+		if unicode.IsLetter(value) || unicode.IsDigit(value) || value == '_' || value == '-' {
+			continue
 		}
+		return false
 	}
 	return true
 }

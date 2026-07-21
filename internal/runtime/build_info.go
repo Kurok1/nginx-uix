@@ -55,8 +55,10 @@ type Service struct {
 	release              releaseOptions
 	restart              restartOptions
 	restore              restoreOptions
+	routeLab             routeLabOptions
 	candidateLock        chan struct{}
 	releaseLock          chan struct{}
+	routeLabLock         chan struct{}
 }
 
 // NewService creates the production fixed-command service.
@@ -112,8 +114,10 @@ func newService(executor commandExecutor, reader configFileReader) *Service {
 		release:          defaultReleaseOptions(),
 		restart:          defaultRestartOptions(),
 		restore:          defaultRestoreOptions(),
+		routeLab:         defaultRouteLabOptions(),
 		candidateLock:    make(chan struct{}, 2),
 		releaseLock:      make(chan struct{}, 1),
+		routeLabLock:     make(chan struct{}, 2),
 	}
 }
 

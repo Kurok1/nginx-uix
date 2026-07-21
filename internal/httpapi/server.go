@@ -26,6 +26,8 @@ type Dependencies struct {
 	ReleaseTasks    ReleaseTaskStarter
 	Recovery        RecoveryAPI
 	RecoveryTasks   RecoveryTaskStarter
+	RouteLab        RouteLabAPI
+	RouteTasks      RouteTaskController
 	Agent           Agent
 	Database        DatabaseProbe
 	PublicURL       *url.URL
@@ -56,6 +58,10 @@ func NewHandler(dependencies Dependencies) http.Handler {
 		service: dependencies.Recovery, tasks: dependencies.RecoveryTasks,
 		sessions: dependencies.Sessions, publicURL: dependencies.PublicURL,
 	}
+	routeLab := &routeLabHandler{
+		service: dependencies.RouteLab, tasks: dependencies.RouteTasks,
+		sessions: dependencies.Sessions, publicURL: dependencies.PublicURL,
+	}
 	mux.HandleFunc("GET /api/v1/config/workspaces", configuration.workspacesCollection)
 	mux.HandleFunc("POST /api/v1/config/workspaces", configuration.workspacesCollection)
 	mux.HandleFunc("GET /api/v1/config/workspaces/{workspace_id}", configuration.workspace)
@@ -74,6 +80,12 @@ func NewHandler(dependencies Dependencies) http.Handler {
 	mux.HandleFunc("POST /api/v1/config/workspaces/{workspace_id}/publish-checks", releases.checkWorkspace)
 	mux.HandleFunc("GET /api/v1/config/publish-checks/{check_id}", releases.check)
 	mux.HandleFunc("POST /api/v1/config/workspaces/{workspace_id}/releases", releases.queue)
+	mux.HandleFunc("POST /api/v1/config/workspaces/{workspace_id}/route-analyses", routeLab.analyze)
+	mux.HandleFunc("POST /api/v1/config/workspaces/{workspace_id}/route-tests", routeLab.queue)
+	mux.HandleFunc("GET /api/v1/route-tests", routeLab.history)
+	mux.HandleFunc("GET /api/v1/route-tests/{run_id}", routeLab.run)
+	mux.HandleFunc("GET /api/v1/route-tests/{run_id}/events", routeLab.events)
+	mux.HandleFunc("POST /api/v1/route-tests/{run_id}/cancellations", routeLab.cancel)
 	mux.HandleFunc("GET /api/v1/config/releases/{release_id}", releases.release)
 	mux.HandleFunc("GET /api/v1/config/releases/{release_id}/events", releases.events)
 	mux.HandleFunc("GET /api/v1/config/history/releases", recovery.historyReleases)

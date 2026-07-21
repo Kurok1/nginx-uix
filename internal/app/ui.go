@@ -18,6 +18,7 @@ import (
 	configservice "github.com/kuroky/nginx-uix/internal/config"
 	"github.com/kuroky/nginx-uix/internal/httpapi"
 	"github.com/kuroky/nginx-uix/internal/httpapi/uiassets"
+	"github.com/kuroky/nginx-uix/internal/routelab"
 	nginxruntime "github.com/kuroky/nginx-uix/internal/runtime"
 	"github.com/kuroky/nginx-uix/internal/store"
 	"github.com/kuroky/nginx-uix/internal/structuredconfig"
@@ -191,6 +192,27 @@ func runUI(ctx context.Context, applicationConfig Config, operations uiOperation
 			ctx, recoveryService.RunRestore, recoveryService.RunRestart, recoveryService.RunRetention, logger,
 		)
 	}
+	var routeLab httpapi.RouteLabAPI
+	var routeTasks *routeTaskOwner
+	routeRepository, routeRepositoryOK := database.(routelab.Repository)
+	routeAgent, routeAgentOK := agent.(routelab.Agent)
+	if workspaceOK && routeRepositoryOK && routeAgentOK {
+		routeService, routeErr := routelab.NewService(routelab.ServiceOptions{
+			Workspaces: workspaceService, Repository: routeRepository, Agent: routeAgent,
+			TokenSource: rand.Reader, Now: systemClock{}.Now,
+		})
+		if routeErr == nil {
+			_, routeErr = routeService.ReconcileInterrupted(ctx)
+		}
+		if routeErr != nil {
+			if closeErr := database.Close(); closeErr != nil {
+				return errors.Join(fmt.Errorf("reconcile route lab tasks: %w", routeErr), closeErr)
+			}
+			return fmt.Errorf("reconcile route lab tasks: %w", routeErr)
+		}
+		routeLab = routeService
+		routeTasks = newRouteTaskOwner(ctx, routeService.Execute, logger)
+	}
 	if err := configurationService.Reconcile(ctx); err != nil {
 		if closeErr := database.Close(); closeErr != nil {
 			return errors.Join(fmt.Errorf("reconcile configuration workspaces: %w", err), closeErr)
@@ -203,6 +225,7 @@ func runUI(ctx context.Context, applicationConfig Config, operations uiOperation
 			Assets: uiassets.FS(), Sessions: sessions, PublicURL: applicationConfig.PublicURL,
 			Workspaces: workspaces, Structured: structured, Groups: groups, Releases: releases, ReleaseTasks: releaseTasks,
 			Recovery: recovery, RecoveryTasks: recoveryTasks,
+			RouteLab: routeLab, RouteTasks: routeTasks,
 			Agent: agent, Database: databasePingProbe(database.Ping), Logger: logger,
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
@@ -228,7 +251,7 @@ func runUI(ctx context.Context, applicationConfig Config, operations uiOperation
 	cancelCleanup()
 	<-cleanupDone
 	var taskErr error
-	if releaseTasks != nil || recoveryTasks != nil {
+	if releaseTasks != nil || recoveryTasks != nil || routeTasks != nil {
 		shutdownTimeout := applicationConfig.ShutdownTimeout
 		if shutdownTimeout <= 0 {
 			shutdownTimeout = 10 * time.Second
@@ -236,6 +259,9 @@ func runUI(ctx context.Context, applicationConfig Config, operations uiOperation
 		taskCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
 		if recoveryTasks != nil {
 			taskErr = errors.Join(taskErr, recoveryTasks.Stop(taskCtx))
+		}
+		if routeTasks != nil {
+			taskErr = errors.Join(taskErr, routeTasks.Stop(taskCtx))
 		}
 		if releaseTasks != nil {
 			taskErr = errors.Join(taskErr, releaseTasks.Stop(taskCtx))

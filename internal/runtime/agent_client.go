@@ -439,6 +439,9 @@ func classifyAgentClientIOError(ctx context.Context, err error) error {
 }
 
 func newAgentClientProtocolError(code string) *AgentProtocolError {
+	if routeError := agentRouteProtocolError(code); routeError != nil {
+		return routeError
+	}
 	switch code {
 	case agentErrorCodeInvalidRequest:
 		return &AgentProtocolError{Code: code, Message: "agent request is invalid"}

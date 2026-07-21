@@ -217,7 +217,7 @@ func TestPrepareContainerDataCreatesRootOnlyReleaseRoots(t *testing.T) {
 	if err := PrepareContainerData(context.Background(), options); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"backups", "releases", "restores", "restarts"} {
+	for _, name := range []string{"backups", "releases", "restores", "restarts", "route-lab"} {
 		path := filepath.Join(dataRoot, name)
 		information, err := os.Lstat(path)
 		if err != nil {
@@ -271,7 +271,7 @@ func TestPrepareContainerDataRejectsUnsafePersistentWorkspaceRoot(t *testing.T) 
 }
 
 func TestPrepareContainerDataRejectsUnsafeReleaseRoots(t *testing.T) {
-	for _, name := range []string{"backups", "releases", "restores", "restarts"} {
+	for _, name := range []string{"backups", "releases", "restores", "restarts", "route-lab"} {
 		for _, kind := range []string{"symlink", "regular file"} {
 			t.Run(name+"/"+kind, func(t *testing.T) {
 				root := t.TempDir()
