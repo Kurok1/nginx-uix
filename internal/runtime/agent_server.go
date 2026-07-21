@@ -56,6 +56,9 @@ func RunAgentServer(ctx context.Context, service *Service, logger *slog.Logger) 
 	if err := service.ReconcileReleaseArtifacts(ctx); err != nil {
 		return fmt.Errorf("run agent server: reconcile release artifacts: %w", err)
 	}
+	if err := service.ReconcileRouteLabArtifacts(ctx); err != nil {
+		return fmt.Errorf("run agent server: reconcile route lab artifacts: %w", err)
+	}
 	return runAgentServer(ctx, newAgentServerConfig(service, logger))
 }
 

@@ -225,6 +225,7 @@ func validateParent(location *Location, catalog *Catalog) {
 			markReadOnly(location, "nested_under_named")
 			markSubtreeReadOnly(child, "nested_under_named")
 			addDiagnostic(catalog, DiagnosticNestedUnderNamed, SeverityBlocking, child.Source, child.ID, location.ID)
+		case MatcherUnknown, MatcherPrefix, MatcherPrefixPriority, MatcherRegex, MatcherRegexInsensitive:
 		}
 
 		if child.Type == MatcherNamed {
@@ -247,6 +248,8 @@ func validateParent(location *Location, catalog *Catalog) {
 		case MatcherRegex, MatcherRegexInsensitive, MatcherUnknown:
 			markSubtreeReadOnly(child, "parent_unprovable")
 			addDiagnostic(catalog, DiagnosticParentUnprovable, SeverityBlocking, child.Source, child.ID, location.ID)
+		case MatcherExact, MatcherNamed:
+			continue
 		}
 	}
 	location.ProxyPassEditable = location.ProxyPassEditable && location.Editable
@@ -377,10 +380,11 @@ func validNamedMatcher(value string) bool {
 		return false
 	}
 	for _, character := range value[1:] {
-		if !(unicode.IsLetter(character) || unicode.IsDigit(character) ||
-			character == '_' || character == '-' || character == '.') {
-			return false
+		if unicode.IsLetter(character) || unicode.IsDigit(character) ||
+			character == '_' || character == '-' || character == '.' {
+			continue
 		}
+		return false
 	}
 	return true
 }

@@ -252,10 +252,7 @@ func snapshotWithAdjustedDependencies(
 		if !exists {
 			return config.DraftSnapshot{}, ErrPostcondition
 		}
-		nextOffset, retained, err := transformedOffset(offset, editsByPath[string(dependency.Source)])
-		if err != nil {
-			return config.DraftSnapshot{}, err
-		}
+		nextOffset, retained := transformedOffset(offset, editsByPath[string(dependency.Source)])
 		if !retained {
 			continue
 		}
@@ -270,7 +267,7 @@ func snapshotWithAdjustedDependencies(
 	return updated, nil
 }
 
-func transformedOffset(offset int, edits []nginxast.Edit) (int, bool, error) {
+func transformedOffset(offset int, edits []nginxast.Edit) (int, bool) {
 	shift := 0
 	for _, edit := range edits {
 		start := edit.Span.Start.Offset
@@ -281,10 +278,10 @@ func transformedOffset(offset int, edits []nginxast.Edit) (int, bool, error) {
 		case end <= offset:
 			shift += len(edit.Replacement) - (end - start)
 		case start <= offset && offset < end:
-			return 0, false, nil
+			return 0, false
 		}
 	}
-	return offset + shift, true, nil
+	return offset + shift, true
 }
 
 func dependencyKey(path string, line int, column int) string {

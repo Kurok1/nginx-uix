@@ -3,7 +3,7 @@
 openapi: 3.1.0
 info:
   title: Nginx UIX API
-  version: 0.3.0
+  version: 0.4.0
 servers:
   - url: /
 paths:
@@ -1837,6 +1837,211 @@ paths:
         "500": { $ref: "#/components/responses/ConfigAPIError" }
         "503": { $ref: "#/components/responses/ConfigAPIError" }
         "504": { $ref: "#/components/responses/ConfigAPIError" }
+  /api/v1/config/workspaces/{workspace_id}/route-analyses:
+    post:
+      operationId: createRouteAnalysis
+      summary: Analyze server and location selection for the exact workspace draft
+      description: Pure static analysis bound to one strong draft ETag; strict JSON is limited to 131072 bytes.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - $ref: "#/components/parameters/Origin"
+        - $ref: "#/components/parameters/CSRFToken"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        description: Strict Route Lab JSON request limited to 131072 bytes; duplicate and unknown fields are rejected.
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RouteTestRequest" }
+      responses:
+        "200":
+          description: Static candidate explanation for this request and workspace identity
+          headers:
+            X-Request-ID: { $ref: "#/components/headers/RequestID" }
+            Cache-Control: *RecoveryNoStoreHeader
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RouteAnalysis" }
+        "400": { $ref: "#/components/responses/ConfigAPIError" }
+        "401": { $ref: "#/components/responses/ConfigAPIError" }
+        "403": { $ref: "#/components/responses/ConfigAPIError" }
+        "409": { $ref: "#/components/responses/ConfigAPIError" }
+        "413": { $ref: "#/components/responses/ConfigAPIError" }
+        "415": { $ref: "#/components/responses/ConfigAPIError" }
+        "422": { $ref: "#/components/responses/ConfigAPIError" }
+        "500": { $ref: "#/components/responses/ConfigAPIError" }
+        "503": { $ref: "#/components/responses/ConfigAPIError" }
+  /api/v1/config/workspaces/{workspace_id}/route-tests:
+    post:
+      operationId: createRouteTest
+      summary: Queue one durable isolated Route Lab execution
+      description: Revalidates the current strong draft ETag and persists no body, confirmation, or sensitive header value.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - $ref: "#/components/parameters/Origin"
+        - $ref: "#/components/parameters/CSRFToken"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        description: Strict Route Lab JSON request limited to 131072 bytes; duplicate and unknown fields are rejected.
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RouteTestRequest" }
+      responses:
+        "202":
+          description: Persisted queued route test
+          headers:
+            X-Request-ID: { $ref: "#/components/headers/RequestID" }
+            Cache-Control: *RecoveryNoStoreHeader
+            Location:
+              schema: { type: string, pattern: "^/api/v1/route-tests/[0-9a-f]{32}$" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RouteTestRun" }
+        "400": { $ref: "#/components/responses/ConfigAPIError" }
+        "401": { $ref: "#/components/responses/ConfigAPIError" }
+        "403": { $ref: "#/components/responses/ConfigAPIError" }
+        "409": { $ref: "#/components/responses/ConfigAPIError" }
+        "413": { $ref: "#/components/responses/ConfigAPIError" }
+        "415": { $ref: "#/components/responses/ConfigAPIError" }
+        "422": { $ref: "#/components/responses/ConfigAPIError" }
+        "429": { $ref: "#/components/responses/ConfigAPIError" }
+        "500": { $ref: "#/components/responses/ConfigAPIError" }
+        "503": { $ref: "#/components/responses/ConfigAPIError" }
+  /api/v1/route-tests:
+    get:
+      operationId: listRouteTests
+      summary: List a stable newest-first page of durable route tests
+      description: Unknown or repeated query parameters are rejected; the opaque cursor preserves created_at and run-ID ordering.
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: workspace_id
+          in: query
+          required: false
+          description: Optional exact workspace selector accepted exactly once when present.
+          schema: { type: string, pattern: "^[0-9a-f]{32}$" }
+        - name: state
+          in: query
+          required: false
+          description: Optional exact durable state selector accepted exactly once when present.
+          schema: { $ref: "#/components/schemas/RouteRunState" }
+        - name: cursor
+          in: query
+          required: false
+          description: Optional opaque keyset cursor accepted exactly once when present.
+          schema: { type: string, minLength: 1, maxLength: 512, pattern: "^[A-Za-z0-9_-]+$" }
+        - name: limit
+          in: query
+          required: false
+          description: Optional page size accepted exactly once when present; defaults to 20.
+          schema: { type: integer, minimum: 1, maximum: 100 }
+        - $ref: "#/components/parameters/RequestID"
+      responses:
+        "200":
+          description: Bounded route-test history page
+          headers:
+            X-Request-ID: { $ref: "#/components/headers/RequestID" }
+            Cache-Control: *RecoveryNoStoreHeader
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RouteTestHistoryPage" }
+        "400": { $ref: "#/components/responses/ConfigAPIError" }
+        "401": { $ref: "#/components/responses/ConfigAPIError" }
+        "422": { $ref: "#/components/responses/ConfigAPIError" }
+        "500": { $ref: "#/components/responses/ConfigAPIError" }
+        "503": { $ref: "#/components/responses/ConfigAPIError" }
+  /api/v1/route-tests/{run_id}:
+    get:
+      operationId: getRouteTest
+      summary: Get one durable route test with persisted stage and terminal evidence
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/RouteRunID"
+        - $ref: "#/components/parameters/RequestID"
+      responses:
+        "200":
+          description: Current route-test projection
+          headers:
+            X-Request-ID: { $ref: "#/components/headers/RequestID" }
+            Cache-Control: *RecoveryNoStoreHeader
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RouteTestRun" }
+        "400": { $ref: "#/components/responses/ConfigAPIError" }
+        "401": { $ref: "#/components/responses/ConfigAPIError" }
+        "404": { $ref: "#/components/responses/ConfigAPIError" }
+        "500": { $ref: "#/components/responses/ConfigAPIError" }
+        "503": { $ref: "#/components/responses/ConfigAPIError" }
+  /api/v1/route-tests/{run_id}/events:
+    get:
+      operationId: streamRouteTestEvents
+      summary: Resume persisted Route Lab stages by Last-Event-ID
+      description: Emits snapshot, stage, terminal, and two-second heartbeat events; closes after terminal state.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/RouteRunID"
+        - $ref: "#/components/parameters/LastEventID"
+        - $ref: "#/components/parameters/RequestID"
+      responses:
+        "200":
+          description: Route-test SSE event stream
+          headers:
+            X-Request-ID: { $ref: "#/components/headers/RequestID" }
+            Cache-Control: *RecoveryNoStoreHeader
+            X-Accel-Buffering:
+              schema: { type: string, enum: [no] }
+          content:
+            text/event-stream:
+              schema: { type: string }
+        "400": { $ref: "#/components/responses/ConfigAPIError" }
+        "401": { $ref: "#/components/responses/ConfigAPIError" }
+        "404": { $ref: "#/components/responses/ConfigAPIError" }
+        "500": { $ref: "#/components/responses/ConfigAPIError" }
+        "503": { $ref: "#/components/responses/ConfigAPIError" }
+  /api/v1/route-tests/{run_id}/cancellations:
+    post:
+      operationId: createRouteTestCancellation
+      summary: Durably request cancellation of one queued or running route test
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/RouteRunID"
+        - $ref: "#/components/parameters/Origin"
+        - $ref: "#/components/parameters/CSRFToken"
+        - $ref: "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        description: Strict empty JSON object limited to 4096 bytes.
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EmptyObject" }
+      responses:
+        "202":
+          description: Cancellation is durably requested and propagated to the application task owner
+          headers:
+            X-Request-ID: { $ref: "#/components/headers/RequestID" }
+            Cache-Control: *RecoveryNoStoreHeader
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RouteTestRun" }
+        "400": { $ref: "#/components/responses/ConfigAPIError" }
+        "401": { $ref: "#/components/responses/ConfigAPIError" }
+        "403": { $ref: "#/components/responses/ConfigAPIError" }
+        "404": { $ref: "#/components/responses/ConfigAPIError" }
+        "409": { $ref: "#/components/responses/ConfigAPIError" }
+        "413": { $ref: "#/components/responses/ConfigAPIError" }
+        "415": { $ref: "#/components/responses/ConfigAPIError" }
+        "500": { $ref: "#/components/responses/ConfigAPIError" }
+        "503": { $ref: "#/components/responses/ConfigAPIError" }
 components:
   securitySchemes:
     sessionCookie:
@@ -1936,6 +2141,14 @@ components:
       in: path
       required: true
       description: Opaque attention-case identifier.
+      schema:
+        type: string
+        pattern: "^[0-9a-f]{32}$"
+    RouteRunID:
+      name: run_id
+      in: path
+      required: true
+      description: Opaque Route Lab run identifier.
       schema:
         type: string
         pattern: "^[0-9a-f]{32}$"
@@ -3742,6 +3955,368 @@ components:
           items:
             type: string
             description: Configuration-root relative changed path; semantic limit is 1024 UTF-8 bytes and 64 components.
+    RouteRequestHeader:
+      type: object
+      additionalProperties: false
+      required: [name, value]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 128 }
+        value: { type: string, maxLength: 8192 }
+    RouteAssertionsInput:
+      type: object
+      additionalProperties: false
+      properties:
+        status_code:
+          oneOf:
+            - type: integer
+              enum: [0]
+            - type: integer
+              minimum: 100
+              maximum: 599
+        contains_text: { type: string, maxLength: 1024 }
+        forbidden_text: { type: string, maxLength: 1024 }
+    RouteTestRequest:
+      type: object
+      additionalProperties: false
+      required: [scheme, host]
+      properties:
+        scheme: { type: string, enum: [http, https] }
+        host: { type: string, minLength: 1, maxLength: 255 }
+        port: { type: integer, minimum: 0, maximum: 65535, default: 0 }
+        sni: { type: string, maxLength: 253 }
+        method: { type: string, enum: [GET, HEAD, OPTIONS, POST, PUT, PATCH, DELETE], default: GET }
+        uri: { type: string, minLength: 1, default: / }
+        query:
+          type: string
+          description: Query without a leading question mark; never included in audit logs.
+        headers:
+          type: array
+          minItems: 0
+          maxItems: 32
+          items: { $ref: "#/components/schemas/RouteRequestHeader" }
+        body:
+          type: string
+          maxLength: 65536
+          description: UTF-8 request body; never persisted.
+        timeout_ms: { type: integer, minimum: 0, maximum: 30000, default: 0 }
+        assertions: { $ref: "#/components/schemas/RouteAssertionsInput" }
+        confirmation:
+          type: string
+          enum: [RUN SIDE-EFFECTING REQUEST]
+          description: Required exactly for a body, a method other than GET/HEAD/OPTIONS, or a candidate containing an outbound upstream directive; never persisted.
+    RouteSource:
+      type: object
+      additionalProperties: false
+      required: [path, start_line, start_column, end_line, end_column]
+      properties:
+        path:
+          type: string
+          description: Configuration-root-relative source path.
+        start_line: { type: integer, minimum: 1 }
+        start_column: { type: integer, minimum: 1 }
+        end_line: { type: integer, minimum: 1 }
+        end_column: { type: integer, minimum: 1 }
+    RouteListener:
+      type: object
+      additionalProperties: false
+      required: [address, port, ssl, default_server, derived, supported]
+      properties:
+        address: { type: string }
+        port: { type: integer, minimum: 1, maximum: 65535 }
+        ssl: { type: boolean }
+        default_server: { type: boolean }
+        derived: { type: boolean }
+        supported: { type: boolean }
+    RouteCandidateDisposition:
+      type: string
+      enum: [selected, matched, excluded, indeterminate]
+    RouteCandidateReason:
+      type: string
+      enum:
+        - listener_mismatch
+        - listener_unsupported
+        - listener_default
+        - server_name_exact
+        - server_name_leading_wildcard
+        - server_name_trailing_wildcard
+        - server_name_regex
+        - server_name_lower_priority
+        - server_name_indeterminate
+        - location_exact
+        - location_longest_prefix
+        - location_prefix_priority
+        - location_regex
+        - location_shorter_prefix
+        - location_prefix_no_match
+        - location_regex_no_match
+        - location_earlier_regex_selected
+        - location_named_not_initial
+        - location_parent_matched
+        - location_parent_not_selected
+        - location_regex_indeterminate
+        - location_uri_normalization_indeterminate
+    RouteServerCandidate:
+      type: object
+      additionalProperties: false
+      required: [route_id, source, listeners, server_names, disposition, reason]
+      properties:
+        route_id: { type: string, minLength: 1, maxLength: 128 }
+        source: { $ref: "#/components/schemas/RouteSource" }
+        listeners:
+          type: array
+          minItems: 1
+          maxItems: 64
+          items: { $ref: "#/components/schemas/RouteListener" }
+        server_names:
+          type: array
+          minItems: 1
+          maxItems: 1024
+          items: { type: string }
+        disposition: { $ref: "#/components/schemas/RouteCandidateDisposition" }
+        reason: { $ref: "#/components/schemas/RouteCandidateReason" }
+    RouteMatcherType:
+      type: string
+      enum: [unknown, exact, prefix, prefix_priority, regex, regex_insensitive, named]
+    RouteLocationCandidate:
+      type: object
+      additionalProperties: false
+      required: [route_id, parent_route_id, source, matcher_type, matcher, depth, disposition, reason]
+      properties:
+        route_id: { type: string, minLength: 1, maxLength: 128 }
+        parent_route_id: { type: string, minLength: 1, maxLength: 128 }
+        source: { $ref: "#/components/schemas/RouteSource" }
+        matcher_type: { $ref: "#/components/schemas/RouteMatcherType" }
+        matcher: { type: string }
+        depth: { type: integer, minimum: 0, maximum: 128 }
+        disposition: { $ref: "#/components/schemas/RouteCandidateDisposition" }
+        reason: { $ref: "#/components/schemas/RouteCandidateReason" }
+    RouteAnalysis:
+      type: object
+      additionalProperties: false
+      required: [complete, normalized_uri, runtime_redirect_possible, servers, locations]
+      properties:
+        complete: { type: boolean }
+        normalized_uri: { type: string, minLength: 1 }
+        predicted_tls_server_route_id: { type: string, minLength: 1, maxLength: 128 }
+        predicted_server_route_id: { type: string, minLength: 1, maxLength: 128 }
+        predicted_location_route_id: { type: string, minLength: 1, maxLength: 128 }
+        runtime_redirect_possible: { type: boolean }
+        servers:
+          type: array
+          minItems: 0
+          maxItems: 1000
+          items: { $ref: "#/components/schemas/RouteServerCandidate" }
+        locations:
+          type: array
+          minItems: 0
+          maxItems: 5000
+          items: { $ref: "#/components/schemas/RouteLocationCandidate" }
+    RouteRunState:
+      type: string
+      enum: [queued, running, succeeded, failed, cancelled, timed_out]
+    RouteRunStageName:
+      type: string
+      enum: [queued, preparing, validating, starting, requesting, collecting, completed, failed, cancelled, timed_out]
+    RouteStageResult:
+      type: string
+      enum: [pending, running, success, failed, warning]
+    RouteSafeRequest:
+      type: object
+      additionalProperties: false
+      required: [scheme, host, port, sni, method, uri, query, headers, sensitive_header_names, body_bytes, body_digest, timeout_ms, assertions, side_effecting, replayable]
+      properties:
+        scheme: { type: string, enum: [http, https] }
+        host: { type: string }
+        port: { type: integer, minimum: 1, maximum: 65535 }
+        sni: { type: string }
+        method: { type: string, enum: [GET, HEAD, OPTIONS, POST, PUT, PATCH, DELETE] }
+        uri: { type: string }
+        query: { type: string }
+        headers:
+          type: array
+          minItems: 0
+          maxItems: 32
+          items: { $ref: "#/components/schemas/RouteRequestHeader" }
+        sensitive_header_names:
+          type: array
+          minItems: 0
+          maxItems: 32
+          items: { type: string }
+        body_bytes: { type: integer, format: int64, minimum: 0, maximum: 65536 }
+        body_digest: { type: string, pattern: "^[0-9a-f]{64}$" }
+        timeout_ms: { type: integer, format: int64, minimum: 100, maximum: 30000 }
+        assertions: { $ref: "#/components/schemas/RouteAssertionsInput" }
+        side_effecting: { type: boolean }
+        replayable: { type: boolean }
+    RouteAssertionResult:
+      type: object
+      additionalProperties: false
+      required: [kind, passed, complete]
+      properties:
+        kind: { type: string, enum: [status_code, contains_text, forbidden_text] }
+        passed: { type: boolean }
+        complete: { type: boolean }
+    RouteAssertionOutcome:
+      type: object
+      additionalProperties: false
+      required: [passed, complete, results]
+      properties:
+        passed: { type: boolean }
+        complete: { type: boolean }
+        results:
+          type: array
+          minItems: 0
+          maxItems: 3
+          items: { $ref: "#/components/schemas/RouteAssertionResult" }
+    RouteDefinition:
+      type: object
+      additionalProperties: false
+      required: [route_id, node_id, parent_route_id, kind, matcher_type, matcher, source]
+      properties:
+        route_id: { type: string, minLength: 1, maxLength: 128 }
+        node_id: { type: string, minLength: 1, maxLength: 128 }
+        parent_route_id: { type: string, maxLength: 128 }
+        kind: { type: string, enum: [server, location] }
+        matcher_type: { $ref: "#/components/schemas/RouteMatcherType" }
+        matcher: { type: string }
+        source: { $ref: "#/components/schemas/RouteSource" }
+    RouteHTTPResponse:
+      type: object
+      additionalProperties: false
+      required: [status_code, headers, body_snippet, body_bytes, body_digest, body_truncated, snippet_omitted, duration_ms, assertions]
+      properties:
+        status_code: { type: integer, minimum: 100, maximum: 599 }
+        headers:
+          type: array
+          minItems: 0
+          maxItems: 64
+          items: { $ref: "#/components/schemas/RouteRequestHeader" }
+        body_snippet: { type: string, maxLength: 16384 }
+        body_bytes: { type: integer, format: int64, minimum: 0, maximum: 65537 }
+        body_digest: { type: string, pattern: "^[0-9a-f]{64}$" }
+        body_truncated: { type: boolean }
+        snippet_omitted: { type: boolean }
+        duration_ms: { type: integer, format: int64, minimum: 0, maximum: 30000 }
+        assertions: { $ref: "#/components/schemas/RouteAssertionOutcome" }
+    RouteRuntimeEvidence:
+      type: object
+      additionalProperties: false
+      required: [server_route_id, route_id, final_uri, upstream, upstream_status, status_code, request_time_ms]
+      properties:
+        server_route_id: { type: string, minLength: 1, maxLength: 128 }
+        route_id: { type: string, minLength: 1, maxLength: 128 }
+        final_uri: { type: string, minLength: 1 }
+        upstream: { type: string, maxLength: 1024 }
+        upstream_status: { type: string, maxLength: 1024 }
+        status_code: { type: integer, minimum: 100, maximum: 599 }
+        request_time_ms: { type: integer, format: int64, minimum: 0 }
+    RouteCleanupEvidence:
+      type: object
+      additionalProperties: false
+      required: [master_reaped, port_closed, stage_removed]
+      properties:
+        master_reaped: { type: boolean }
+        port_closed: { type: boolean }
+        stage_removed: { type: boolean }
+    RouteAgentDiagnostic:
+      type: object
+      additionalProperties: false
+      required: [code, path, line, summary]
+      properties:
+        code: { type: string, pattern: "^[a-z0-9_]+$" }
+        path: { type: string, description: Configuration-root-relative path only. }
+        line: { type: integer, minimum: 0 }
+        summary: { type: string, maxLength: 2048 }
+    RouteAgentResult:
+      type: object
+      additionalProperties: false
+      required: [candidate_digest, routes, response, evidence, cleanup, diagnostics]
+      properties:
+        candidate_digest: { type: string, pattern: "^[0-9a-f]{64}$" }
+        routes:
+          type: array
+          minItems: 1
+          maxItems: 6000
+          items: { $ref: "#/components/schemas/RouteDefinition" }
+        response: { $ref: "#/components/schemas/RouteHTTPResponse" }
+        evidence: { $ref: "#/components/schemas/RouteRuntimeEvidence" }
+        cleanup: { $ref: "#/components/schemas/RouteCleanupEvidence" }
+        diagnostics:
+          type: array
+          minItems: 0
+          maxItems: 64
+          items: { $ref: "#/components/schemas/RouteAgentDiagnostic" }
+    RouteTerminalResult:
+      type: object
+      additionalProperties: false
+      required: [agent_result]
+      properties:
+        agent_result: { $ref: "#/components/schemas/RouteAgentResult" }
+    RouteRunStage:
+      type: object
+      additionalProperties: false
+      required: [sequence, stage, result, details, occurred_at]
+      properties:
+        sequence: { type: integer, format: int64, minimum: 1, maximum: 512 }
+        stage: { $ref: "#/components/schemas/RouteRunStageName" }
+        result: { $ref: "#/components/schemas/RouteStageResult" }
+        code: { type: string, pattern: "^[a-z0-9_]+$" }
+        details:
+          type: object
+          description: Bounded public details; no request secret, absolute path, command, PID, or raw log.
+        occurred_at: { type: string, format: date-time }
+    RouteTestRun:
+      type: object
+      additionalProperties: false
+      required: [id, workspace_id, workspace_revision, workspace_etag, production_digest, draft_digest, state, stage, safe_request, static_analysis, replayable, side_effecting, body_bytes, body_digest, sensitive_header_names, created_at, updated_at, stages]
+      properties:
+        id: { type: string, pattern: "^[0-9a-f]{32}$" }
+        workspace_id: { type: string, pattern: "^[0-9a-f]{32}$" }
+        workspace_revision: { type: integer, format: int64, minimum: 1 }
+        workspace_etag: { type: string, pattern: '^"draft-v1:[0-9a-f]{64}"$' }
+        production_digest: { type: string, pattern: "^[0-9a-f]{64}$" }
+        draft_digest: { type: string, pattern: "^[0-9a-f]{64}$" }
+        candidate_digest: { type: string, pattern: "^[0-9a-f]{64}$" }
+        state: { $ref: "#/components/schemas/RouteRunState" }
+        stage: { $ref: "#/components/schemas/RouteRunStageName" }
+        safe_request: { $ref: "#/components/schemas/RouteSafeRequest" }
+        static_analysis: { $ref: "#/components/schemas/RouteAnalysis" }
+        terminal_result: { $ref: "#/components/schemas/RouteTerminalResult" }
+        replayable: { type: boolean }
+        side_effecting: { type: boolean }
+        body_bytes: { type: integer, format: int64, minimum: 0, maximum: 65536 }
+        body_digest: { type: string, pattern: "^[0-9a-f]{64}$" }
+        sensitive_header_names:
+          type: array
+          minItems: 0
+          maxItems: 32
+          items: { type: string }
+        last_error_code: { type: string, pattern: "^[a-z0-9_]+$" }
+        cancel_requested_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        started_at: { type: string, format: date-time }
+        finished_at: { type: string, format: date-time }
+        stages:
+          type: array
+          minItems: 0
+          maxItems: 512
+          items: { $ref: "#/components/schemas/RouteRunStage" }
+    RouteTestHistoryPage:
+      type: object
+      additionalProperties: false
+      required: [runs]
+      properties:
+        runs:
+          type: array
+          minItems: 0
+          maxItems: 100
+          items: { $ref: "#/components/schemas/RouteTestRun" }
+        next_cursor:
+          type: string
+          minLength: 1
+          maxLength: 512
+          pattern: "^[A-Za-z0-9_-]+$"
     ConfigErrorCode:
       type: string
       enum:
@@ -3791,6 +4366,22 @@ components:
         - LOCATION_INVALID
         - LOCATION_DUPLICATE
         - PROXY_PASS_INVALID
+        - ROUTE_REQUEST_TOO_LARGE
+        - ROUTE_REQUEST_INVALID
+        - ROUTE_WORKSPACE_CONFLICT
+        - ROUTE_CONFIRMATION_REQUIRED
+        - ROUTE_PROJECT_INCOMPLETE
+        - ROUTE_LISTENER_AMBIGUOUS
+        - ROUTE_LAB_BUSY
+        - ROUTE_CANDIDATE_INVALID
+        - ROUTE_SANDBOX_START_FAILED
+        - ROUTE_REQUEST_TIMEOUT
+        - ROUTE_EVIDENCE_INCOMPLETE
+        - ROUTE_CLEANUP_FAILED
+        - ROUTE_ALREADY_TERMINAL
+        - ROUTE_LIMIT_EXCEEDED
+        - ROUTE_TEST_NOT_FOUND
+        - ROUTE_LAB_UNAVAILABLE
     ConfigAPIErrorCode:
       oneOf:
         - $ref: "#/components/schemas/ConfigErrorCode"
@@ -3805,7 +4396,7 @@ components:
           description: Safe configuration-root relative path; semantic limit is 1024 UTF-8 bytes and 64 components.
         field:
           type: string
-          enum: [attention_case_id, attention_id, backup_id, body, confirm_backup_id, confirm_name, confirm_path, confirmation, content, destination_path, expected_protected, group_id, include_deleted, input, kind, limit, members, name, path, preview_id, protected, query, reason, restart_id, restore_id, retention_id, source_path, state, workspace_id]
+          enum: [attention_case_id, attention_id, backup_id, body, confirm_backup_id, confirm_name, confirm_path, confirmation, content, cursor, destination_path, expected_protected, group_id, include_deleted, input, kind, limit, members, name, path, preview_id, protected, query, reason, restart_id, restore_id, retention_id, route_id, run_id, source_path, state, workspace_id]
         backup_id:
           type: string
           pattern: "^[0-9a-f]{32}$"

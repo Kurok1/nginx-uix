@@ -142,7 +142,7 @@ func (p *parser) parseStatements(depth int, opening *Span) ([]Node, Token, error
 			}
 			p.index++
 			return nodes, current, nil
-		default:
+		case TokenWord, TokenQuoted, TokenSemicolon, TokenLeftBrace:
 			if p.statementCount >= p.limits.MaxStatements {
 				return nil, Token{}, &SyntaxError{Code: ErrorLimitExceeded, Span: current.Span}
 			}
@@ -152,6 +152,8 @@ func (p *parser) parseStatements(depth int, opening *Span) ([]Node, Token, error
 			}
 			p.statementCount++
 			nodes = append(nodes, node)
+		case TokenWhitespace, TokenComment:
+			return nil, Token{}, &SyntaxError{Code: ErrorMissingTerminator, Span: current.Span}
 		}
 	}
 }
@@ -227,7 +229,7 @@ func (p *parser) skipTrivia() {
 		switch p.current().Kind {
 		case TokenWhitespace, TokenComment:
 			p.index++
-		default:
+		case TokenWord, TokenQuoted, TokenSemicolon, TokenLeftBrace, TokenRightBrace, TokenEOF:
 			return
 		}
 	}

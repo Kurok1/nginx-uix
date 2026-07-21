@@ -191,7 +191,7 @@ func preflightContainerDirectories(options InitializeOptions) (string, string, e
 		if workspaceErr != nil && !errors.Is(workspaceErr, fs.ErrNotExist) {
 			return "", "", fmt.Errorf("inspect workspace root: %w", workspaceErr)
 		}
-		for _, name := range []string{"backups", "releases", "restores", "restarts"} {
+		for _, name := range []string{"backups", "releases", "restores", "restarts", "route-lab"} {
 			path := filepath.Join(dataRoot, name)
 			information, inspectErr := os.Lstat(path)
 			if inspectErr == nil && (information.Mode()&os.ModeSymlink != 0 || !information.IsDir()) {
@@ -313,7 +313,7 @@ func prepareContainerDataDirectory(ctx context.Context, options InitializeOption
 }
 
 func secureInitializeAgentDataRoots(dataRoot string) error {
-	for _, name := range []string{"backups", "releases", "restores", "restarts"} {
+	for _, name := range []string{"backups", "releases", "restores", "restarts", "route-lab"} {
 		path := filepath.Join(dataRoot, name)
 		if err := requireInitializeChild(dataRoot, path); err != nil {
 			return fmt.Errorf("resolve %s root: %w", name, err)

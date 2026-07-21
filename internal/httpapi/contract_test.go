@@ -108,6 +108,20 @@ type recoveryContractOperation struct {
 	lastEventID   bool
 }
 
+type routeContractOperation struct {
+	method        string
+	path          string
+	operationID   string
+	successStatus string
+	successSchema string
+	mediaType     string
+	queries       []string
+	bodyLimit     int
+	location      bool
+	lastEventID   bool
+	ifMatch       bool
+}
+
 var configContractOperations = []contractOperation{
 	{http.MethodGet, "/api/v1/config/workspaces", "listConfigWorkspaces", "200", []string{"WorkspaceList"}, "", false, false, false, 0},
 	{http.MethodPost, "/api/v1/config/workspaces", "createConfigWorkspace", "201", []string{"WorkspaceDetail"}, "", false, false, true, 4 << 10},
@@ -156,6 +170,15 @@ var recoveryContractOperations = []recoveryContractOperation{
 	{http.MethodPost, "/api/v1/config/attention-cases/{attention_id}/verifications", "createConfigAttentionVerification", "201", "RuntimeVerification", "application/json", nil, 4 << 10, false, false},
 }
 
+var routeContractOperations = []routeContractOperation{
+	{http.MethodPost, "/api/v1/config/workspaces/{workspace_id}/route-analyses", "createRouteAnalysis", "200", "RouteAnalysis", "application/json", nil, 128 << 10, false, false, true},
+	{http.MethodPost, "/api/v1/config/workspaces/{workspace_id}/route-tests", "createRouteTest", "202", "RouteTestRun", "application/json", nil, 128 << 10, true, false, true},
+	{http.MethodGet, "/api/v1/route-tests", "listRouteTests", "200", "RouteTestHistoryPage", "application/json", []string{"cursor", "limit", "state", "workspace_id"}, 0, false, false, false},
+	{http.MethodGet, "/api/v1/route-tests/{run_id}", "getRouteTest", "200", "RouteTestRun", "application/json", nil, 0, false, false, false},
+	{http.MethodGet, "/api/v1/route-tests/{run_id}/events", "streamRouteTestEvents", "200", "", "text/event-stream", nil, 0, false, true, false},
+	{http.MethodPost, "/api/v1/route-tests/{run_id}/cancellations", "createRouteTestCancellation", "202", "RouteTestRun", "application/json", nil, 4 << 10, false, false, false},
+}
+
 func TestOpenAPIContract(t *testing.T) {
 	contents, err := os.ReadFile("../../api/v1/openapi.yaml")
 	if err != nil {
@@ -187,6 +210,9 @@ func TestOpenAPIContract(t *testing.T) {
 		businessOperations = append(businessOperations, publicOperation{method: operation.method, path: operation.path})
 	}
 	for _, operation := range recoveryContractOperations {
+		businessOperations = append(businessOperations, publicOperation{method: operation.method, path: operation.path})
+	}
+	for _, operation := range routeContractOperations {
 		businessOperations = append(businessOperations, publicOperation{method: operation.method, path: operation.path})
 	}
 	businessOperations = append(businessOperations, publicOperation{method: http.MethodGet, path: "/api/v1/config/releases/{release_id}/events"})
@@ -229,6 +255,7 @@ func TestOpenAPIContract(t *testing.T) {
 
 	assertConfigOpenAPIContract(t, contents, document)
 	assertRecoveryOpenAPIContract(t, document)
+	assertRouteOpenAPIContract(t, document)
 }
 
 func assertConfigOpenAPIContract(t *testing.T, contents []byte, document openAPIContractDocument) {
@@ -315,6 +342,173 @@ func assertRecoveryOpenAPIContract(t *testing.T, document openAPIContractDocumen
 		assertRecoveryErrors(t, expected, operation.Responses)
 	}
 	assertRecoverySchemas(t, document.Components.Schemas)
+}
+
+func assertRouteOpenAPIContract(t *testing.T, document openAPIContractDocument) {
+	t.Helper()
+	for _, expected := range routeContractOperations {
+		operation, exists := document.Paths[expected.path][strings.ToLower(expected.method)]
+		if !exists {
+			t.Errorf("route contract missing %s %s", expected.method, expected.path)
+			continue
+		}
+		if operation.OperationID != expected.operationID {
+			t.Errorf("%s %s operationId = %q, want %q", expected.method, expected.path, operation.OperationID, expected.operationID)
+		}
+		if !hasSessionSecurity(operation.Security) {
+			t.Errorf("%s %s missing sessionCookie security", expected.method, expected.path)
+		}
+		parameters := resolveParameters(document.Components.Parameters, operation.Parameters)
+		assertRouteHeader(t, expected, parameters, "X-Request-ID", false)
+		if expected.method != http.MethodGet {
+			assertRouteHeader(t, expected, parameters, "Origin", true)
+			assertRouteHeader(t, expected, parameters, "X-CSRF-Token", true)
+		}
+		if expected.ifMatch {
+			assertRouteHeader(t, expected, parameters, "If-Match", true)
+		}
+		if expected.lastEventID {
+			assertRouteHeader(t, expected, parameters, "Last-Event-ID", false)
+		}
+		assertRouteQueries(t, expected, parameters)
+		assertRouteBody(t, expected, operation.RequestBody)
+		assertRouteSuccess(t, expected, operation.Responses[expected.successStatus])
+		assertRouteErrors(t, expected, operation.Responses)
+	}
+	assertRouteSchemas(t, document.Components.Schemas)
+}
+
+func assertRouteHeader(
+	t *testing.T,
+	expected routeContractOperation,
+	parameters []openAPIParameter,
+	name string,
+	required bool,
+) {
+	t.Helper()
+	for _, parameter := range parameters {
+		if parameter.In == "header" && parameter.Name == name {
+			if parameter.Required != required {
+				t.Errorf("%s %s header %s required = %v", expected.method, expected.path, name, parameter.Required)
+			}
+			return
+		}
+	}
+	t.Errorf("%s %s missing header %s", expected.method, expected.path, name)
+}
+
+func assertRouteQueries(t *testing.T, expected routeContractOperation, parameters []openAPIParameter) {
+	t.Helper()
+	actual := make([]string, 0, len(expected.queries))
+	for _, parameter := range parameters {
+		if parameter.In != "query" {
+			continue
+		}
+		actual = append(actual, parameter.Name)
+		if parameter.Required || !strings.Contains(strings.ToLower(parameter.Description), "exactly once") {
+			t.Errorf("%s %s query %s must be optional and document exactly-once cardinality", expected.method, expected.path, parameter.Name)
+		}
+	}
+	slices.Sort(actual)
+	wanted := slices.Clone(expected.queries)
+	slices.Sort(wanted)
+	if !slices.Equal(actual, wanted) {
+		t.Errorf("%s %s query parameters = %v, want %v", expected.method, expected.path, actual, wanted)
+	}
+}
+
+func assertRouteBody(t *testing.T, expected routeContractOperation, body *openAPIRequestBody) {
+	t.Helper()
+	if expected.bodyLimit == 0 {
+		if body != nil {
+			t.Errorf("%s %s documents unexpected request body", expected.method, expected.path)
+		}
+		return
+	}
+	if body == nil || !body.Required {
+		t.Errorf("%s %s missing required strict request body", expected.method, expected.path)
+		return
+	}
+	if !strings.Contains(body.Description, fmt.Sprintf("%d bytes", expected.bodyLimit)) {
+		t.Errorf("%s %s body does not document %d-byte limit", expected.method, expected.path, expected.bodyLimit)
+	}
+	if body.Content["application/json"].Schema.Ref == "" {
+		t.Errorf("%s %s request body does not use a reusable schema", expected.method, expected.path)
+	}
+}
+
+func assertRouteSuccess(t *testing.T, expected routeContractOperation, response openAPIResponse) {
+	t.Helper()
+	if response.Ref != "" || len(response.Content) == 0 {
+		t.Errorf("%s %s missing explicit success response", expected.method, expected.path)
+		return
+	}
+	cache := response.Headers["Cache-Control"].Schema
+	if schemaType(cache) != "string" || !slices.Contains(cache.Enum, "no-store") {
+		t.Errorf("%s %s success response does not guarantee Cache-Control no-store", expected.method, expected.path)
+	}
+	if _, exists := response.Headers["X-Request-ID"]; !exists {
+		t.Errorf("%s %s success response does not document X-Request-ID", expected.method, expected.path)
+	}
+	_, hasLocation := response.Headers["Location"]
+	if hasLocation != expected.location {
+		t.Errorf("%s %s Location present = %v, want %v", expected.method, expected.path, hasLocation, expected.location)
+	}
+	media, exists := response.Content[expected.mediaType]
+	if !exists {
+		t.Errorf("%s %s success response missing %s", expected.method, expected.path, expected.mediaType)
+		return
+	}
+	if expected.successSchema != "" && media.Schema.Ref != "#/components/schemas/"+expected.successSchema {
+		t.Errorf("%s %s success schema = %q, want %s", expected.method, expected.path, media.Schema.Ref, expected.successSchema)
+	}
+}
+
+func assertRouteErrors(t *testing.T, expected routeContractOperation, responses map[string]openAPIResponse) {
+	t.Helper()
+	found := false
+	for status, response := range responses {
+		if strings.HasPrefix(status, "2") {
+			continue
+		}
+		found = true
+		if response.Ref != "#/components/responses/ConfigAPIError" {
+			t.Errorf("%s %s response %s is not ConfigAPIError", expected.method, expected.path, status)
+		}
+	}
+	if !found {
+		t.Errorf("%s %s documents no stable error response", expected.method, expected.path)
+	}
+}
+
+func assertRouteSchemas(t *testing.T, schemas map[string]openAPISchema) {
+	t.Helper()
+	for _, name := range []string{
+		"RouteTestRequest", "RouteAnalysis", "RouteServerCandidate", "RouteLocationCandidate", "RouteSafeRequest",
+		"RouteTestRun", "RouteTestHistoryPage", "RouteRunStage", "RouteTerminalResult", "RouteAgentResult",
+		"RouteHTTPResponse", "RouteRuntimeEvidence", "RouteCleanupEvidence", "RouteAssertionOutcome",
+	} {
+		if _, exists := schemas[name]; !exists {
+			t.Errorf("OpenAPI missing Route Lab schema %s", name)
+		}
+	}
+	for name, maximum := range map[string]int{"RouteAnalysis.servers": 1000, "RouteAnalysis.locations": 5000, "RouteTestHistoryPage.runs": 100, "RouteTestRun.stages": 512} {
+		parts := strings.Split(name, ".")
+		property := schemas[parts[0]].Properties[parts[1]]
+		if schemaType(property) != "array" || property.MinItems == nil || property.MaxItems == nil || *property.MinItems != 0 || *property.MaxItems != maximum {
+			t.Errorf("%s must be bounded 0..%d", name, maximum)
+		}
+	}
+	for _, code := range []string{
+		"ROUTE_REQUEST_INVALID", "ROUTE_WORKSPACE_CONFLICT", "ROUTE_CONFIRMATION_REQUIRED", "ROUTE_PROJECT_INCOMPLETE",
+		"ROUTE_LISTENER_AMBIGUOUS", "ROUTE_LAB_BUSY", "ROUTE_CANDIDATE_INVALID", "ROUTE_SANDBOX_START_FAILED",
+		"ROUTE_REQUEST_TIMEOUT", "ROUTE_EVIDENCE_INCOMPLETE", "ROUTE_CLEANUP_FAILED", "ROUTE_ALREADY_TERMINAL",
+		"ROUTE_LIMIT_EXCEEDED", "ROUTE_TEST_NOT_FOUND", "ROUTE_LAB_UNAVAILABLE",
+	} {
+		if !slices.Contains(schemas["ConfigErrorCode"].Enum, code) {
+			t.Errorf("ConfigErrorCode missing %s", code)
+		}
+	}
 }
 
 func assertRecoveryHeader(

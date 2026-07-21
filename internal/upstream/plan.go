@@ -384,10 +384,11 @@ func validUpstreamName(value string) bool {
 		return false
 	}
 	for _, character := range value {
-		if !(unicode.IsLetter(character) || unicode.IsDigit(character) ||
-			character == '_' || character == '-' || character == '.') {
-			return false
+		if unicode.IsLetter(character) || unicode.IsDigit(character) ||
+			character == '_' || character == '-' || character == '.' {
+			continue
 		}
+		return false
 	}
 	return true
 }

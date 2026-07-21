@@ -19,6 +19,7 @@ import DashboardView from './views/DashboardView.vue'
 import EffectiveConfigView from './views/EffectiveConfigView.vue'
 import LoginView from './views/LoginView.vue'
 import OperationsView from './views/OperationsView.vue'
+import RouteLabView from './views/RouteLabView.vue'
 import StructuredConfigView from './views/StructuredConfigView.vue'
 
 declare module 'vue-router' {
@@ -73,6 +74,12 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true },
   },
   {
+    path: '/config/route-lab',
+    name: 'route-lab',
+    component: RouteLabView,
+    meta: { requiresAuth: true },
+  },
+  {
     path: '/login',
     name: 'login',
     component: LoginView,
@@ -94,6 +101,7 @@ export function createAppRouter(
         if (
           resolved.name === 'config-workspaces' ||
           resolved.name === 'config-operations' ||
+          resolved.name === 'route-lab' ||
           resolved.name === 'structured-upstreams' ||
           resolved.name === 'structured-servers'
         ) {

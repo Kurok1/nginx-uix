@@ -232,8 +232,8 @@ func NodeID(sourcePath string, node Node) string {
 	writeIdentityString(digest, sourcePath)
 	span := node.SourceSpan()
 	var offsets [16]byte
-	binary.BigEndian.PutUint64(offsets[:8], uint64(span.Start.Offset))
-	binary.BigEndian.PutUint64(offsets[8:], uint64(span.End.Offset))
+	binary.BigEndian.PutUint64(offsets[:8], uint64(span.Start.Offset)) // #nosec G115 -- parser-produced source offsets are non-negative.
+	binary.BigEndian.PutUint64(offsets[8:], uint64(span.End.Offset))   // #nosec G115 -- parser-produced source offsets are non-negative.
 	_, _ = digest.Write(offsets[:])
 	switch value := node.(type) {
 	case *Directive:
@@ -446,6 +446,8 @@ func childContext(parent ContextKind, block *Block) ContextKind {
 
 func diagnosticForIncludeStatus(status IncludeStatus) DiagnosticCode {
 	switch status {
+	case IncludeResolved:
+		return DiagnosticIncludeTargetUnavailable
 	case IncludeMissing:
 		return DiagnosticIncludeMissing
 	case IncludeExternal:

@@ -296,6 +296,9 @@ func upstreamDiagnosticSeverity(code upstream.DiagnosticCode) location.Diagnosti
 	case upstream.DiagnosticDuplicateName, upstream.DiagnosticServerRawOnly,
 		upstream.DiagnosticReferenceAmbiguous, upstream.DiagnosticContextReadOnly:
 		return location.SeverityBlocking
+	case upstream.DiagnosticReferenceDangling, upstream.DiagnosticReferenceDynamic,
+		upstream.DiagnosticReferenceUnknown:
+		return location.SeverityWarning
 	default:
 		return location.SeverityWarning
 	}

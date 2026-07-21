@@ -343,6 +343,8 @@ func validateRelationship(
 			}
 		case MatcherRegex, MatcherRegexInsensitive, MatcherUnknown:
 			return ErrInvalid
+		case MatcherExact, MatcherNamed:
+			return ErrInvalid
 		}
 	}
 	if parent == nil {
@@ -360,6 +362,8 @@ func validateRelationship(
 			return ErrInvalid
 		}
 	case MatcherRegex, MatcherRegexInsensitive, MatcherUnknown:
+		return ErrInvalid
+	case MatcherExact, MatcherNamed:
 		return ErrInvalid
 	}
 	return nil
@@ -387,6 +391,8 @@ func validMatcher(matcherType MatcherType, matcher string) bool {
 		return validRegexMatcher(matcher)
 	case MatcherNamed:
 		return validNamedMatcher(matcher)
+	case MatcherUnknown:
+		return false
 	default:
 		return false
 	}
@@ -410,6 +416,8 @@ func renderLocationHeader(matcherType MatcherType, matcher string) (string, erro
 		return "location ~* " + argument, nil
 	case MatcherNamed:
 		return "location " + argument, nil
+	case MatcherUnknown:
+		return "", ErrInvalid
 	default:
 		return "", ErrInvalid
 	}
