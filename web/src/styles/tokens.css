@@ -105,6 +105,11 @@
   --component-route-candidate-max-height: 360px;
   --component-route-history-min-width: 760px;
   --component-route-body-min-height: 120px;
+  --component-certificate-list-width: 300px;
+  --component-certificate-detail-min-width: 420px;
+  --component-certificate-history-min-width: 760px;
+  --component-certificate-domain-max-height: 320px;
+  --component-certificate-secret-min-height: 96px;
 
   --focus-outline: 2px solid var(--color-primary-focus);
   --focus-offset: 2px;

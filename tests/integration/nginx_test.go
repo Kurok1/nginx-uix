@@ -7,10 +7,19 @@ package integration
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
+	"math/big"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -22,6 +31,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/kuroky/nginx-uix/internal/certificate"
 )
 
 func TestEffectiveConfigWithRealIsolatedNginx(t *testing.T) {
@@ -143,6 +154,373 @@ func TestEffectiveConfigWithRealIsolatedNginx(t *testing.T) {
 		assertProcessIDsGone(t, processIDs)
 		assertPathsAbsent(t, harness.runtimeArtifactPaths())
 	})
+}
+
+func TestCertificateAutomationWithRealIsolatedNginx(t *testing.T) {
+	binary := requireIntegrationNginx(t)
+
+	t.Run("exact HTTP challenge is live only until transactional cleanup", func(t *testing.T) {
+		const (
+			challengeToken   = "e2e_HTTP-01_token"
+			keyAuthorization = "e2e_HTTP-01_token.thumbprint_value"
+		)
+		fragment, err := certificate.RenderHTTPChallengeFragment([]certificate.HTTPChallengeResponse{{
+			Identifier: "example.test", Token: challengeToken, KeyAuthorization: keyAuthorization,
+		}})
+		if err != nil {
+			t.Fatalf("render HTTP challenge fragment: %v", err)
+		}
+		port := reserveLoopbackPort(t)
+		harness := newGeneratedNginxHarness(t, binary, port, httpChallengeConfiguration(port, fragment))
+		commandContext, cancelCommands := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancelCommands()
+		if validation, err := harness.run(commandContext, "-t"); err != nil {
+			t.Fatalf("validate HTTP challenge Nginx: %v, stderr = %q", err, validation.stderr)
+		}
+		startContext, cancelStart := context.WithCancel(context.Background())
+		defer cancelStart()
+		if err := harness.start(startContext); err != nil {
+			t.Fatalf("start HTTP challenge Nginx: %v", err)
+		}
+		client := &http.Client{
+			Transport: &http.Transport{Proxy: nil, DisableKeepAlives: true},
+			Timeout:   2 * time.Second,
+		}
+		challengeURL := fmt.Sprintf("http://127.0.0.1:%d/.well-known/acme-challenge/%s", port, challengeToken)
+		status, body, err := requestIntegrationHTTP(commandContext, client, challengeURL, "example.test")
+		if err != nil || status != http.StatusOK || body != keyAuthorization {
+			t.Fatalf("exact challenge response = (%d, %q, %v), want (200, %q, nil)", status, body, err, keyAuthorization)
+		}
+		status, _, err = requestIntegrationHTTP(commandContext, client, challengeURL+"-near-match", "example.test")
+		if err != nil || status != http.StatusNotFound {
+			t.Fatalf("near challenge response = (%d, %v), want (404, nil)", status, err)
+		}
+
+		masterProcessID := harness.masterProcessID
+		writeGeneratedNginxConfiguration(t, harness.configPath, httpChallengeConfiguration(port, ""))
+		if validation, err := harness.run(commandContext, "-t"); err != nil {
+			t.Fatalf("validate HTTP challenge cleanup: %v, stderr = %q", err, validation.stderr)
+		}
+		if err := harness.reload(commandContext); err != nil {
+			t.Fatalf("reload HTTP challenge cleanup: %v", err)
+		}
+		if err := waitForIntegrationHTTPStatus(commandContext, client, challengeURL, "example.test", http.StatusNotFound); err != nil {
+			t.Fatal(err)
+		}
+		if current := readNginxMasterProcessID(t, harness.pidPath); current != masterProcessID {
+			t.Fatalf("master PID after challenge cleanup = %d, want %d", current, masterProcessID)
+		}
+	})
+
+	t.Run("HTTPS SNI selects the validated certificate and invalid candidate keeps it active", func(t *testing.T) {
+		now := time.Now().UTC()
+		first := issueIntegrationCertificate(t, "first.example.test", 1, now)
+		second := issueIntegrationCertificate(t, "second.example.test", 2, now)
+		port := reserveLoopbackPort(t)
+		prefix := filepath.Join(t.TempDir(), "certificate-prefix")
+		if err := os.MkdirAll(filepath.Join(prefix, "material"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		firstCertificatePath, firstKeyPath := writeIntegrationCertificate(t, prefix, "first", first)
+		secondCertificatePath, secondKeyPath := writeIntegrationCertificate(t, prefix, "second", second)
+		configuration := httpsSNIConfiguration(
+			port,
+			firstCertificatePath, firstKeyPath,
+			secondCertificatePath, secondKeyPath,
+		)
+		harness := newGeneratedNginxHarnessAtPrefix(t, binary, prefix, port, configuration)
+		commandContext, cancelCommands := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancelCommands()
+		if validation, err := harness.run(commandContext, "-t"); err != nil {
+			t.Fatalf("validate HTTPS Nginx: %v, stderr = %q", err, validation.stderr)
+		}
+		startContext, cancelStart := context.WithCancel(context.Background())
+		defer cancelStart()
+		if err := harness.start(startContext); err != nil {
+			t.Fatalf("start HTTPS Nginx: %v", err)
+		}
+
+		roots := x509.NewCertPool()
+		roots.AddCert(first.parsed)
+		roots.AddCert(second.parsed)
+		client := &http.Client{
+			Transport: &http.Transport{
+				Proxy:             nil,
+				DisableKeepAlives: true,
+				TLSClientConfig: &tls.Config{
+					MinVersion: tls.VersionTLS12,
+					RootCAs:    roots,
+					ServerName: "second.example.test",
+				},
+			},
+			Timeout: 2 * time.Second,
+		}
+		requestURL := fmt.Sprintf("https://127.0.0.1:%d/", port)
+		assertIntegrationHTTPSResponse(t, client, requestURL, "second.example.test", "second", second.parsed.Raw)
+
+		writeGeneratedNginxConfiguration(t, harness.configPath, "unknown_certificate_candidate_directive;\n")
+		if validation, err := harness.run(commandContext, "-t"); err == nil {
+			t.Fatalf("invalid replacement nginx -t error = nil, stderr = %q", validation.stderr)
+		}
+		assertIntegrationHTTPSResponse(t, client, requestURL, "second.example.test", "second", second.parsed.Raw)
+	})
+}
+
+type integrationCertificate struct {
+	issued certificate.IssuedCertificate
+	key    *ecdsa.PrivateKey
+	parsed *x509.Certificate
+}
+
+func issueIntegrationCertificate(t *testing.T, serverName string, serial int64, now time.Time) integrationCertificate {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generate integration certificate key: %v", err)
+	}
+	template := &x509.Certificate{
+		SerialNumber:          big.NewInt(serial),
+		Subject:               pkix.Name{CommonName: serverName},
+		Issuer:                pkix.Name{CommonName: "Nginx UIX local integration issuer"},
+		NotBefore:             now.Add(-time.Hour),
+		NotAfter:              now.Add(24 * time.Hour),
+		KeyUsage:              x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+		DNSNames:              []string{serverName},
+	}
+	raw, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	if err != nil {
+		t.Fatalf("issue integration certificate: %v", err)
+	}
+	parsed, err := x509.ParseCertificate(raw)
+	if err != nil {
+		t.Fatalf("parse integration certificate: %v", err)
+	}
+	issued, err := certificate.ValidateIssuedCertificate([][]byte{raw}, key, []string{serverName}, now)
+	if err != nil {
+		t.Fatalf("validate integration certificate through production policy: %v", err)
+	}
+	return integrationCertificate{issued: issued, key: key, parsed: parsed}
+}
+
+func writeIntegrationCertificate(
+	t *testing.T,
+	prefix string,
+	name string,
+	material integrationCertificate,
+) (string, string) {
+	t.Helper()
+	certificatePath := filepath.Join(prefix, "material", name+"-fullchain.pem")
+	privateKeyPath := filepath.Join(prefix, "material", name+"-privkey.pem")
+	privateKey, err := certificate.MarshalPrivateKeyPEM(material.key)
+	if err != nil {
+		t.Fatalf("marshal integration private key: %v", err)
+	}
+	for path, contents := range map[string][]byte{
+		certificatePath: material.issued.FullChainPEM,
+		privateKeyPath:  privateKey,
+	} {
+		if err := os.WriteFile(path, contents, 0o600); err != nil {
+			t.Fatalf("write integration certificate material %q: %v", path, err)
+		}
+		information, err := os.Lstat(path)
+		if err != nil {
+			t.Fatalf("inspect integration certificate material %q: %v", path, err)
+		}
+		if !information.Mode().IsRegular() || information.Mode().Perm() != 0o600 {
+			t.Fatalf("integration certificate material %q mode = %v, want regular 0600", path, information.Mode())
+		}
+	}
+	return certificatePath, privateKeyPath
+}
+
+func newGeneratedNginxHarness(
+	t *testing.T,
+	binary string,
+	port int,
+	configuration string,
+) *nginxHarness {
+	t.Helper()
+	return newGeneratedNginxHarnessAtPrefix(
+		t,
+		binary,
+		filepath.Join(t.TempDir(), "generated-prefix"),
+		port,
+		configuration,
+	)
+}
+
+func newGeneratedNginxHarnessAtPrefix(
+	t *testing.T,
+	binary string,
+	prefix string,
+	port int,
+	configuration string,
+) *nginxHarness {
+	t.Helper()
+	for _, directory := range []string{prefix, filepath.Join(prefix, "logs"), filepath.Join(prefix, "runtime")} {
+		if err := os.MkdirAll(directory, 0o700); err != nil {
+			t.Fatalf("create generated Nginx directory %q: %v", directory, err)
+		}
+	}
+	configPath := filepath.Join(prefix, "nginx.conf")
+	writeGeneratedNginxConfiguration(t, configPath, configuration)
+	harness := &nginxHarness{
+		binary:     binary,
+		prefix:     prefix,
+		configPath: configPath,
+		pidPath:    filepath.Join(prefix, "logs", "nginx.pid"),
+		errorPath:  filepath.Join(prefix, "logs", "error.log"),
+		port:       port,
+	}
+	t.Cleanup(func() {
+		cleanupContext, cancelCleanup := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancelCleanup()
+		if err := harness.close(cleanupContext); err != nil {
+			t.Errorf("cleanup generated isolated Nginx: %v", err)
+		}
+	})
+	return harness
+}
+
+func writeGeneratedNginxConfiguration(t *testing.T, path, configuration string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(configuration), 0o600); err != nil {
+		t.Fatalf("write generated Nginx configuration: %v", err)
+	}
+}
+
+func httpChallengeConfiguration(port int, fragment string) string {
+	return fmt.Sprintf(`worker_processes 1;
+pid logs/nginx.pid;
+error_log logs/error.log info;
+events { worker_connections 32; }
+http {
+    access_log off;
+    server {
+        listen 127.0.0.1:%d;
+        server_name example.test;
+%s
+        location / { return 404; }
+    }
+}
+`, port, fragment)
+}
+
+func httpsSNIConfiguration(
+	port int,
+	firstCertificatePath, firstPrivateKeyPath string,
+	secondCertificatePath, secondPrivateKeyPath string,
+) string {
+	return fmt.Sprintf(`worker_processes 1;
+pid logs/nginx.pid;
+error_log logs/error.log info;
+events { worker_connections 32; }
+http {
+    access_log off;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    server {
+        listen 127.0.0.1:%d ssl;
+        server_name first.example.test;
+        ssl_certificate %q;
+        ssl_certificate_key %q;
+        return 200 "first";
+    }
+    server {
+        listen 127.0.0.1:%d ssl;
+        server_name second.example.test;
+        ssl_certificate %q;
+        ssl_certificate_key %q;
+        return 200 "second";
+    }
+}
+`, port, firstCertificatePath, firstPrivateKeyPath, port, secondCertificatePath, secondPrivateKeyPath)
+}
+
+func requestIntegrationHTTP(ctx context.Context, client *http.Client, requestURL, host string) (int, string, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
+	if err != nil {
+		return 0, "", fmt.Errorf("create integration request: %w", err)
+	}
+	request.Host = host
+	response, err := client.Do(request)
+	if err != nil {
+		return 0, "", fmt.Errorf("perform integration request: %w", err)
+	}
+	defer func() { _ = response.Body.Close() }()
+	body, err := io.ReadAll(io.LimitReader(response.Body, 4097))
+	if err != nil {
+		return 0, "", fmt.Errorf("read integration response: %w", err)
+	}
+	if len(body) > 4096 {
+		return 0, "", fmt.Errorf("integration response exceeds limit")
+	}
+	return response.StatusCode, string(body), nil
+}
+
+func waitForIntegrationHTTPStatus(
+	ctx context.Context,
+	client *http.Client,
+	requestURL, host string,
+	expected int,
+) error {
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		status, _, err := requestIntegrationHTTP(ctx, client, requestURL, host)
+		if err == nil && status == expected {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("wait for integration HTTP status %d: last status %d: %w", expected, status, ctx.Err())
+		case <-ticker.C:
+		}
+	}
+}
+
+func readNginxMasterProcessID(t *testing.T, path string) int {
+	t.Helper()
+	payload, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read Nginx master PID: %v", err)
+	}
+	processID, err := strconv.Atoi(strings.TrimSpace(string(payload)))
+	if err != nil {
+		t.Fatalf("parse Nginx master PID: %v", err)
+	}
+	return processID
+}
+
+func assertIntegrationHTTPSResponse(
+	t *testing.T,
+	client *http.Client,
+	requestURL, host, expectedBody string,
+	expectedCertificate []byte,
+) {
+	t.Helper()
+	request, err := http.NewRequestWithContext(context.Background(), http.MethodGet, requestURL, nil)
+	if err != nil {
+		t.Fatalf("create integration HTTPS request: %v", err)
+	}
+	request.Host = host
+	response, err := client.Do(request)
+	if err != nil {
+		t.Fatalf("perform integration HTTPS request: %v", err)
+	}
+	defer func() { _ = response.Body.Close() }()
+	body, err := io.ReadAll(io.LimitReader(response.Body, 4097))
+	if err != nil {
+		t.Fatalf("read integration HTTPS response: %v", err)
+	}
+	if response.StatusCode != http.StatusOK || string(body) != expectedBody {
+		t.Fatalf("integration HTTPS response = (%d, %q), want (200, %q)", response.StatusCode, body, expectedBody)
+	}
+	if response.TLS == nil || len(response.TLS.PeerCertificates) == 0 ||
+		!bytes.Equal(response.TLS.PeerCertificates[0].Raw, expectedCertificate) {
+		t.Fatal("integration HTTPS response did not present the SNI-selected certificate")
+	}
 }
 
 const (
@@ -320,6 +698,24 @@ func (h *nginxHarness) run(ctx context.Context, operation string) (nginxCommandR
 	command.Stderr = &stderr
 	err := command.Run()
 	return nginxCommandResult{stdout: stdout.String(), stderr: stderr.String()}, err
+}
+
+func (h *nginxHarness) reload(ctx context.Context) error {
+	arguments := []string{
+		"-c", h.configPath,
+		"-p", h.prefix + string(os.PathSeparator),
+		"-e", h.errorPath,
+		"-s", "reload",
+	}
+	command := exec.CommandContext(ctx, h.binary, arguments...)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	command.Stdout = &stdout
+	command.Stderr = &stderr
+	if err := command.Run(); err != nil {
+		return fmt.Errorf("reload isolated Nginx: %w: stdout=%q stderr=%q", err, stdout.String(), stderr.String())
+	}
+	return nil
 }
 
 func (h *nginxHarness) start(ctx context.Context) error {

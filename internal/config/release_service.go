@@ -76,6 +76,9 @@ func (s *ReleaseService) Check(ctx context.Context, actor Actor, input PublishCh
 		return PublishCheck{}, fmt.Errorf("check release candidate: %w", err)
 	}
 	defer func() { returnErr = errors.Join(returnErr, closeReviewWorkspace(review)) }()
+	if err := requireWorkspaceActor(review.workspace, actor); err != nil {
+		return PublishCheck{}, err
+	}
 	if err := requirePublishableWorkspaceState(review.workspace.State); err != nil {
 		return PublishCheck{}, err
 	}
@@ -173,6 +176,9 @@ func (s *ReleaseService) Queue(ctx context.Context, actor Actor, input QueueRele
 		return Release{}, fmt.Errorf("queue release: %w", err)
 	}
 	defer func() { returnErr = errors.Join(returnErr, closeReviewWorkspace(review)) }()
+	if err := requireWorkspaceActor(review.workspace, actor); err != nil {
+		return Release{}, err
+	}
 	if err := requirePublishableWorkspaceState(review.workspace.State); err != nil {
 		return Release{}, err
 	}

@@ -191,6 +191,9 @@ func (s *Service) mutateFile(
 	if err != nil {
 		return MutationResult{}, fmt.Errorf("replace workspace file: %w", err)
 	}
+	if err := requireWorkspaceActor(workspace, actor); err != nil {
+		return MutationResult{}, fmt.Errorf("replace workspace file: %w", err)
+	}
 	if err := requireWorkspaceETag(ifMatch, workspace); err != nil {
 		return MutationResult{}, err
 	}

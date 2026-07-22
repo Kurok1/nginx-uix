@@ -9,12 +9,15 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
 	"github.com/kuroky/nginx-uix/internal/auth"
+	"github.com/kuroky/nginx-uix/internal/certificate"
 	configservice "github.com/kuroky/nginx-uix/internal/config"
 	"github.com/kuroky/nginx-uix/internal/httpapi"
 	"github.com/kuroky/nginx-uix/internal/httpapi/uiassets"
@@ -44,6 +47,21 @@ type uiDatabase interface {
 	configservice.AttentionReader
 	Ping(context.Context) error
 	Close() error
+}
+
+type uiCertificateDatabase interface {
+	certificate.AccountRepository
+	certificate.DNSCredentialRepository
+	certificate.PlanRepository
+	certificate.QueueRepository
+	certificate.OrderRepository
+	certificate.TaskRepository
+	certificate.RenewalRepository
+	certificate.RenewalSchedulerRepository
+	certificate.LifecycleRepository
+	certificate.BindingRepository
+	httpapi.CertificateInventoryAPI
+	httpapi.CertificatePlanReader
 }
 
 type uiAgent interface {
@@ -138,6 +156,7 @@ func runUI(ctx context.Context, applicationConfig Config, operations uiOperation
 	}
 	var releases httpapi.ReleaseAPI
 	var releaseTasks *releaseTaskOwner
+	var releaseCoordinator *configservice.ReleaseService
 	workspaceService, workspaceOK := configurationService.(*configservice.Service)
 	var structured httpapi.StructuredAPI
 	if workspaceOK {
@@ -167,6 +186,7 @@ func runUI(ctx context.Context, applicationConfig Config, operations uiOperation
 			return fmt.Errorf("reconcile configuration releases: %w", releaseErr)
 		}
 		releases = releaseService
+		releaseCoordinator = releaseService
 		releaseTasks = newReleaseTaskOwner(ctx, releaseService.Run, logger)
 	}
 	var recovery httpapi.RecoveryAPI
@@ -219,6 +239,162 @@ func runUI(ctx context.Context, applicationConfig Config, operations uiOperation
 		}
 		return fmt.Errorf("reconcile configuration workspaces: %w", err)
 	}
+	var certificateAccounts httpapi.CertificateAccountAPI
+	var certificateCredentials httpapi.CertificateCredentialAPI
+	var certificatePlans httpapi.CertificatePlanAPI
+	var certificatePlanReader httpapi.CertificatePlanReader
+	var certificateQueue httpapi.CertificateQueueAPI
+	var certificateTaskService httpapi.CertificateTaskAPI
+	var certificateInventory httpapi.CertificateInventoryAPI
+	var certificateRenewals httpapi.CertificateRenewalAPI
+	var certificateBindings httpapi.CertificateBindingAPI
+	var certificateLifecycle httpapi.CertificateLifecycleAPI
+	var certificateTasks *certificateTaskOwner
+	var certificateVault *certificate.Vault
+	var renewalSchedulerCancel context.CancelFunc
+	var renewalSchedulerDone chan error
+	if applicationConfig.CertificateRoot != "" {
+		certificateDatabase, databaseOK := database.(uiCertificateDatabase)
+		if !databaseOK || !workspaceOK || releaseCoordinator == nil {
+			if closeErr := database.Close(); closeErr != nil {
+				return errors.Join(fmt.Errorf("create certificate services: dependencies are unavailable"), closeErr)
+			}
+			return fmt.Errorf("create certificate services: dependencies are unavailable")
+		}
+		if err := ensureCertificateVaultRoot(applicationConfig.CertificateRoot); err != nil {
+			if closeErr := database.Close(); closeErr != nil {
+				return errors.Join(fmt.Errorf("prepare certificate vault: %w", err), closeErr)
+			}
+			return fmt.Errorf("prepare certificate vault: %w", err)
+		}
+		certificateVault, err = certificate.OpenVault(ctx, applicationConfig.CertificateRoot, rand.Reader)
+		if err != nil {
+			if closeErr := database.Close(); closeErr != nil {
+				return errors.Join(fmt.Errorf("open certificate vault: %w", err), closeErr)
+			}
+			return fmt.Errorf("open certificate vault: %w", err)
+		}
+		acmeFactory := certificate.NewXCryptoACMEFactory()
+		cloudflare, certificateErr := certificate.NewCloudflareClient()
+		if certificateErr != nil {
+			return closeCertificateStartup(database, certificateVault, "create Cloudflare client", certificateErr)
+		}
+		publication, certificateErr := certificate.NewConfigPublicationService(certificate.ConfigPublicationServiceOptions{
+			Workspaces: workspaceService, Releases: releaseCoordinator,
+		})
+		if certificateErr != nil {
+			return closeCertificateStartup(database, certificateVault, "create certificate publication service", certificateErr)
+		}
+		httpChallenges, certificateErr := certificate.NewConfigHTTPChallengeManager(certificate.ConfigHTTPChallengeManagerOptions{
+			Publisher: publication, Repository: certificateDatabase, Random: rand.Reader, Now: systemClock{}.Now,
+		})
+		if certificateErr != nil {
+			return closeCertificateStartup(database, certificateVault, "create HTTP challenge service", certificateErr)
+		}
+		publisher, certificateErr := certificate.NewConfigCertificatePublisher(certificate.ConfigCertificatePublisherOptions{
+			Publisher: publication, Random: rand.Reader, Now: systemClock{}.Now,
+		})
+		if certificateErr != nil {
+			return closeCertificateStartup(database, certificateVault, "create certificate deployment service", certificateErr)
+		}
+		lifecycleService, certificateErr := certificate.NewLifecycleService(certificate.LifecycleServiceOptions{
+			Repository: certificateDatabase, Vault: certificateVault, Publisher: publication,
+			Random: rand.Reader, Now: systemClock{}.Now,
+		})
+		if certificateErr != nil {
+			return closeCertificateStartup(database, certificateVault, "create certificate lifecycle service", certificateErr)
+		}
+		if _, certificateErr = lifecycleService.ReconcileMaterial(ctx); certificateErr != nil {
+			return closeCertificateStartup(database, certificateVault, "reconcile certificate material", certificateErr)
+		}
+		orderService, certificateErr := certificate.NewOrderService(certificate.OrderServiceOptions{
+			Repository: certificateDatabase, Vault: certificateVault, ACME: acmeFactory,
+			Cloudflare: cloudflare, DNSWaiter: certificate.NewAuthoritativeDNSWaiter(), HTTP: httpChallenges,
+			Publisher: publisher, Random: rand.Reader, Now: systemClock{}.Now,
+		})
+		if certificateErr != nil {
+			return closeCertificateStartup(database, certificateVault, "create certificate order service", certificateErr)
+		}
+		if _, certificateErr = orderService.ReconcileInterrupted(ctx); certificateErr != nil {
+			return closeCertificateStartup(database, certificateVault, "reconcile certificate tasks", certificateErr)
+		}
+		accountService, certificateErr := certificate.NewAccountService(certificate.AccountServiceOptions{
+			Repository: certificateDatabase, Vault: certificateVault, Factory: acmeFactory,
+			Random: rand.Reader, Now: systemClock{}.Now,
+		})
+		if certificateErr != nil {
+			return closeCertificateStartup(database, certificateVault, "create ACME account service", certificateErr)
+		}
+		credentialService, certificateErr := certificate.NewCredentialService(certificate.CredentialServiceOptions{
+			Repository: certificateDatabase, Vault: certificateVault, Cloudflare: cloudflare,
+			Random: rand.Reader, Now: systemClock{}.Now,
+		})
+		if certificateErr != nil {
+			return closeCertificateStartup(database, certificateVault, "create Cloudflare credential service", certificateErr)
+		}
+		planService, certificateErr := certificate.NewPlanService(certificate.PlanServiceOptions{
+			Repository: certificateDatabase, Workspaces: workspaceService, Random: rand.Reader, Now: systemClock{}.Now,
+		})
+		if certificateErr != nil {
+			return closeCertificateStartup(database, certificateVault, "create certificate plan service", certificateErr)
+		}
+		queueService, certificateErr := certificate.NewQueueService(certificate.QueueServiceOptions{
+			Repository: certificateDatabase, Planner: planService, Random: rand.Reader, Now: systemClock{}.Now,
+		})
+		if certificateErr != nil {
+			return closeCertificateStartup(database, certificateVault, "create certificate queue service", certificateErr)
+		}
+		bindingService, certificateErr := certificate.NewBindingService(certificate.BindingServiceOptions{
+			Repository: certificateDatabase, Planner: planService, Publisher: publisher,
+			Random: rand.Reader, Now: systemClock{}.Now,
+		})
+		if certificateErr != nil {
+			return closeCertificateStartup(database, certificateVault, "create certificate binding service", certificateErr)
+		}
+		taskService, certificateErr := certificate.NewTaskService(certificate.TaskServiceOptions{
+			Repository: certificateDatabase, Now: systemClock{}.Now,
+		})
+		if certificateErr != nil {
+			return closeCertificateStartup(database, certificateVault, "create certificate task service", certificateErr)
+		}
+		renewalService, certificateErr := certificate.NewRenewalService(certificate.RenewalServiceOptions{
+			Repository: certificateDatabase, Planner: planService, Random: rand.Reader, Now: systemClock{}.Now,
+		})
+		if certificateErr != nil {
+			return closeCertificateStartup(database, certificateVault, "create certificate renewal service", certificateErr)
+		}
+		certificateTasks = newCertificateTaskOwner(ctx, func(taskContext context.Context, id certificate.TaskID) (certificate.Task, error) {
+			task, readErr := certificateDatabase.CertificateTask(taskContext, id)
+			if readErr != nil {
+				return certificate.Task{}, readErr
+			}
+			if task.Kind == certificate.TaskKindBind {
+				return bindingService.Run(taskContext, id)
+			}
+			return orderService.Run(taskContext, id)
+		}, logger)
+		scheduler, certificateErr := certificate.NewRenewalScheduler(certificate.RenewalSchedulerOptions{
+			Repository: certificateDatabase, Queue: renewalService, Tasks: certificateTasks, Now: systemClock{}.Now,
+		})
+		if certificateErr != nil {
+			return closeCertificateStartup(database, certificateVault, "create certificate renewal scheduler", certificateErr)
+		}
+		certificateAccounts = accountService
+		certificateCredentials = credentialService
+		certificatePlans = planService
+		certificatePlanReader = certificateDatabase
+		certificateQueue = queueService
+		certificateTaskService = taskService
+		certificateInventory = certificateDatabase
+		certificateRenewals = renewalService
+		certificateBindings = bindingService
+		certificateLifecycle = lifecycleService
+		// #nosec G118 -- cancellation and completion are owned below by the UI shutdown sequence.
+		schedulerContext, cancelScheduler := context.WithCancel(context.WithoutCancel(ctx))
+		renewalSchedulerCancel = cancelScheduler
+		renewalSchedulerDone = make(chan error, 1)
+		go func() { renewalSchedulerDone <- scheduler.Run(schedulerContext) }()
+	}
 	server := &http.Server{
 		Addr: applicationConfig.ListenAddr,
 		Handler: httpapi.NewHandler(httpapi.Dependencies{
@@ -226,7 +402,13 @@ func runUI(ctx context.Context, applicationConfig Config, operations uiOperation
 			Workspaces: workspaces, Structured: structured, Groups: groups, Releases: releases, ReleaseTasks: releaseTasks,
 			Recovery: recovery, RecoveryTasks: recoveryTasks,
 			RouteLab: routeLab, RouteTasks: routeTasks,
-			Agent: agent, Database: databasePingProbe(database.Ping), Logger: logger,
+			CertificateAccounts: certificateAccounts, CertificateCredentials: certificateCredentials,
+			CertificatePlans: certificatePlans, CertificatePlanReader: certificatePlanReader,
+			CertificateQueue: certificateQueue, CertificateTasks: certificateTaskService,
+			CertificateTaskController: certificateTasks, Certificates: certificateInventory,
+			CertificateRenewals: certificateRenewals, CertificateBindings: certificateBindings,
+			CertificateLifecycle: certificateLifecycle,
+			Agent:                agent, Database: databasePingProbe(database.Ping), Logger: logger,
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
@@ -251,7 +433,10 @@ func runUI(ctx context.Context, applicationConfig Config, operations uiOperation
 	cancelCleanup()
 	<-cleanupDone
 	var taskErr error
-	if releaseTasks != nil || recoveryTasks != nil || routeTasks != nil {
+	if renewalSchedulerCancel != nil {
+		renewalSchedulerCancel()
+	}
+	if releaseTasks != nil || recoveryTasks != nil || routeTasks != nil || certificateTasks != nil || renewalSchedulerDone != nil {
 		shutdownTimeout := applicationConfig.ShutdownTimeout
 		if shutdownTimeout <= 0 {
 			shutdownTimeout = 10 * time.Second
@@ -259,6 +444,19 @@ func runUI(ctx context.Context, applicationConfig Config, operations uiOperation
 		taskCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
 		if recoveryTasks != nil {
 			taskErr = errors.Join(taskErr, recoveryTasks.Stop(taskCtx))
+		}
+		if renewalSchedulerDone != nil {
+			select {
+			case schedulerErr := <-renewalSchedulerDone:
+				if schedulerErr != nil && !errors.Is(schedulerErr, context.Canceled) {
+					taskErr = errors.Join(taskErr, fmt.Errorf("stop certificate renewal scheduler: %w", schedulerErr))
+				}
+			case <-taskCtx.Done():
+				taskErr = errors.Join(taskErr, fmt.Errorf("stop certificate renewal scheduler: %w", taskCtx.Err()))
+			}
+		}
+		if certificateTasks != nil {
+			taskErr = errors.Join(taskErr, certificateTasks.Stop(taskCtx))
 		}
 		if routeTasks != nil {
 			taskErr = errors.Join(taskErr, routeTasks.Stop(taskCtx))
@@ -268,8 +466,27 @@ func runUI(ctx context.Context, applicationConfig Config, operations uiOperation
 		}
 		cancel()
 	}
+	var certificateCloseErr error
+	if certificateVault != nil {
+		certificateCloseErr = certificateVault.Close()
+	}
 	closeErr := database.Close()
-	return errors.Join(runErr, taskErr, closeErr)
+	return errors.Join(runErr, taskErr, certificateCloseErr, closeErr)
+}
+
+func ensureCertificateVaultRoot(path string) error {
+	if err := os.Mkdir(path, 0o700); err != nil && !errors.Is(err, fs.ErrExist) {
+		return err
+	}
+	information, err := os.Lstat(path)
+	if err != nil || information.Mode()&fs.ModeSymlink != 0 || !information.IsDir() || information.Mode().Perm() != 0o700 {
+		return certificate.ErrSecretInvalid
+	}
+	return nil
+}
+
+func closeCertificateStartup(database uiDatabase, vault *certificate.Vault, action string, cause error) error {
+	return errors.Join(fmt.Errorf("%s: %w", action, cause), vault.Close(), database.Close())
 }
 
 type releaseTaskOwner struct {

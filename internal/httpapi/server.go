@@ -17,22 +17,33 @@ import (
 
 // Dependencies contains explicit HTTP boundary dependencies.
 type Dependencies struct {
-	Assets          fs.FS
-	Sessions        SessionService
-	Workspaces      WorkspaceAPI
-	Structured      StructuredAPI
-	Groups          GroupAPI
-	Releases        ReleaseAPI
-	ReleaseTasks    ReleaseTaskStarter
-	Recovery        RecoveryAPI
-	RecoveryTasks   RecoveryTaskStarter
-	RouteLab        RouteLabAPI
-	RouteTasks      RouteTaskController
-	Agent           Agent
-	Database        DatabaseProbe
-	PublicURL       *url.URL
-	Logger          *slog.Logger
-	RequestIDSource io.Reader
+	Assets                    fs.FS
+	Sessions                  SessionService
+	Workspaces                WorkspaceAPI
+	Structured                StructuredAPI
+	Groups                    GroupAPI
+	Releases                  ReleaseAPI
+	ReleaseTasks              ReleaseTaskStarter
+	Recovery                  RecoveryAPI
+	RecoveryTasks             RecoveryTaskStarter
+	RouteLab                  RouteLabAPI
+	RouteTasks                RouteTaskController
+	CertificateAccounts       CertificateAccountAPI
+	CertificateCredentials    CertificateCredentialAPI
+	CertificatePlans          CertificatePlanAPI
+	CertificatePlanReader     CertificatePlanReader
+	CertificateQueue          CertificateQueueAPI
+	CertificateTasks          CertificateTaskAPI
+	CertificateTaskController CertificateTaskController
+	Certificates              CertificateInventoryAPI
+	CertificateRenewals       CertificateRenewalAPI
+	CertificateBindings       CertificateBindingAPI
+	CertificateLifecycle      CertificateLifecycleAPI
+	Agent                     Agent
+	Database                  DatabaseProbe
+	PublicURL                 *url.URL
+	Logger                    *slog.Logger
+	RequestIDSource           io.Reader
 }
 
 // NewHandler creates the public HTTP surface.
@@ -51,7 +62,7 @@ func NewHandler(dependencies Dependencies) http.Handler {
 		sessions: dependencies.Sessions, publicURL: dependencies.PublicURL,
 	}
 	releases := &releaseHandler{
-		service: dependencies.Releases, tasks: dependencies.ReleaseTasks,
+		service: dependencies.Releases, workspaces: dependencies.Workspaces, tasks: dependencies.ReleaseTasks,
 		sessions: dependencies.Sessions, publicURL: dependencies.PublicURL,
 	}
 	recovery := &recoveryHandler{
@@ -59,8 +70,18 @@ func NewHandler(dependencies Dependencies) http.Handler {
 		sessions: dependencies.Sessions, publicURL: dependencies.PublicURL,
 	}
 	routeLab := &routeLabHandler{
-		service: dependencies.RouteLab, tasks: dependencies.RouteTasks,
+		service: dependencies.RouteLab, workspaces: dependencies.Workspaces, tasks: dependencies.RouteTasks,
 		sessions: dependencies.Sessions, publicURL: dependencies.PublicURL,
+	}
+	certificates := &certificateHandler{
+		accounts: dependencies.CertificateAccounts, credentials: dependencies.CertificateCredentials,
+		plans: dependencies.CertificatePlans, planReader: dependencies.CertificatePlanReader,
+		queue: dependencies.CertificateQueue, tasks: dependencies.CertificateTasks,
+		taskOwner: dependencies.CertificateTaskController, inventory: dependencies.Certificates,
+		renewals: dependencies.CertificateRenewals, bindingPlans: dependencies.CertificateBindings,
+		lifecycle: dependencies.CertificateLifecycle,
+		sessions:  dependencies.Sessions,
+		publicURL: dependencies.PublicURL,
 	}
 	mux.HandleFunc("GET /api/v1/config/workspaces", configuration.workspacesCollection)
 	mux.HandleFunc("POST /api/v1/config/workspaces", configuration.workspacesCollection)
@@ -111,6 +132,31 @@ func NewHandler(dependencies Dependencies) http.Handler {
 	mux.HandleFunc("POST /api/v1/config/groups", configuration.groupsCollection)
 	mux.HandleFunc("PUT /api/v1/config/groups/{group_id}", configuration.group)
 	mux.HandleFunc("DELETE /api/v1/config/groups/{group_id}", configuration.group)
+	mux.HandleFunc("GET /api/v1/acme/directories", certificates.directories)
+	mux.HandleFunc("GET /api/v1/acme/accounts", certificates.accountsCollection)
+	mux.HandleFunc("POST /api/v1/acme/accounts", certificates.accountsCollection)
+	mux.HandleFunc("POST /api/v1/acme/account-imports", certificates.accountImports)
+	mux.HandleFunc("POST /api/v1/acme/accounts/{account_id}/deactivations", certificates.deactivateAccount)
+	mux.HandleFunc("GET /api/v1/certificate-dns-credentials", certificates.credentialsCollection)
+	mux.HandleFunc("POST /api/v1/certificate-dns-credentials", certificates.credentialsCollection)
+	mux.HandleFunc("DELETE /api/v1/certificate-dns-credentials/{credential_id}", certificates.credential)
+	mux.HandleFunc("GET /api/v1/certificate-server-candidates", certificates.serverCandidates)
+	mux.HandleFunc("POST /api/v1/certificate-order-plans", certificates.plansCollection)
+	mux.HandleFunc("GET /api/v1/certificate-order-plans/{plan_id}", certificates.plan)
+	mux.HandleFunc("POST /api/v1/certificate-order-plans/{plan_id}/executions", certificates.executePlan)
+	mux.HandleFunc("GET /api/v1/certificate-tasks", certificates.tasksCollection)
+	mux.HandleFunc("GET /api/v1/certificate-tasks/{task_id}", certificates.task)
+	mux.HandleFunc("GET /api/v1/certificate-tasks/{task_id}/events", certificates.taskEvents)
+	mux.HandleFunc("POST /api/v1/certificate-tasks/{task_id}/cancellations", certificates.cancelTask)
+	mux.HandleFunc("GET /api/v1/certificates", certificates.certificatesCollection)
+	mux.HandleFunc("GET /api/v1/certificates/{certificate_id}", certificates.certificate)
+	mux.HandleFunc("POST /api/v1/certificates/{certificate_id}/renewals", certificates.renewCertificate)
+	mux.HandleFunc("PUT /api/v1/certificates/{certificate_id}/renewal-policy", certificates.updateRenewalPolicy)
+	mux.HandleFunc("POST /api/v1/certificates/{certificate_id}/binding-plans", certificates.createBindingPlan)
+	mux.HandleFunc("POST /api/v1/certificate-binding-plans/{plan_id}/executions", certificates.executeBindingPlan)
+	mux.HandleFunc("POST /api/v1/certificates/{certificate_id}/unbindings", certificates.unbindCertificate)
+	mux.HandleFunc("POST /api/v1/certificates/{certificate_id}/exports", certificates.exportCertificate)
+	mux.HandleFunc("DELETE /api/v1/certificates/{certificate_id}", certificates.deleteCertificate)
 	mux.Handle("GET /", spaFallback(dependencies.Assets))
 	return requestBoundary(configNoStore(mux), dependencies.Logger, newRequestIDGenerator(dependencies.RequestIDSource))
 }
@@ -169,8 +215,11 @@ func reservedSPAPath(requestPath string) bool {
 
 func isKnownSPANavigation(path string) bool {
 	switch path {
-	case "/login", "/configuration", "/config/workspaces", "/config/operations":
+	case "/login", "/configuration", "/config/workspaces", "/config/operations", "/config/route-lab", "/certificates":
 		return true
+	}
+	if certificateID, found := strings.CutPrefix(path, "/certificates/"); found {
+		return isOpaqueNavigationID(certificateID)
 	}
 	const workspacePrefix = "/config/workspaces/"
 	workspaceRoute, found := strings.CutPrefix(path, workspacePrefix)
@@ -178,13 +227,20 @@ func isKnownSPANavigation(path string) bool {
 		return false
 	}
 	workspaceID, child, hasChild := strings.Cut(workspaceRoute, "/")
-	if len(workspaceID) != 32 {
+	if !isOpaqueNavigationID(workspaceID) {
 		return false
 	}
-	for _, character := range workspaceID {
+	return !hasChild || child == "upstreams" || child == "servers"
+}
+
+func isOpaqueNavigationID(value string) bool {
+	if len(value) != 32 {
+		return false
+	}
+	for _, character := range value {
 		if (character < '0' || character > '9') && (character < 'a' || character > 'f') {
 			return false
 		}
 	}
-	return !hasChild || child == "upstreams" || child == "servers"
+	return true
 }

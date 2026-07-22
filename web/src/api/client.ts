@@ -63,12 +63,48 @@ import {
   type RouteTestRequest,
   type RouteTestRun,
 } from './route_lab'
+import {
+  parseACMEAccount,
+  parseACMEAccounts,
+  parseACMEDirectories,
+  parseCertificate,
+  parseCertificateBindingPlan,
+  parseCertificateOrderPlan,
+  parseCertificates,
+  parseCertificateServerCandidates,
+  parseCertificateTask,
+  parseCertificateTasks,
+  parseDNSCredential,
+  parseDNSCredentials,
+  type ACMEAccount,
+  type ACMEDirectory,
+  type CertificateBindingPlan,
+  type CertificateExport,
+  type CertificateExportInput,
+  type CertificateOrderPlan,
+  type CertificateRecord,
+  type CertificateRenewalPolicyInput,
+  type CertificateServerCandidate,
+  type CertificateServerRef,
+  type CertificateTask,
+  type CreateACMEAccountInput,
+  type CreateCertificateOrderPlanInput,
+  type CreateDNSCredentialInput,
+  type DNSCredential,
+  type ExecuteCertificateOrderPlanInput,
+  type ImportACMEAccountInput,
+} from './certificates'
 
 const sessionPath = '/api/v1/auth/session'
 const systemStatusPath = '/api/v1/system/status'
 const effectiveConfigPath = '/api/v1/nginx/effective-config'
 const workspacesPath = '/api/v1/config/workspaces'
 const groupsPath = '/api/v1/config/groups'
+const acmeAccountsPath = '/api/v1/acme/accounts'
+const certificateCredentialsPath = '/api/v1/certificate-dns-credentials'
+const certificatePlansPath = '/api/v1/certificate-order-plans'
+const certificateTasksPath = '/api/v1/certificate-tasks'
+const certificatesPath = '/api/v1/certificates'
 
 export type APIRequestErrorKind = 'api' | 'malformed_response' | 'network'
 export type APIErrorListener = (error: APIRequestError) => void
@@ -695,6 +731,262 @@ export class APIClient {
     )
   }
 
+  async listACMEDirectories(signal?: AbortSignal): Promise<ACMEDirectory[]> {
+    const response = await this.send('/api/v1/acme/directories', { method: 'GET', signal })
+    return parseACMEDirectories(await readJSON(response), response.status)
+  }
+
+  async listACMEAccounts(signal?: AbortSignal): Promise<ACMEAccount[]> {
+    const response = await this.send(acmeAccountsPath, { method: 'GET', signal })
+    return parseACMEAccounts(await readJSON(response), response.status)
+  }
+
+  async createACMEAccount(
+    input: CreateACMEAccountInput,
+    csrfToken: string,
+  ): Promise<ACMEAccount> {
+    const response = await this.send(acmeAccountsPath, {
+      method: 'POST',
+      headers: jsonMutationHeaders(csrfToken),
+      body: JSON.stringify(input),
+    })
+    return parseACMEAccount(await readJSON(response), response.status)
+  }
+
+  async importACMEAccount(
+    input: ImportACMEAccountInput,
+    csrfToken: string,
+  ): Promise<ACMEAccount> {
+    const response = await this.send('/api/v1/acme/account-imports', {
+      method: 'POST',
+      headers: jsonMutationHeaders(csrfToken),
+      body: JSON.stringify(input),
+    })
+    return parseACMEAccount(await readJSON(response), response.status)
+  }
+
+  async deactivateACMEAccount(id: string, csrfToken: string): Promise<ACMEAccount> {
+    const response = await this.send(`/api/v1/acme/accounts/${requireOpaqueID(id)}/deactivations`, {
+      method: 'POST',
+      headers: jsonMutationHeaders(csrfToken),
+      body: '{}',
+    })
+    return parseACMEAccount(await readJSON(response), response.status)
+  }
+
+  async listCertificateDNSCredentials(signal?: AbortSignal): Promise<DNSCredential[]> {
+    const response = await this.send(certificateCredentialsPath, { method: 'GET', signal })
+    return parseDNSCredentials(await readJSON(response), response.status)
+  }
+
+  async createCertificateDNSCredential(
+    input: CreateDNSCredentialInput,
+    csrfToken: string,
+  ): Promise<DNSCredential> {
+    const response = await this.send(certificateCredentialsPath, {
+      method: 'POST',
+      headers: jsonMutationHeaders(csrfToken),
+      body: JSON.stringify(input),
+    })
+    return parseDNSCredential(await readJSON(response), response.status)
+  }
+
+  async deleteCertificateDNSCredential(id: string, csrfToken: string): Promise<void> {
+    const response = await this.send(`${certificateCredentialsPath}/${requireOpaqueID(id)}`, {
+      method: 'DELETE',
+      headers: jsonMutationHeaders(csrfToken),
+      body: '{}',
+    })
+    requireNoContent(response)
+  }
+
+  async listCertificateServerCandidates(signal?: AbortSignal): Promise<CertificateServerCandidate[]> {
+    const response = await this.send('/api/v1/certificate-server-candidates', { method: 'GET', signal })
+    return parseCertificateServerCandidates(await readJSON(response), response.status)
+  }
+
+  async createCertificateOrderPlan(
+    input: CreateCertificateOrderPlanInput,
+    csrfToken: string,
+  ): Promise<CertificateOrderPlan> {
+    const response = await this.send(certificatePlansPath, {
+      method: 'POST',
+      headers: jsonMutationHeaders(csrfToken),
+      body: JSON.stringify(input),
+    })
+    return parseCertificateOrderPlan(await readJSON(response), response.status)
+  }
+
+  async getCertificateOrderPlan(id: string, signal?: AbortSignal): Promise<CertificateOrderPlan> {
+    const response = await this.send(`${certificatePlansPath}/${requireOpaqueID(id)}`, {
+      method: 'GET',
+      signal,
+    })
+    return parseCertificateOrderPlan(await readJSON(response), response.status)
+  }
+
+  async executeCertificateOrderPlan(
+    id: string,
+    input: ExecuteCertificateOrderPlanInput,
+    csrfToken: string,
+  ): Promise<CertificateTask> {
+    const safeID = requireOpaqueID(id)
+    const response = await this.send(`${certificatePlansPath}/${safeID}/executions`, {
+      method: 'POST',
+      headers: jsonMutationHeaders(csrfToken),
+      body: JSON.stringify(input),
+    })
+    const task = parseCertificateTask(await readJSON(response), response.status)
+    requireLocation(response, 202, `${certificateTasksPath}/${task.id}`)
+    return task
+  }
+
+  async listCertificateTasks(limit = 100, signal?: AbortSignal): Promise<CertificateTask[]> {
+    const response = await this.send(withQuery(certificateTasksPath, { limit: certificateLimit(limit) }), {
+      method: 'GET',
+      signal,
+    })
+    return parseCertificateTasks(await readJSON(response), response.status)
+  }
+
+  async getCertificateTask(id: string, signal?: AbortSignal): Promise<CertificateTask> {
+    const response = await this.send(`${certificateTasksPath}/${requireOpaqueID(id)}`, {
+      method: 'GET',
+      signal,
+    })
+    return parseCertificateTask(await readJSON(response), response.status)
+  }
+
+  async cancelCertificateTask(id: string, csrfToken: string): Promise<CertificateTask> {
+    const safeID = requireOpaqueID(id)
+    const response = await this.send(`${certificateTasksPath}/${safeID}/cancellations`, {
+      method: 'POST',
+      headers: jsonMutationHeaders(csrfToken),
+      body: '{}',
+    })
+    return parseCertificateTask(await readJSON(response), response.status)
+  }
+
+  async listCertificates(limit = 100, signal?: AbortSignal): Promise<CertificateRecord[]> {
+    const response = await this.send(withQuery(certificatesPath, { limit: certificateLimit(limit) }), {
+      method: 'GET',
+      signal,
+    })
+    return parseCertificates(await readJSON(response), response.status)
+  }
+
+  async getCertificate(id: string, signal?: AbortSignal): Promise<CertificateRecord> {
+    const response = await this.send(`${certificatesPath}/${requireOpaqueID(id)}`, {
+      method: 'GET',
+      signal,
+    })
+    return parseCertificate(await readJSON(response), response.status)
+  }
+
+  async renewCertificate(id: string, confirmation: string, csrfToken: string): Promise<CertificateTask> {
+    const safeID = requireOpaqueID(id)
+    const response = await this.send(`${certificatesPath}/${safeID}/renewals`, {
+      method: 'POST',
+      headers: jsonMutationHeaders(csrfToken),
+      body: JSON.stringify({ confirmation }),
+    })
+    const task = parseCertificateTask(await readJSON(response), response.status)
+    requireLocation(response, 202, `${certificateTasksPath}/${task.id}`)
+    return task
+  }
+
+  async updateCertificateRenewalPolicy(
+    id: string,
+    input: CertificateRenewalPolicyInput,
+    csrfToken: string,
+  ): Promise<CertificateRecord> {
+    const response = await this.send(`${certificatesPath}/${requireOpaqueID(id)}/renewal-policy`, {
+      method: 'PUT',
+      headers: jsonMutationHeaders(csrfToken),
+      body: JSON.stringify(input),
+    })
+    return parseCertificate(await readJSON(response), response.status)
+  }
+
+  async createCertificateBindingPlan(
+    id: string,
+    serverRefs: CertificateServerRef[],
+    csrfToken: string,
+  ): Promise<CertificateBindingPlan> {
+    const response = await this.send(`${certificatesPath}/${requireOpaqueID(id)}/binding-plans`, {
+      method: 'POST',
+      headers: jsonMutationHeaders(csrfToken),
+      body: JSON.stringify({ server_refs: serverRefs }),
+    })
+    return parseCertificateBindingPlan(await readJSON(response), response.status)
+  }
+
+  async executeCertificateBindingPlan(
+    id: string,
+    confirmation: string,
+    csrfToken: string,
+  ): Promise<CertificateTask> {
+    const response = await this.send(`/api/v1/certificate-binding-plans/${requireOpaqueID(id)}/executions`, {
+      method: 'POST',
+      headers: jsonMutationHeaders(csrfToken),
+      body: JSON.stringify({ confirmation }),
+    })
+    const task = parseCertificateTask(await readJSON(response), response.status)
+    requireLocation(response, 202, `${certificateTasksPath}/${task.id}`)
+    return task
+  }
+
+  async unbindCertificate(id: string, confirmation: string, csrfToken: string): Promise<CertificateRecord> {
+    const response = await this.send(`${certificatesPath}/${requireOpaqueID(id)}/unbindings`, {
+      method: 'POST',
+      headers: jsonMutationHeaders(csrfToken),
+      body: JSON.stringify({ confirmation }),
+    })
+    return parseCertificate(await readJSON(response), response.status)
+  }
+
+  async exportCertificate(
+    id: string,
+    input: CertificateExportInput,
+    csrfToken: string,
+  ): Promise<CertificateExport> {
+    const safeID = requireOpaqueID(id)
+    const response = await this.send(`${certificatesPath}/${safeID}/exports`, {
+      method: 'POST',
+      headers: jsonMutationHeaders(csrfToken),
+      body: JSON.stringify(input),
+    })
+    const filename = `certificate-${safeID}.pem`
+    const rawLength = response.headers.get('Content-Length')
+    const length = rawLength === null ? Number.NaN : Number(rawLength)
+    if (
+      response.status !== 200 ||
+      response.headers.get('Content-Type') !== 'application/x-pem-file' ||
+      response.headers.get('Content-Disposition') !== `attachment; filename="${filename}"` ||
+      response.headers.get('Content-Encoding') !== null ||
+      !response.headers.get('Cache-Control')?.toLowerCase().includes('no-store') ||
+      !Number.isSafeInteger(length) ||
+      length <= 0 ||
+      length > 4 * 1024 * 1024
+    ) {
+      throw malformedResponse(response.status)
+    }
+    const blob = await response.blob()
+    if (blob.size !== length) {
+      throw malformedResponse(response.status)
+    }
+    return { blob, filename }
+  }
+
+  async deleteCertificate(id: string, confirmation: string, csrfToken: string): Promise<void> {
+    const response = await this.send(`${certificatesPath}/${requireOpaqueID(id)}`, {
+      method: 'DELETE',
+      headers: jsonMutationHeaders(csrfToken),
+      body: JSON.stringify({ confirmation }),
+    })
+    requireNoContent(response)
+  }
+
   async logout(csrfToken: string): Promise<void> {
     const response = await this.send(sessionPath, {
       method: 'DELETE',
@@ -785,6 +1077,20 @@ export class APIClient {
 }
 
 export const apiClient = new APIClient()
+
+function requireOpaqueID(value: string): string {
+  if (!isOpaqueID(value)) {
+    throw new TypeError('invalid opaque id')
+  }
+  return value
+}
+
+function certificateLimit(value: number): string {
+  if (!Number.isSafeInteger(value) || value < 1 || value > 100) {
+    throw new TypeError('invalid certificate list limit')
+  }
+  return String(value)
+}
 
 function workspacePath(id: string): string {
   return `${workspacesPath}/${id}`
@@ -2157,6 +2463,37 @@ const apiErrorCodes = [
 	'ROUTE_EVIDENCE_INCOMPLETE',
 	'ROUTE_ALREADY_TERMINAL',
 	'ROUTE_LIMIT_EXCEEDED',
+  'ACME_ACCOUNT_INVALID',
+  'ACME_ACCOUNT_DEACTIVATED',
+  'ACME_ORDER_FAILED',
+  'ACME_RATE_LIMITED',
+  'ACME_STAGING_PREFLIGHT_REQUIRED',
+  'ACME_TERMS_REQUIRED',
+  'CERTIFICATE_BINDING_CONFLICT',
+  'CERTIFICATE_FILE_INVALID',
+  'CERTIFICATE_IDENTIFIER_INVALID',
+  'CERTIFICATE_KEY_MISMATCH',
+  'CERTIFICATE_LIMIT_EXCEEDED',
+  'CERTIFICATE_NEEDS_ATTENTION',
+  'CERTIFICATE_OPERATION_TIMEOUT',
+  'CERTIFICATE_PLAN_EXPIRED',
+  'CERTIFICATE_PRIVATE_KEY_CONFIRMATION_REQUIRED',
+  'CERTIFICATE_REFERENCED',
+  'CERTIFICATE_RENEWAL_POLICY_INVALID',
+  'CERTIFICATE_REQUEST_INVALID',
+  'CERTIFICATE_RESOURCE_NOT_FOUND',
+  'CERTIFICATE_SAN_MISMATCH',
+  'CERTIFICATE_SERVER_AMBIGUOUS',
+  'CERTIFICATE_SERVER_NOT_FOUND',
+  'CERTIFICATE_SERVICE_UNAVAILABLE',
+  'CERTIFICATE_TASK_ACTIVE',
+  'CERTIFICATE_WILDCARD_REQUIRES_DNS',
+  'CHALLENGE_CLEANUP_FAILED',
+  'CLOUDFLARE_PERMISSION_DENIED',
+  'CLOUDFLARE_TOKEN_INVALID',
+  'CLOUDFLARE_UNAVAILABLE',
+  'CLOUDFLARE_ZONE_NOT_FOUND',
+  'DNS_PROPAGATION_TIMEOUT',
 ] as const satisfies readonly APIErrorCode[]
 
 function isAPIErrorCode(value: unknown): value is APIErrorCode {

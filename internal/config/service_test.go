@@ -59,6 +59,41 @@ func TestCreateWorkspaceProducesReadyIndependentBaseAndDraft(t *testing.T) {
 	}
 }
 
+func TestCertificateSystemWorkspaceRequiresSystemActor(t *testing.T) {
+	fixture := newServiceFixture(t)
+	name := "ACME HTTP challenge deadbeef"
+
+	if _, err := fixture.service.Create(
+		context.Background(), Actor{UserID: 7, RequestID: "req-user-create"}, name,
+	); !errors.Is(err, ErrSystemWorkspaceAccess) {
+		t.Fatalf("Create() error = %v, want ErrSystemWorkspaceAccess", err)
+	}
+
+	created, err := fixture.service.Create(
+		context.Background(), Actor{UserID: 7, RequestID: "req-system-create", System: true}, name,
+	)
+	if err != nil {
+		t.Fatalf("Create() system workspace error = %v", err)
+	}
+	if !IsSystemWorkspaceName(created.Name) {
+		t.Fatalf("IsSystemWorkspaceName(%q) = false", created.Name)
+	}
+
+	if _, err := fixture.service.ReplaceFile(
+		context.Background(), Actor{UserID: 7, RequestID: "req-user-edit"}, created.ID,
+		ReplaceFileInput{Path: "nginx.conf", Content: []byte("events {}\nhttp {}\n"), IfMatch: created.ETag()},
+	); !errors.Is(err, ErrSystemWorkspaceAccess) {
+		t.Fatalf("ReplaceFile() error = %v, want ErrSystemWorkspaceAccess", err)
+	}
+
+	if err := fixture.service.Delete(
+		context.Background(), Actor{UserID: 7, RequestID: "req-user-delete"},
+		created.ID, created.ETag(), created.Name,
+	); !errors.Is(err, ErrSystemWorkspaceAccess) {
+		t.Fatalf("Delete() error = %v, want ErrSystemWorkspaceAccess", err)
+	}
+}
+
 func TestListWorkspaceMovesOnlyReadyToStale(t *testing.T) {
 	fixture := newServiceFixture(t)
 	created, err := fixture.service.Create(context.Background(), Actor{UserID: 7, RequestID: "req-create"}, "review")

@@ -126,10 +126,14 @@ func TestSPAFallbackServesIndexOnlyForKnownNavigationRoutes(t *testing.T) {
 	paths := []string{
 		"/login",
 		"/configuration",
+		"/config/operations",
+		"/config/route-lab",
 		"/config/workspaces",
 		"/config/workspaces/0123456789abcdef0123456789abcdef",
 		"/config/workspaces/0123456789abcdef0123456789abcdef/upstreams",
 		"/config/workspaces/0123456789abcdef0123456789abcdef/servers",
+		"/certificates",
+		"/certificates/0123456789abcdef0123456789abcdef",
 	}
 	for _, method := range []string{http.MethodGet, http.MethodHead} {
 		for _, path := range paths {
@@ -180,6 +184,9 @@ func TestSPAFallbackServesAssetsFirstAndRejectsUnknownSurfaces(t *testing.T) {
 		{name: "short workspace ID", method: http.MethodGet, path: "/config/workspaces/0123456789abcdef", wantStatus: http.StatusNotFound},
 		{name: "uppercase workspace ID", method: http.MethodGet, path: "/config/workspaces/0123456789ABCDEF0123456789ABCDEF", wantStatus: http.StatusNotFound},
 		{name: "nested workspace path", method: http.MethodGet, path: "/config/workspaces/0123456789abcdef0123456789abcdef/files", wantStatus: http.StatusNotFound},
+		{name: "short certificate ID", method: http.MethodGet, path: "/certificates/0123456789abcdef", wantStatus: http.StatusNotFound},
+		{name: "uppercase certificate ID", method: http.MethodGet, path: "/certificates/0123456789ABCDEF0123456789ABCDEF", wantStatus: http.StatusNotFound},
+		{name: "nested certificate path", method: http.MethodGet, path: "/certificates/0123456789abcdef0123456789abcdef/history", wantStatus: http.StatusNotFound},
 		{name: "POST navigation", method: http.MethodPost, path: "/login", wantStatus: http.StatusMethodNotAllowed},
 		{name: "PUT navigation", method: http.MethodPut, path: "/configuration", wantStatus: http.StatusMethodNotAllowed},
 	}

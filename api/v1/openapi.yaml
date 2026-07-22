@@ -3,7 +3,7 @@
 openapi: 3.1.0
 info:
   title: Nginx UIX API
-  version: 0.4.0
+  version: 0.5.0
 servers:
   - url: /
 paths:
@@ -2042,6 +2042,697 @@ paths:
         "415": { $ref: "#/components/responses/ConfigAPIError" }
         "500": { $ref: "#/components/responses/ConfigAPIError" }
         "503": { $ref: "#/components/responses/ConfigAPIError" }
+  /api/v1/acme/directories:
+    get:
+      operationId: listACMEDirectories
+      summary: Discover the two fixed Let's Encrypt directories and current Terms URLs
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - $ref: "#/components/parameters/RequestID"
+      responses:
+        "200":
+          description: Fixed staging and production directory metadata without account keys
+          headers:
+            X-Request-ID: { $ref: "#/components/headers/RequestID" }
+            Cache-Control: *RecoveryNoStoreHeader
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ACMEDirectoryCollection" }
+        "401": { $ref: "#/components/responses/ConfigAPIError" }
+        "500": { $ref: "#/components/responses/ConfigAPIError" }
+        "503": { $ref: "#/components/responses/ConfigAPIError" }
+  /api/v1/acme/accounts:
+    get:
+      operationId: listACMEAccounts
+      summary: List bounded secret-free ACME account metadata
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - $ref: "#/components/parameters/RequestID"
+      responses:
+        "200":
+          description: ACME accounts without private keys or JWK material
+          headers:
+            X-Request-ID: { $ref: "#/components/headers/RequestID" }
+            Cache-Control: *RecoveryNoStoreHeader
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ACMEAccountCollection" }
+        "401": { $ref: "#/components/responses/ConfigAPIError" }
+        "500": { $ref: "#/components/responses/ConfigAPIError" }
+        "503": { $ref: "#/components/responses/ConfigAPIError" }
+    post:
+      operationId: createACMEAccount
+      summary: Register a P-256 account against one fixed Let's Encrypt directory
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - $ref: "#/components/parameters/Origin"
+        - $ref: "#/components/parameters/CSRFToken"
+        - $ref: "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        description: Strict certificate JSON object limited to 131072 bytes; duplicate and unknown fields are rejected.
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateACMEAccountRequest" }
+      responses:
+        "201":
+          description: Registered account metadata; the generated key remains in the protected vault
+          headers:
+            X-Request-ID: { $ref: "#/components/headers/RequestID" }
+            Cache-Control: *RecoveryNoStoreHeader
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ACMEAccount" }
+        "401": { $ref: "#/components/responses/ConfigAPIError" }
+        "403": { $ref: "#/components/responses/ConfigAPIError" }
+        "409": { $ref: "#/components/responses/ConfigAPIError" }
+        "413": { $ref: "#/components/responses/ConfigAPIError" }
+        "415": { $ref: "#/components/responses/ConfigAPIError" }
+        "422": { $ref: "#/components/responses/ConfigAPIError" }
+        "429": { $ref: "#/components/responses/ConfigAPIError" }
+        "503": { $ref: "#/components/responses/ConfigAPIError" }
+  /api/v1/acme/account-imports:
+    post:
+      operationId: importACMEAccount
+      summary: Verify and import an existing account key for one fixed directory
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - $ref: "#/components/parameters/Origin"
+        - $ref: "#/components/parameters/CSRFToken"
+        - $ref: "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        description: Strict secret-bearing certificate JSON object limited to 262144 bytes; body and key are never logged.
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ImportACMEAccountRequest" }
+      responses:
+        "201":
+          description: Verified imported account metadata without private-key material
+          headers:
+            X-Request-ID: { $ref: "#/components/headers/RequestID" }
+            Cache-Control: *RecoveryNoStoreHeader
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ACMEAccount" }
+        "401": { $ref: "#/components/responses/ConfigAPIError" }
+        "403": { $ref: "#/components/responses/ConfigAPIError" }
+        "409": { $ref: "#/components/responses/ConfigAPIError" }
+        "413": { $ref: "#/components/responses/ConfigAPIError" }
+        "415": { $ref: "#/components/responses/ConfigAPIError" }
+        "422": { $ref: "#/components/responses/ConfigAPIError" }
+        "429": { $ref: "#/components/responses/ConfigAPIError" }
+        "503": { $ref: "#/components/responses/ConfigAPIError" }
+  /api/v1/acme/accounts/{account_id}/deactivations:
+    post:
+      operationId: deactivateACMEAccount
+      summary: Fail-closed deactivate one ACME account remotely and locally
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - $ref: "#/components/parameters/CertificateAccountID"
+        - $ref: "#/components/parameters/Origin"
+        - $ref: "#/components/parameters/CSRFToken"
+        - $ref: "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        description: Strict empty JSON object limited to 131072 bytes.
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EmptyObject" }
+      responses:
+        "200":
+          description: Deactivated account metadata; existing certificates remain untouched
+          headers:
+            X-Request-ID: { $ref: "#/components/headers/RequestID" }
+            Cache-Control: *RecoveryNoStoreHeader
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ACMEAccount" }
+        "401": { $ref: "#/components/responses/ConfigAPIError" }
+        "403": { $ref: "#/components/responses/ConfigAPIError" }
+        "404": { $ref: "#/components/responses/ConfigAPIError" }
+        "409": { $ref: "#/components/responses/ConfigAPIError" }
+        "413": { $ref: "#/components/responses/ConfigAPIError" }
+        "415": { $ref: "#/components/responses/ConfigAPIError" }
+        "503": { $ref: "#/components/responses/ConfigAPIError" }
+  /api/v1/certificate-dns-credentials:
+    get:
+      operationId: listCertificateDNSCredentials
+      summary: List Cloudflare credential metadata without Tokens
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - $ref: "#/components/parameters/RequestID"
+      responses:
+        "200":
+          description: Secret-free Cloudflare credential metadata
+          headers:
+            X-Request-ID: { $ref: "#/components/headers/RequestID" }
+            Cache-Control: *RecoveryNoStoreHeader
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CertificateDNSCredentialCollection" }
+        "401": { $ref: "#/components/responses/ConfigAPIError" }
+        "500": { $ref: "#/components/responses/ConfigAPIError" }
+        "503": { $ref: "#/components/responses/ConfigAPIError" }
+    post:
+      operationId: createCertificateDNSCredential
+      summary: Verify and encrypt one restricted Cloudflare API Token
+      description: Global API Key is unsupported. The Token needs Zone Read and DNS Write for its restricted zones.
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - $ref: "#/components/parameters/Origin"
+        - $ref: "#/components/parameters/CSRFToken"
+        - $ref: "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        description: Strict secret-bearing certificate JSON object limited to 262144 bytes; the Token is never logged or returned.
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateCertificateDNSCredentialRequest" }
+      responses:
+        "201":
+          description: Verified metadata with only a short non-secret fingerprint
+          headers:
+            X-Request-ID: { $ref: "#/components/headers/RequestID" }
+            Cache-Control: *RecoveryNoStoreHeader
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CertificateDNSCredential" }
+        "401": { $ref: "#/components/responses/ConfigAPIError" }
+        "403": { $ref: "#/components/responses/ConfigAPIError" }
+        "413": { $ref: "#/components/responses/ConfigAPIError" }
+        "415": { $ref: "#/components/responses/ConfigAPIError" }
+        "422": { $ref: "#/components/responses/ConfigAPIError" }
+        "429": { $ref: "#/components/responses/ConfigAPIError" }
+        "503": { $ref: "#/components/responses/ConfigAPIError" }
+  /api/v1/certificate-dns-credentials/{credential_id}:
+    delete:
+      operationId: deleteCertificateDNSCredential
+      summary: Delete an unreferenced Cloudflare credential
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - $ref: "#/components/parameters/CertificateCredentialID"
+        - $ref: "#/components/parameters/Origin"
+        - $ref: "#/components/parameters/CSRFToken"
+        - $ref: "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        description: Strict empty JSON object limited to 131072 bytes.
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EmptyObject" }
+      responses:
+        "204":
+          description: Encrypted Token and metadata deleted
+          headers:
+            X-Request-ID: { $ref: "#/components/headers/RequestID" }
+            Cache-Control: *RecoveryNoStoreHeader
+        "401": { $ref: "#/components/responses/ConfigAPIError" }
+        "403": { $ref: "#/components/responses/ConfigAPIError" }
+        "404": { $ref: "#/components/responses/ConfigAPIError" }
+        "409": { $ref: "#/components/responses/ConfigAPIError" }
+        "413": { $ref: "#/components/responses/ConfigAPIError" }
+        "415": { $ref: "#/components/responses/ConfigAPIError" }
+  /api/v1/certificate-server-candidates:
+    get:
+      operationId: listCertificateServerCandidates
+      summary: List exact source-derived Nginx server candidates for certificate binding
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - $ref: "#/components/parameters/RequestID"
+      responses:
+        "200":
+          description: Bounded editable and explicitly read-only server candidates
+          headers:
+            X-Request-ID: { $ref: "#/components/headers/RequestID" }
+            Cache-Control: *RecoveryNoStoreHeader
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CertificateServerCandidateCollection" }
+        "401": { $ref: "#/components/responses/ConfigAPIError" }
+        "409": { $ref: "#/components/responses/ConfigAPIError" }
+        "500": { $ref: "#/components/responses/ConfigAPIError" }
+        "503": { $ref: "#/components/responses/ConfigAPIError" }
+  /api/v1/certificate-order-plans:
+    post:
+      operationId: createCertificateOrderPlan
+      summary: Validate an issuance request and return an exact digest-bound review
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - $ref: "#/components/parameters/Origin"
+        - $ref: "#/components/parameters/CSRFToken"
+        - $ref: "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        description: Strict certificate JSON object limited to 131072 bytes; creating a plan does not contact the production ACME directory.
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateCertificateOrderPlanRequest" }
+      responses:
+        "201":
+          description: Persisted short-lived review with exact identifiers, server references and binding diff
+          headers:
+            X-Request-ID: { $ref: "#/components/headers/RequestID" }
+            Cache-Control: *RecoveryNoStoreHeader
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CertificateOrderPlan" }
+        "400": { $ref: "#/components/responses/ConfigAPIError" }
+        "401": { $ref: "#/components/responses/ConfigAPIError" }
+        "403": { $ref: "#/components/responses/ConfigAPIError" }
+        "409": { $ref: "#/components/responses/ConfigAPIError" }
+        "413": { $ref: "#/components/responses/ConfigAPIError" }
+        "415": { $ref: "#/components/responses/ConfigAPIError" }
+        "422": { $ref: "#/components/responses/ConfigAPIError" }
+        "429": { $ref: "#/components/responses/ConfigAPIError" }
+        "503": { $ref: "#/components/responses/ConfigAPIError" }
+  /api/v1/certificate-order-plans/{plan_id}:
+    get:
+      operationId: getCertificateOrderPlan
+      summary: Get one unexpired issuance review
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - $ref: "#/components/parameters/CertificateOrderPlanID"
+        - $ref: "#/components/parameters/RequestID"
+      responses:
+        "200":
+          description: Current plan state and immutable reviewed inputs
+          headers:
+            X-Request-ID: { $ref: "#/components/headers/RequestID" }
+            Cache-Control: *RecoveryNoStoreHeader
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CertificateOrderPlan" }
+        "400": { $ref: "#/components/responses/ConfigAPIError" }
+        "401": { $ref: "#/components/responses/ConfigAPIError" }
+        "404": { $ref: "#/components/responses/ConfigAPIError" }
+        "409": { $ref: "#/components/responses/ConfigAPIError" }
+        "503": { $ref: "#/components/responses/ConfigAPIError" }
+  /api/v1/certificate-order-plans/{plan_id}/executions:
+    post:
+      operationId: executeCertificateOrderPlan
+      summary: Consume an exact issuance review and queue the durable task
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - $ref: "#/components/parameters/CertificateOrderPlanID"
+        - $ref: "#/components/parameters/Origin"
+        - $ref: "#/components/parameters/CSRFToken"
+        - $ref: "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        description: Strict execution confirmation object limited to 131072 bytes.
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ExecuteCertificateOrderPlanRequest" }
+      responses:
+        "202":
+          description: Durable issuance task accepted and detached from the HTTP request context
+          headers:
+            X-Request-ID: { $ref: "#/components/headers/RequestID" }
+            Cache-Control: *RecoveryNoStoreHeader
+            Location: *RecoveryLocationHeader
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CertificateTask" }
+        "400": { $ref: "#/components/responses/ConfigAPIError" }
+        "401": { $ref: "#/components/responses/ConfigAPIError" }
+        "403": { $ref: "#/components/responses/ConfigAPIError" }
+        "404": { $ref: "#/components/responses/ConfigAPIError" }
+        "409": { $ref: "#/components/responses/ConfigAPIError" }
+        "413": { $ref: "#/components/responses/ConfigAPIError" }
+        "415": { $ref: "#/components/responses/ConfigAPIError" }
+        "429": { $ref: "#/components/responses/ConfigAPIError" }
+        "503": { $ref: "#/components/responses/ConfigAPIError" }
+  /api/v1/certificate-tasks:
+    get:
+      operationId: listCertificateTasks
+      summary: List bounded newest-first certificate automation task history
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - $ref: "#/components/parameters/CertificateLimit"
+        - $ref: "#/components/parameters/RequestID"
+      responses:
+        "200":
+          description: Bounded secret-free task history
+          headers:
+            X-Request-ID: { $ref: "#/components/headers/RequestID" }
+            Cache-Control: *RecoveryNoStoreHeader
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CertificateTaskCollection" }
+        "400": { $ref: "#/components/responses/ConfigAPIError" }
+        "401": { $ref: "#/components/responses/ConfigAPIError" }
+        "500": { $ref: "#/components/responses/ConfigAPIError" }
+        "503": { $ref: "#/components/responses/ConfigAPIError" }
+  /api/v1/certificate-tasks/{task_id}:
+    get:
+      operationId: getCertificateTask
+      summary: Get one durable certificate task with bounded persisted stages
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - $ref: "#/components/parameters/CertificateTaskID"
+        - $ref: "#/components/parameters/RequestID"
+      responses:
+        "200":
+          description: Secret-free task status and public stage details
+          headers:
+            X-Request-ID: { $ref: "#/components/headers/RequestID" }
+            Cache-Control: *RecoveryNoStoreHeader
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CertificateTask" }
+        "400": { $ref: "#/components/responses/ConfigAPIError" }
+        "401": { $ref: "#/components/responses/ConfigAPIError" }
+        "404": { $ref: "#/components/responses/ConfigAPIError" }
+        "503": { $ref: "#/components/responses/ConfigAPIError" }
+  /api/v1/certificate-tasks/{task_id}/events:
+    get:
+      operationId: streamCertificateTaskEvents
+      summary: Resume secret-free certificate task progress by persisted sequence number
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - $ref: "#/components/parameters/CertificateTaskID"
+        - $ref: "#/components/parameters/LastEventID"
+        - $ref: "#/components/parameters/RequestID"
+      responses:
+        "200":
+          description: SSE snapshot, stage, terminal and heartbeat events; reconnect with Last-Event-ID
+          headers:
+            X-Request-ID: { $ref: "#/components/headers/RequestID" }
+            Cache-Control: *RecoveryNoStoreHeader
+          content:
+            text/event-stream:
+              schema: { type: string }
+        "400": { $ref: "#/components/responses/ConfigAPIError" }
+        "401": { $ref: "#/components/responses/ConfigAPIError" }
+        "404": { $ref: "#/components/responses/ConfigAPIError" }
+        "503": { $ref: "#/components/responses/ConfigAPIError" }
+  /api/v1/certificate-tasks/{task_id}/cancellations:
+    post:
+      operationId: cancelCertificateTask
+      summary: Persist cancellation intent for a cancellable certificate task
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - $ref: "#/components/parameters/CertificateTaskID"
+        - $ref: "#/components/parameters/Origin"
+        - $ref: "#/components/parameters/CSRFToken"
+        - $ref: "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        description: Strict empty JSON object limited to 131072 bytes.
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EmptyObject" }
+      responses:
+        "202":
+          description: Cancellation intent persisted; terminal state is reported asynchronously
+          headers:
+            X-Request-ID: { $ref: "#/components/headers/RequestID" }
+            Cache-Control: *RecoveryNoStoreHeader
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CertificateTask" }
+        "400": { $ref: "#/components/responses/ConfigAPIError" }
+        "401": { $ref: "#/components/responses/ConfigAPIError" }
+        "403": { $ref: "#/components/responses/ConfigAPIError" }
+        "404": { $ref: "#/components/responses/ConfigAPIError" }
+        "409": { $ref: "#/components/responses/ConfigAPIError" }
+        "413": { $ref: "#/components/responses/ConfigAPIError" }
+        "415": { $ref: "#/components/responses/ConfigAPIError" }
+        "503": { $ref: "#/components/responses/ConfigAPIError" }
+  /api/v1/certificates:
+    get:
+      operationId: listCertificates
+      summary: List bounded certificate inventory metadata
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - $ref: "#/components/parameters/CertificateLimit"
+        - $ref: "#/components/parameters/RequestID"
+      responses:
+        "200":
+          description: Bounded certificate metadata without PEM or challenge secrets
+          headers:
+            X-Request-ID: { $ref: "#/components/headers/RequestID" }
+            Cache-Control: *RecoveryNoStoreHeader
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CertificateCollection" }
+        "400": { $ref: "#/components/responses/ConfigAPIError" }
+        "401": { $ref: "#/components/responses/ConfigAPIError" }
+        "500": { $ref: "#/components/responses/ConfigAPIError" }
+        "503": { $ref: "#/components/responses/ConfigAPIError" }
+  /api/v1/certificates/{certificate_id}:
+    get:
+      operationId: getCertificate
+      summary: Get one certificate with exact versions and Nginx bindings
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - $ref: "#/components/parameters/CertificateID"
+        - $ref: "#/components/parameters/RequestID"
+      responses:
+        "200":
+          description: Certificate lifecycle metadata without PEM or private key material
+          headers:
+            X-Request-ID: { $ref: "#/components/headers/RequestID" }
+            Cache-Control: *RecoveryNoStoreHeader
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Certificate" }
+        "400": { $ref: "#/components/responses/ConfigAPIError" }
+        "401": { $ref: "#/components/responses/ConfigAPIError" }
+        "404": { $ref: "#/components/responses/ConfigAPIError" }
+        "503": { $ref: "#/components/responses/ConfigAPIError" }
+    delete:
+      operationId: deleteCertificate
+      summary: Delete unbound certificate metadata and protected files after exact confirmation
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - $ref: "#/components/parameters/CertificateID"
+        - $ref: "#/components/parameters/Origin"
+        - $ref: "#/components/parameters/CSRFToken"
+        - $ref: "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        description: Strict exact-confirmation object limited to 131072 bytes.
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CertificateConfirmationRequest" }
+      responses:
+        "204":
+          description: Unreferenced certificate and protected material deleted
+          headers:
+            X-Request-ID: { $ref: "#/components/headers/RequestID" }
+            Cache-Control: *RecoveryNoStoreHeader
+        "400": { $ref: "#/components/responses/ConfigAPIError" }
+        "401": { $ref: "#/components/responses/ConfigAPIError" }
+        "403": { $ref: "#/components/responses/ConfigAPIError" }
+        "404": { $ref: "#/components/responses/ConfigAPIError" }
+        "409": { $ref: "#/components/responses/ConfigAPIError" }
+        "413": { $ref: "#/components/responses/ConfigAPIError" }
+        "415": { $ref: "#/components/responses/ConfigAPIError" }
+        "503": { $ref: "#/components/responses/ConfigAPIError" }
+  /api/v1/certificates/{certificate_id}/renewals:
+    post:
+      operationId: renewCertificate
+      summary: Queue a manual renewal through the durable certificate task flow
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - $ref: "#/components/parameters/CertificateID"
+        - $ref: "#/components/parameters/Origin"
+        - $ref: "#/components/parameters/CSRFToken"
+        - $ref: "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        description: Strict renewal confirmation object limited to 131072 bytes.
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CertificateRenewalRequest" }
+      responses:
+        "202":
+          description: Durable renewal task accepted
+          headers:
+            X-Request-ID: { $ref: "#/components/headers/RequestID" }
+            Cache-Control: *RecoveryNoStoreHeader
+            Location: *RecoveryLocationHeader
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CertificateTask" }
+        "400": { $ref: "#/components/responses/ConfigAPIError" }
+        "401": { $ref: "#/components/responses/ConfigAPIError" }
+        "403": { $ref: "#/components/responses/ConfigAPIError" }
+        "404": { $ref: "#/components/responses/ConfigAPIError" }
+        "409": { $ref: "#/components/responses/ConfigAPIError" }
+        "413": { $ref: "#/components/responses/ConfigAPIError" }
+        "415": { $ref: "#/components/responses/ConfigAPIError" }
+        "429": { $ref: "#/components/responses/ConfigAPIError" }
+        "503": { $ref: "#/components/responses/ConfigAPIError" }
+  /api/v1/certificates/{certificate_id}/renewal-policy:
+    put:
+      operationId: updateCertificateRenewalPolicy
+      summary: Replace one certificate automatic renewal policy after exact confirmation
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - $ref: "#/components/parameters/CertificateID"
+        - $ref: "#/components/parameters/Origin"
+        - $ref: "#/components/parameters/CSRFToken"
+        - $ref: "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        description: Strict renewal policy object limited to 131072 bytes.
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CertificateRenewalPolicyRequest" }
+      responses:
+        "200":
+          description: Updated renewal policy metadata
+          headers:
+            X-Request-ID: { $ref: "#/components/headers/RequestID" }
+            Cache-Control: *RecoveryNoStoreHeader
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Certificate" }
+        "400": { $ref: "#/components/responses/ConfigAPIError" }
+        "401": { $ref: "#/components/responses/ConfigAPIError" }
+        "403": { $ref: "#/components/responses/ConfigAPIError" }
+        "404": { $ref: "#/components/responses/ConfigAPIError" }
+        "409": { $ref: "#/components/responses/ConfigAPIError" }
+        "413": { $ref: "#/components/responses/ConfigAPIError" }
+        "415": { $ref: "#/components/responses/ConfigAPIError" }
+        "503": { $ref: "#/components/responses/ConfigAPIError" }
+  /api/v1/certificates/{certificate_id}/binding-plans:
+    post:
+      operationId: createCertificateBindingPlan
+      summary: Create an exact digest-bound Nginx binding review for an existing certificate
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - $ref: "#/components/parameters/CertificateID"
+        - $ref: "#/components/parameters/Origin"
+        - $ref: "#/components/parameters/CSRFToken"
+        - $ref: "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        description: Strict server-selection object limited to 131072 bytes.
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateCertificateBindingPlanRequest" }
+      responses:
+        "201":
+          description: Persisted short-lived binding review with exact source diff
+          headers:
+            X-Request-ID: { $ref: "#/components/headers/RequestID" }
+            Cache-Control: *RecoveryNoStoreHeader
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CertificateBindingPlan" }
+        "400": { $ref: "#/components/responses/ConfigAPIError" }
+        "401": { $ref: "#/components/responses/ConfigAPIError" }
+        "403": { $ref: "#/components/responses/ConfigAPIError" }
+        "404": { $ref: "#/components/responses/ConfigAPIError" }
+        "409": { $ref: "#/components/responses/ConfigAPIError" }
+        "413": { $ref: "#/components/responses/ConfigAPIError" }
+        "415": { $ref: "#/components/responses/ConfigAPIError" }
+        "503": { $ref: "#/components/responses/ConfigAPIError" }
+  /api/v1/certificate-binding-plans/{plan_id}/executions:
+    post:
+      operationId: executeCertificateBindingPlan
+      summary: Consume an exact binding review and queue its transactional publication
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - $ref: "#/components/parameters/CertificateBindingPlanID"
+        - $ref: "#/components/parameters/Origin"
+        - $ref: "#/components/parameters/CSRFToken"
+        - $ref: "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        description: Strict exact-confirmation object limited to 131072 bytes.
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CertificateConfirmationRequest" }
+      responses:
+        "202":
+          description: Durable binding task accepted
+          headers:
+            X-Request-ID: { $ref: "#/components/headers/RequestID" }
+            Cache-Control: *RecoveryNoStoreHeader
+            Location: *RecoveryLocationHeader
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CertificateTask" }
+        "400": { $ref: "#/components/responses/ConfigAPIError" }
+        "401": { $ref: "#/components/responses/ConfigAPIError" }
+        "403": { $ref: "#/components/responses/ConfigAPIError" }
+        "404": { $ref: "#/components/responses/ConfigAPIError" }
+        "409": { $ref: "#/components/responses/ConfigAPIError" }
+        "413": { $ref: "#/components/responses/ConfigAPIError" }
+        "415": { $ref: "#/components/responses/ConfigAPIError" }
+        "503": { $ref: "#/components/responses/ConfigAPIError" }
+  /api/v1/certificates/{certificate_id}/unbindings:
+    post:
+      operationId: unbindCertificate
+      summary: Remove managed SSL directives through the configuration publication transaction
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - $ref: "#/components/parameters/CertificateID"
+        - $ref: "#/components/parameters/Origin"
+        - $ref: "#/components/parameters/CSRFToken"
+        - $ref: "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        description: Strict exact-confirmation object limited to 131072 bytes.
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CertificateConfirmationRequest" }
+      responses:
+        "200":
+          description: Updated certificate metadata after transactional unbinding
+          headers:
+            X-Request-ID: { $ref: "#/components/headers/RequestID" }
+            Cache-Control: *RecoveryNoStoreHeader
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Certificate" }
+        "400": { $ref: "#/components/responses/ConfigAPIError" }
+        "401": { $ref: "#/components/responses/ConfigAPIError" }
+        "403": { $ref: "#/components/responses/ConfigAPIError" }
+        "404": { $ref: "#/components/responses/ConfigAPIError" }
+        "409": { $ref: "#/components/responses/ConfigAPIError" }
+        "413": { $ref: "#/components/responses/ConfigAPIError" }
+        "415": { $ref: "#/components/responses/ConfigAPIError" }
+        "503": { $ref: "#/components/responses/ConfigAPIError" }
+  /api/v1/certificates/{certificate_id}/exports:
+    post:
+      operationId: exportCertificate
+      summary: Download a short-lived PEM response after explicit private-key confirmation
+      description: The PEM is never represented in JSON, cached, logged or retained by the API layer.
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - $ref: "#/components/parameters/CertificateID"
+        - $ref: "#/components/parameters/Origin"
+        - $ref: "#/components/parameters/CSRFToken"
+        - $ref: "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        description: Strict export confirmation object limited to 131072 bytes.
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CertificateExportRequest" }
+      responses:
+        "200":
+          description: Non-cacheable PEM attachment, optionally including the private key only after exact confirmation
+          headers:
+            X-Request-ID: { $ref: "#/components/headers/RequestID" }
+            Cache-Control: *RecoveryNoStoreHeader
+          content:
+            application/x-pem-file:
+              schema: { $ref: "#/components/schemas/CertificatePEM" }
+        "400": { $ref: "#/components/responses/ConfigAPIError" }
+        "401": { $ref: "#/components/responses/ConfigAPIError" }
+        "403": { $ref: "#/components/responses/ConfigAPIError" }
+        "404": { $ref: "#/components/responses/ConfigAPIError" }
+        "409": { $ref: "#/components/responses/ConfigAPIError" }
+        "413": { $ref: "#/components/responses/ConfigAPIError" }
+        "415": { $ref: "#/components/responses/ConfigAPIError" }
+        "503": { $ref: "#/components/responses/ConfigAPIError" }
 components:
   securitySchemes:
     sessionCookie:
@@ -2152,6 +2843,54 @@ components:
       schema:
         type: string
         pattern: "^[0-9a-f]{32}$"
+    CertificateAccountID:
+      name: account_id
+      in: path
+      required: true
+      description: Opaque ACME account identifier.
+      schema:
+        type: string
+        pattern: "^[0-9a-f]{32}$"
+    CertificateCredentialID:
+      name: credential_id
+      in: path
+      required: true
+      description: Opaque encrypted DNS credential identifier.
+      schema:
+        type: string
+        pattern: "^[0-9a-f]{32}$"
+    CertificateOrderPlanID:
+      name: plan_id
+      in: path
+      required: true
+      description: Opaque issuance review identifier.
+      schema:
+        type: string
+        pattern: "^[0-9a-f]{32}$"
+    CertificateTaskID:
+      name: task_id
+      in: path
+      required: true
+      description: Opaque durable certificate task identifier.
+      schema:
+        type: string
+        pattern: "^[0-9a-f]{32}$"
+    CertificateID:
+      name: certificate_id
+      in: path
+      required: true
+      description: Opaque managed certificate identifier.
+      schema:
+        type: string
+        pattern: "^[0-9a-f]{32}$"
+    CertificateBindingPlanID:
+      name: plan_id
+      in: path
+      required: true
+      description: Opaque standalone binding review identifier.
+      schema:
+        type: string
+        pattern: "^[0-9a-f]{32}$"
     RecoveryCursor:
       name: cursor
       in: query
@@ -2167,6 +2906,15 @@ components:
       in: query
       required: false
       description: Page size from 1 through 100 accepted exactly once when present; defaults to 50.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+    CertificateLimit:
+      name: limit
+      in: query
+      required: false
+      description: Result count from 1 through 100 accepted exactly once when present; defaults to 20.
       schema:
         type: integer
         minimum: 1
@@ -4317,6 +5065,477 @@ components:
           minLength: 1
           maxLength: 512
           pattern: "^[A-Za-z0-9_-]+$"
+    CertificateOpaqueID:
+      type: string
+      pattern: "^[0-9a-f]{32}$"
+    CertificateEnvironment:
+      type: string
+      enum: [staging, production]
+    CertificateChallenge:
+      type: string
+      enum: [http_01, cloudflare_dns_01]
+    CertificateIdentifier:
+      type: string
+      minLength: 1
+      maxLength: 253
+      description: Canonical lowercase DNS identifier; wildcard form is accepted only for DNS-01.
+    CertificatePlanState:
+      type: string
+      enum: [planned, executed, expired]
+    CertificateLifecycleState:
+      type: string
+      enum: [pending, active, expiring, expired, unbound, needs_attention, deleted]
+    CertificateVersionState:
+      type: string
+      enum: [ready, active, superseded, needs_attention]
+    CertificateTaskState:
+      type: string
+      enum: [queued, running, cancelling, succeeded, failed, cancelled, needs_attention]
+    CertificateTaskStageName:
+      type: string
+      enum: [queued, preparing, ordering, provisioning, propagating, authorizing, finalizing, validating, deploying, cleaning, completed, failed, cancelled, needs_attention]
+    ACMEDirectory:
+      type: object
+      additionalProperties: false
+      required: [environment, directory_url, terms_url, external_account_required]
+      properties:
+        environment: { $ref: "#/components/schemas/CertificateEnvironment" }
+        directory_url: { type: string, format: uri, maxLength: 2048 }
+        terms_url: { type: string, format: uri, maxLength: 2048 }
+        website: { type: string, format: uri, maxLength: 2048 }
+        external_account_required: { type: boolean }
+    ACMEDirectoryCollection:
+      type: object
+      additionalProperties: false
+      required: [directories]
+      properties:
+        directories:
+          type: array
+          minItems: 0
+          maxItems: 2
+          items: { $ref: "#/components/schemas/ACMEDirectory" }
+    ACMEAccount:
+      type: object
+      additionalProperties: false
+      required: [id, environment, directory_url, account_uri, email, status, terms_url, terms_agreed_at, terms_agreed_by, created_at, updated_at]
+      properties:
+        id: { $ref: "#/components/schemas/CertificateOpaqueID" }
+        environment: { $ref: "#/components/schemas/CertificateEnvironment" }
+        directory_url: { type: string, format: uri, maxLength: 2048 }
+        account_uri: { type: string, format: uri, maxLength: 2048 }
+        email: { type: string, format: email, maxLength: 254 }
+        status: { type: string, enum: [valid, deactivating, deactivated] }
+        terms_url: { type: string, format: uri, maxLength: 2048 }
+        terms_agreed_at: { type: string, format: date-time }
+        terms_agreed_by: { type: integer, format: int64, minimum: 1 }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    ACMEAccountCollection:
+      type: object
+      additionalProperties: false
+      required: [accounts]
+      properties:
+        accounts:
+          type: array
+          minItems: 0
+          maxItems: 100
+          items: { $ref: "#/components/schemas/ACMEAccount" }
+    CreateACMEAccountRequest:
+      type: object
+      additionalProperties: false
+      required: [environment, email, terms_of_service_agreed]
+      properties:
+        environment: { $ref: "#/components/schemas/CertificateEnvironment" }
+        email: { type: string, format: email, maxLength: 254 }
+        terms_of_service_agreed:
+          type: boolean
+          description: Must be true for the current directory Terms URL.
+    ImportACMEAccountRequest:
+      type: object
+      additionalProperties: false
+      required: [environment, email, account_uri, private_key_pem, terms_of_service_agreed]
+      properties:
+        environment: { $ref: "#/components/schemas/CertificateEnvironment" }
+        email: { type: string, format: email, maxLength: 254 }
+        account_uri: { type: string, format: uri, maxLength: 2048 }
+        private_key_pem:
+          type: string
+          format: password
+          minLength: 1
+          maxLength: 131072
+          writeOnly: true
+          description: Existing supported account private key; never logged, persisted in SQLite or returned.
+        terms_of_service_agreed:
+          type: boolean
+          description: Must be true for the current directory Terms URL.
+    CertificateDNSCredential:
+      type: object
+      additionalProperties: false
+      required: [id, name, provider, fingerprint, status, verified_at, created_at, updated_at]
+      properties:
+        id: { $ref: "#/components/schemas/CertificateOpaqueID" }
+        name: { type: string, minLength: 1, maxLength: 128 }
+        provider: { type: string, enum: [cloudflare] }
+        fingerprint:
+          type: string
+          pattern: "^[0-9a-f]{16}$"
+          description: Short non-secret correlation fingerprint; it cannot reconstruct the Token.
+        status: { type: string, enum: [valid, needs_attention, deleted] }
+        verified_at: { type: string, format: date-time }
+        last_used_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    CertificateDNSCredentialCollection:
+      type: object
+      additionalProperties: false
+      required: [credentials]
+      properties:
+        credentials:
+          type: array
+          minItems: 0
+          maxItems: 100
+          items: { $ref: "#/components/schemas/CertificateDNSCredential" }
+    CreateCertificateDNSCredentialRequest:
+      type: object
+      additionalProperties: false
+      required: [name, api_token]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 128 }
+        api_token:
+          type: string
+          format: password
+          minLength: 1
+          maxLength: 512
+          writeOnly: true
+          description: Restricted Cloudflare API Token with Zone Read and DNS Write; Global API Keys are rejected.
+    CertificateServerRef:
+      type: object
+      additionalProperties: false
+      required: [path, start_offset, server_names, listeners, fingerprint]
+      properties:
+        path:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          description: Configuration-root relative path limited to 1024 UTF-8 bytes.
+        start_offset: { type: integer, format: int64, minimum: 0 }
+        server_names:
+          type: array
+          minItems: 0
+          maxItems: 128
+          items: { type: string, maxLength: 253 }
+        listeners:
+          type: array
+          minItems: 0
+          maxItems: 64
+          items: { type: string, maxLength: 256 }
+        fingerprint: { type: string, pattern: "^[0-9a-f]{64}$" }
+    CertificateServerCandidate:
+      type: object
+      additionalProperties: false
+      required: [ref, start_line, start_column, tls_enabled, editable]
+      properties:
+        ref: { $ref: "#/components/schemas/CertificateServerRef" }
+        start_line: { type: integer, minimum: 1 }
+        start_column: { type: integer, minimum: 1 }
+        tls_enabled: { type: boolean }
+        editable: { type: boolean }
+        read_only_reason: { type: string, enum: [ambiguous_context] }
+    CertificateServerCandidateCollection:
+      type: object
+      additionalProperties: false
+      required: [candidates]
+      properties:
+        candidates:
+          type: array
+          minItems: 0
+          maxItems: 100
+          items: { $ref: "#/components/schemas/CertificateServerCandidate" }
+    CertificateBindingDiff:
+      type: object
+      additionalProperties: false
+      required: [path, patch, added_lines, removed_lines]
+      properties:
+        path:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          description: Configuration-root relative path limited to 1024 UTF-8 bytes.
+        patch: { type: string, maxLength: 2097152 }
+        added_lines: { type: integer, minimum: 0 }
+        removed_lines: { type: integer, minimum: 0 }
+    CreateCertificateOrderPlanRequest:
+      type: object
+      additionalProperties: false
+      required: [identifiers, challenge, account_id, server_refs]
+      properties:
+        identifiers:
+          type: array
+          minItems: 1
+          maxItems: 100
+          uniqueItems: true
+          items: { $ref: "#/components/schemas/CertificateIdentifier" }
+        challenge: { $ref: "#/components/schemas/CertificateChallenge" }
+        account_id: { $ref: "#/components/schemas/CertificateOpaqueID" }
+        staging_account_id: { $ref: "#/components/schemas/CertificateOpaqueID" }
+        dns_credential_id: { $ref: "#/components/schemas/CertificateOpaqueID" }
+        server_refs:
+          type: array
+          minItems: 0
+          maxItems: 100
+          items: { $ref: "#/components/schemas/CertificateServerRef" }
+    CertificateOrderPlan:
+      type: object
+      additionalProperties: false
+      required: [id, state, environment, challenge, account_id, certificate_id, primary_identifier, identifiers, server_refs, binding_diff, production_digest, staging_evidence, requires_risk_confirmation, expires_at, created_at]
+      properties:
+        id: { $ref: "#/components/schemas/CertificateOpaqueID" }
+        state: { $ref: "#/components/schemas/CertificatePlanState" }
+        environment: { $ref: "#/components/schemas/CertificateEnvironment" }
+        challenge: { $ref: "#/components/schemas/CertificateChallenge" }
+        account_id: { $ref: "#/components/schemas/CertificateOpaqueID" }
+        staging_account_id: { $ref: "#/components/schemas/CertificateOpaqueID" }
+        dns_credential_id: { $ref: "#/components/schemas/CertificateOpaqueID" }
+        certificate_id: { $ref: "#/components/schemas/CertificateOpaqueID" }
+        primary_identifier: { $ref: "#/components/schemas/CertificateIdentifier" }
+        identifiers:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items: { $ref: "#/components/schemas/CertificateIdentifier" }
+        server_refs:
+          type: array
+          minItems: 0
+          maxItems: 100
+          items: { $ref: "#/components/schemas/CertificateServerRef" }
+        binding_diff:
+          type: array
+          minItems: 0
+          maxItems: 100
+          items: { $ref: "#/components/schemas/CertificateBindingDiff" }
+        production_digest: { type: string, pattern: "^[0-9a-f]{64}$" }
+        staging_evidence: { type: boolean }
+        requires_risk_confirmation: { type: boolean }
+        risk_confirmation_phrase:
+          type: string
+          maxLength: 128
+          description: Returned only when the exact production-risk phrase is required.
+        expires_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+    ExecuteCertificateOrderPlanRequest:
+      type: object
+      additionalProperties: false
+      required: [confirmation, production_risk_confirmation]
+      properties:
+        confirmation: { type: string, minLength: 1, maxLength: 253 }
+        production_risk_confirmation: { type: string, maxLength: 128 }
+    CertificateTaskStage:
+      type: object
+      additionalProperties: false
+      required: [sequence, stage, result, details, occurred_at]
+      properties:
+        sequence: { type: integer, format: int64, minimum: 1 }
+        stage: { $ref: "#/components/schemas/CertificateTaskStageName" }
+        result: { type: string, enum: [pending, running, success, failed, warning] }
+        code: { type: string, pattern: "^[a-z0-9_]+$", maxLength: 128 }
+        details:
+          type: object
+          additionalProperties: true
+          description: Bounded public details from which challenge values, provider payloads, paths and keys are removed.
+        occurred_at: { type: string, format: date-time }
+    CertificateTask:
+      type: object
+      additionalProperties: false
+      required: [id, kind, state, stage, challenge, created_at, updated_at, stages]
+      properties:
+        id: { $ref: "#/components/schemas/CertificateOpaqueID" }
+        kind: { type: string, enum: [issue, renew, bind, unbind] }
+        state: { $ref: "#/components/schemas/CertificateTaskState" }
+        stage: { $ref: "#/components/schemas/CertificateTaskStageName" }
+        plan_id: { $ref: "#/components/schemas/CertificateOpaqueID" }
+        certificate_id: { $ref: "#/components/schemas/CertificateOpaqueID" }
+        version_id: { $ref: "#/components/schemas/CertificateOpaqueID" }
+        account_id: { $ref: "#/components/schemas/CertificateOpaqueID" }
+        dns_credential_id: { $ref: "#/components/schemas/CertificateOpaqueID" }
+        challenge: { $ref: "#/components/schemas/CertificateChallenge" }
+        release_id: { type: string, pattern: "^[0-9a-f]{32}$" }
+        last_error_code: { type: string, pattern: "^[a-z0-9_]+$", maxLength: 128 }
+        cancel_requested_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        started_at: { type: string, format: date-time }
+        finished_at: { type: string, format: date-time }
+        stages:
+          type: array
+          minItems: 0
+          maxItems: 512
+          items: { $ref: "#/components/schemas/CertificateTaskStage" }
+    CertificateTaskCollection:
+      type: object
+      additionalProperties: false
+      required: [tasks]
+      properties:
+        tasks:
+          type: array
+          minItems: 0
+          maxItems: 100
+          items: { $ref: "#/components/schemas/CertificateTask" }
+    CertificateVersion:
+      type: object
+      additionalProperties: false
+      required: [id, state, leaf_fingerprint, serial_number, issuer, not_before, not_after, created_at]
+      properties:
+        id: { $ref: "#/components/schemas/CertificateOpaqueID" }
+        state: { $ref: "#/components/schemas/CertificateVersionState" }
+        leaf_fingerprint: { type: string, pattern: "^[0-9a-f]{64}$" }
+        serial_number: { type: string, minLength: 1, maxLength: 256 }
+        issuer: { type: string, minLength: 1, maxLength: 1024 }
+        not_before: { type: string, format: date-time }
+        not_after: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+    CertificateBinding:
+      type: object
+      additionalProperties: false
+      required: [id, version_id, config_path, server_start_offset, server_names, listeners, server_fingerprint, created_at, updated_at]
+      properties:
+        id: { $ref: "#/components/schemas/CertificateOpaqueID" }
+        version_id: { $ref: "#/components/schemas/CertificateOpaqueID" }
+        config_path:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          description: Configuration-root relative path limited to 1024 UTF-8 bytes.
+        server_start_offset: { type: integer, format: int64, minimum: 0 }
+        server_names:
+          type: array
+          minItems: 0
+          maxItems: 128
+          items: { type: string, maxLength: 253 }
+        listeners:
+          type: array
+          minItems: 0
+          maxItems: 64
+          items: { type: string, maxLength: 256 }
+        server_fingerprint: { type: string, pattern: "^[0-9a-f]{64}$" }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    Certificate:
+      type: object
+      additionalProperties: false
+      required: [id, primary_identifier, identifiers, challenge, account_id, state, active_version_id, auto_renew, renew_before_seconds, retry_count, not_before, not_after, created_at, updated_at]
+      properties:
+        id: { $ref: "#/components/schemas/CertificateOpaqueID" }
+        primary_identifier: { $ref: "#/components/schemas/CertificateIdentifier" }
+        identifiers:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items: { $ref: "#/components/schemas/CertificateIdentifier" }
+        challenge: { $ref: "#/components/schemas/CertificateChallenge" }
+        account_id: { $ref: "#/components/schemas/CertificateOpaqueID" }
+        dns_credential_id: { $ref: "#/components/schemas/CertificateOpaqueID" }
+        state: { $ref: "#/components/schemas/CertificateLifecycleState" }
+        active_version_id:
+          type: string
+          pattern: "^(?:|[0-9a-f]{32})$"
+        auto_renew: { type: boolean }
+        renew_before_seconds: { type: integer, format: int64, minimum: 1, maximum: 7776000 }
+        next_renewal_at: { type: string, format: date-time }
+        retry_count: { type: integer, minimum: 0 }
+        retry_at: { type: string, format: date-time }
+        not_before: { type: string, format: date-time }
+        not_after: { type: string, format: date-time }
+        last_error_code: { type: string, pattern: "^[a-z0-9_]+$", maxLength: 128 }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        versions:
+          type: array
+          minItems: 0
+          maxItems: 100
+          items: { $ref: "#/components/schemas/CertificateVersion" }
+        bindings:
+          type: array
+          minItems: 0
+          maxItems: 100
+          items: { $ref: "#/components/schemas/CertificateBinding" }
+    CertificateCollection:
+      type: object
+      additionalProperties: false
+      required: [certificates]
+      properties:
+        certificates:
+          type: array
+          minItems: 0
+          maxItems: 100
+          items: { $ref: "#/components/schemas/Certificate" }
+    CertificateRenewalRequest:
+      type: object
+      additionalProperties: false
+      required: [confirmation]
+      properties:
+        confirmation: { type: string, minLength: 1, maxLength: 253 }
+    CertificateRenewalPolicyRequest:
+      type: object
+      additionalProperties: false
+      required: [confirmation, auto_renew, renew_before_seconds]
+      properties:
+        confirmation: { type: string, minLength: 1, maxLength: 253 }
+        auto_renew: { type: boolean }
+        renew_before_seconds: { type: integer, format: int64, minimum: 1, maximum: 7776000 }
+    CreateCertificateBindingPlanRequest:
+      type: object
+      additionalProperties: false
+      required: [server_refs]
+      properties:
+        server_refs:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items: { $ref: "#/components/schemas/CertificateServerRef" }
+    CertificateBindingPlan:
+      type: object
+      additionalProperties: false
+      required: [id, state, certificate_id, version_id, server_refs, binding_diff, production_digest, expires_at, created_at]
+      properties:
+        id: { $ref: "#/components/schemas/CertificateOpaqueID" }
+        state: { $ref: "#/components/schemas/CertificatePlanState" }
+        certificate_id: { $ref: "#/components/schemas/CertificateOpaqueID" }
+        version_id: { $ref: "#/components/schemas/CertificateOpaqueID" }
+        server_refs:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items: { $ref: "#/components/schemas/CertificateServerRef" }
+        binding_diff:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items: { $ref: "#/components/schemas/CertificateBindingDiff" }
+        production_digest: { type: string, pattern: "^[0-9a-f]{64}$" }
+        expires_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+    CertificateConfirmationRequest:
+      type: object
+      additionalProperties: false
+      required: [confirmation]
+      properties:
+        confirmation: { type: string, minLength: 1, maxLength: 253 }
+    CertificateExportRequest:
+      type: object
+      additionalProperties: false
+      required: [confirmation, include_private_key, private_key_confirmation]
+      properties:
+        confirmation: { type: string, minLength: 1, maxLength: 253 }
+        include_private_key: { type: boolean }
+        private_key_confirmation:
+          type: string
+          maxLength: 128
+          writeOnly: true
+          description: Required exact second confirmation only when include_private_key is true.
+    CertificatePEM:
+      type: string
+      format: binary
+      description: Non-cacheable bounded PEM attachment; may include the private key only after explicit second confirmation.
     ConfigErrorCode:
       type: string
       enum:
@@ -4382,6 +5601,37 @@ components:
         - ROUTE_LIMIT_EXCEEDED
         - ROUTE_TEST_NOT_FOUND
         - ROUTE_LAB_UNAVAILABLE
+        - ACME_TERMS_REQUIRED
+        - ACME_ACCOUNT_INVALID
+        - ACME_ACCOUNT_DEACTIVATED
+        - ACME_STAGING_PREFLIGHT_REQUIRED
+        - ACME_RATE_LIMITED
+        - ACME_ORDER_FAILED
+        - CERTIFICATE_IDENTIFIER_INVALID
+        - CERTIFICATE_WILDCARD_REQUIRES_DNS
+        - CLOUDFLARE_TOKEN_INVALID
+        - CLOUDFLARE_PERMISSION_DENIED
+        - CLOUDFLARE_ZONE_NOT_FOUND
+        - CLOUDFLARE_UNAVAILABLE
+        - DNS_PROPAGATION_TIMEOUT
+        - CHALLENGE_CLEANUP_FAILED
+        - CERTIFICATE_KEY_MISMATCH
+        - CERTIFICATE_SAN_MISMATCH
+        - CERTIFICATE_FILE_INVALID
+        - CERTIFICATE_SERVER_NOT_FOUND
+        - CERTIFICATE_SERVER_AMBIGUOUS
+        - CERTIFICATE_BINDING_CONFLICT
+        - CERTIFICATE_REFERENCED
+        - CERTIFICATE_TASK_ACTIVE
+        - CERTIFICATE_PLAN_EXPIRED
+        - CERTIFICATE_NEEDS_ATTENTION
+        - CERTIFICATE_PRIVATE_KEY_CONFIRMATION_REQUIRED
+        - CERTIFICATE_RENEWAL_POLICY_INVALID
+        - CERTIFICATE_OPERATION_TIMEOUT
+        - CERTIFICATE_RESOURCE_NOT_FOUND
+        - CERTIFICATE_SERVICE_UNAVAILABLE
+        - CERTIFICATE_LIMIT_EXCEEDED
+        - CERTIFICATE_REQUEST_INVALID
     ConfigAPIErrorCode:
       oneOf:
         - $ref: "#/components/schemas/ConfigErrorCode"

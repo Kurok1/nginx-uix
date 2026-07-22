@@ -115,6 +115,9 @@ func (s *Service) Create(ctx context.Context, actor Actor, name string) (_ Works
 	if err := validateActor(actor); err != nil {
 		return Workspace{}, fmt.Errorf("create workspace: %w", err)
 	}
+	if IsSystemWorkspaceName(displayName) != actor.System {
+		return Workspace{}, fmt.Errorf("create workspace: %w", ErrSystemWorkspaceAccess)
+	}
 	if err := s.requireResolvedAttention(ctx); err != nil {
 		return Workspace{}, fmt.Errorf("create workspace: %w", err)
 	}
@@ -385,6 +388,9 @@ func (s *Service) Delete(
 	if err != nil {
 		return fmt.Errorf("delete workspace: %w", err)
 	}
+	if err := requireWorkspaceActor(workspace, actor); err != nil {
+		return fmt.Errorf("delete workspace: %w", err)
+	}
 	wantETag := workspace.ETag()
 	if subtle.ConstantTimeCompare([]byte(ifMatch), []byte(wantETag)) != 1 || confirmName != workspace.Name {
 		return fmt.Errorf("delete workspace: validate confirmation: %w", ErrConflict)
@@ -591,6 +597,13 @@ func validateActor(actor Actor) error {
 		if unicode.IsControl(value) || unicode.IsSpace(value) {
 			return fmt.Errorf("invalid actor")
 		}
+	}
+	return nil
+}
+
+func requireWorkspaceActor(workspace Workspace, actor Actor) error {
+	if IsSystemWorkspaceName(workspace.Name) != actor.System {
+		return ErrSystemWorkspaceAccess
 	}
 	return nil
 }

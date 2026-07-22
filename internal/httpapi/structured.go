@@ -151,12 +151,15 @@ func (h *configHandler) structuredCatalog(writer http.ResponseWriter, request *h
 	if !authorizeBusinessGET(writer, request, h.sessions) {
 		return
 	}
-	if h.structured == nil {
+	if h.structured == nil || h.workspaces == nil {
 		writeConfigUnavailable(writer, request)
 		return
 	}
 	id, ok := parseWorkspaceRouteID(writer, request)
 	if !ok || !requireNoQuery(writer, request) {
+		return
+	}
+	if _, ok := h.requirePublicWorkspace(writer, request, id); !ok {
 		return
 	}
 	projection, err := h.structured.Catalog(request.Context(), id)
@@ -171,12 +174,15 @@ func (h *configHandler) structuredPreview(writer http.ResponseWriter, request *h
 	if _, ok := authorizeBusinessMutation(writer, request, h.sessions, h.publicURL); !ok {
 		return
 	}
-	if h.structured == nil {
+	if h.structured == nil || h.workspaces == nil {
 		writeConfigUnavailable(writer, request)
 		return
 	}
 	id, ok := parseWorkspaceRouteID(writer, request)
 	if !ok || !requireNoQuery(writer, request) {
+		return
+	}
+	if _, ok := h.requirePublicWorkspace(writer, request, id); !ok {
 		return
 	}
 	input, err := decodeStrictJSON[structuredOperationRequest](request, structuredRequestBodyLimit)

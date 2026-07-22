@@ -38,10 +38,11 @@ type ReleaseTaskStarter interface {
 }
 
 type releaseHandler struct {
-	service   ReleaseAPI
-	sessions  SessionService
-	publicURL *url.URL
-	tasks     ReleaseTaskStarter
+	service    ReleaseAPI
+	workspaces WorkspaceAPI
+	sessions   SessionService
+	publicURL  *url.URL
+	tasks      ReleaseTaskStarter
 }
 
 type queueReleaseRequest struct {
@@ -108,6 +109,11 @@ func (h *releaseHandler) checkWorkspace(writer http.ResponseWriter, request *htt
 	if !ok || !requireNoQuery(writer, request) {
 		return
 	}
+	if h.workspaces != nil {
+		if _, public := requirePublicWorkspaceAccess(h.workspaces, writer, request, id); !public {
+			return
+		}
+	}
 	ifMatch, ok := requireReleaseIfMatch(writer, request)
 	if !ok {
 		return
@@ -168,6 +174,11 @@ func (h *releaseHandler) queue(writer http.ResponseWriter, request *http.Request
 	id, ok := parseReleaseWorkspaceID(writer, request)
 	if !ok || !requireNoQuery(writer, request) {
 		return
+	}
+	if h.workspaces != nil {
+		if _, public := requirePublicWorkspaceAccess(h.workspaces, writer, request, id); !public {
+			return
+		}
 	}
 	ifMatch, ok := requireReleaseIfMatch(writer, request)
 	if !ok {

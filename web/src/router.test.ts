@@ -17,6 +17,7 @@ import type { WorkspaceStateModel, WorkspaceStore } from './workspace'
 import appShellSource from './components/AppShell.vue?raw'
 import globalNavSource from './components/GlobalNav.vue?raw'
 import subNavSource from './components/SubNav.vue?raw'
+import CertificatesView from './views/CertificatesView.vue'
 import ConfigWorkspaceView from './views/ConfigWorkspaceView.vue'
 import EffectiveConfigView from './views/EffectiveConfigView.vue'
 import OperationsView from './views/OperationsView.vue'
@@ -99,6 +100,7 @@ describe('application router', () => {
         .sort((left, right) => left.path.localeCompare(right.path)),
     ).toEqual([
       { name: 'dashboard', path: '/' },
+      { name: 'certificates', path: '/certificates/:certificateId?' },
       { name: 'config-operations', path: '/config/operations' },
       { name: 'route-lab', path: '/config/route-lab' },
       { name: 'config-workspaces', path: '/config/workspaces/:workspaceId?' },
@@ -131,6 +133,24 @@ describe('application router', () => {
     expect(routeLabRoute?.meta.requiresAuth).toBe(true)
   })
 
+  it('routes the authenticated certificate URL to the certificate automation view', () => {
+    const store = createSessionStore(createClient(vi.fn().mockResolvedValue(currentSession)))
+    const router = createAppRouter(store, createMemoryHistory())
+    const certificateRoute = router
+      .getRoutes()
+      .find((route) => route.name === 'certificates')
+
+    expect(certificateRoute?.components?.default).toBe(CertificatesView)
+    expect(certificateRoute?.meta.requiresAuth).toBe(true)
+    const props = certificateRoute?.props.default
+    if (typeof props !== 'function') {
+      throw new Error('certificate route props must be a function')
+    }
+    expect(props({ params: { certificateId: 'a'.repeat(32) } } as never)).toEqual({
+      certificateId: 'a'.repeat(32),
+    })
+  })
+
   it('routes the authenticated workspace URL to the configuration-workspace view', () => {
     const store = createSessionStore(createClient(vi.fn().mockResolvedValue(currentSession)))
     const router = createAppRouter(store, createMemoryHistory())
@@ -158,7 +178,7 @@ describe('application router', () => {
     expect(serverRoute?.meta.requiresAuth).toBe(true)
   })
 
-  it('adds Workspaces, Route Lab and Recovery & History to both navigation levels and bounds overflow', () => {
+  it('adds Workspaces, Route Lab, Certificates and Recovery & History to both navigation levels and bounds overflow', () => {
     expect(globalNavSource.match(/to="\/config\/workspaces"/g)).toHaveLength(2)
     expect(globalNavSource).toContain('Workspaces')
     expect(globalNavSource).toContain('to="/configuration"')
@@ -166,6 +186,8 @@ describe('application router', () => {
     expect(globalNavSource).toContain('Recovery &amp; History')
     expect(globalNavSource.match(/to="\/config\/route-lab"/g)).toHaveLength(2)
     expect(globalNavSource).toContain('Route Lab')
+    expect(globalNavSource.match(/to="\/certificates"/g)).toHaveLength(2)
+    expect(globalNavSource).toContain('Certificates')
     expect(subNavSource).toContain('to="/config/workspaces"')
     expect(subNavSource).toContain('Workspaces')
     expect(subNavSource).toContain('to="/configuration"')
@@ -173,6 +195,8 @@ describe('application router', () => {
     expect(subNavSource).toContain('Recovery &amp; History')
     expect(subNavSource).toContain('to="/config/route-lab"')
     expect(subNavSource).toContain('Route Lab')
+    expect(subNavSource).toContain('to="/certificates"')
+    expect(subNavSource).toContain('Certificates')
     expect(appShellSource).toMatch(/\.app-shell\s*\{[\s\S]*overflow-x: hidden/)
   })
 

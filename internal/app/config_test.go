@@ -34,6 +34,9 @@ func TestLoadConfigDefaultsAndFixedPaths(t *testing.T) {
 	if got, want := config.WorkspaceRoot, "/var/lib/nginx-uix/workspaces"; got != want {
 		t.Errorf("WorkspaceRoot = %q, want %q", got, want)
 	}
+	if got, want := config.CertificateRoot, "/var/lib/nginx-uix/certs"; got != want {
+		t.Errorf("CertificateRoot = %q, want %q", got, want)
+	}
 	if got, want := config.NginxBinary, "/usr/sbin/nginx"; got != want {
 		t.Errorf("NginxBinary = %q, want %q", got, want)
 	}

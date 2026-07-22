@@ -30,6 +30,8 @@ var (
 	ErrWorkspaceStale = errors.New("workspace stale")
 	// ErrWorkspaceNeedsAttention indicates that a workspace cannot be changed automatically with confidence.
 	ErrWorkspaceNeedsAttention = errors.New("workspace needs attention")
+	// ErrSystemWorkspaceAccess indicates that an internal workspace crossed the public actor boundary.
+	ErrSystemWorkspaceAccess = errors.New("system workspace access denied")
 	// ErrConflict indicates that concurrent state or uniqueness prevents a mutation.
 	ErrConflict = errors.New("conflict")
 	// ErrReleaseInProgress indicates that the single global publication slot is occupied.

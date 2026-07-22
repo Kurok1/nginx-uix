@@ -42,10 +42,11 @@ type RouteTaskController interface {
 }
 
 type routeLabHandler struct {
-	service   RouteLabAPI
-	tasks     RouteTaskController
-	sessions  SessionService
-	publicURL *url.URL
+	service    RouteLabAPI
+	workspaces WorkspaceAPI
+	tasks      RouteTaskController
+	sessions   SessionService
+	publicURL  *url.URL
 }
 
 type routeHeaderRequest struct {
@@ -180,6 +181,11 @@ func (handler *routeLabHandler) analyze(writer http.ResponseWriter, request *htt
 	if !ok || !requireNoQuery(writer, request) {
 		return
 	}
+	if handler.workspaces != nil {
+		if _, public := requirePublicWorkspaceAccess(handler.workspaces, writer, request, workspaceID); !public {
+			return
+		}
+	}
 	ifMatch, ok := requireRouteIfMatch(writer, request)
 	if !ok {
 		return
@@ -214,6 +220,11 @@ func (handler *routeLabHandler) queue(writer http.ResponseWriter, request *http.
 	workspaceID, ok := parseRouteWorkspaceID(writer, request)
 	if !ok || !requireNoQuery(writer, request) {
 		return
+	}
+	if handler.workspaces != nil {
+		if _, public := requirePublicWorkspaceAccess(handler.workspaces, writer, request, workspaceID); !public {
+			return
+		}
 	}
 	ifMatch, ok := requireRouteIfMatch(writer, request)
 	if !ok {

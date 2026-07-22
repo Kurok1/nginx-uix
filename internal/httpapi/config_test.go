@@ -44,6 +44,29 @@ func TestConfigWorkspaceCreateReturnsStrongETagAndNoStore(t *testing.T) {
 	}
 }
 
+func TestConfigSystemWorkspacesAreHiddenAndCannotBeCreated(t *testing.T) {
+	workspace := configWorkspaceFixture()
+	system := workspace
+	system.ID = "fedcba9876543210fedcba9876543210"
+	system.Name = "ACME HTTP challenge deadbeef"
+	api := &workspaceAPIStub{workspace: system, listed: []config.Workspace{workspace, system}}
+
+	list := serveConfigGET(t, "/api/v1/config/workspaces", api, nil)
+	if list.Code != http.StatusOK || strings.Contains(list.Body.String(), string(system.ID)) {
+		t.Fatalf("system workspace leaked from list: status=%d body=%s", list.Code, list.Body.String())
+	}
+	detail := serveConfigGET(t, "/api/v1/config/workspaces/"+string(system.ID), api, nil)
+	if detail.Code != http.StatusNotFound || !strings.Contains(detail.Body.String(), `"code":"CONFIG_WORKSPACE_NOT_FOUND"`) {
+		t.Fatalf("system workspace detail status/body = %d/%s", detail.Code, detail.Body.String())
+	}
+	create := serveConfigMutation(
+		t, http.MethodPost, "/api/v1/config/workspaces", `{"name":"Certificate deploy deadbeef"}`, "", api, nil,
+	)
+	if create.Code != http.StatusUnprocessableEntity || api.createCalls != 0 {
+		t.Fatalf("system workspace create status/calls = %d/%d; body=%s", create.Code, api.createCalls, create.Body.String())
+	}
+}
+
 func TestConfigWorkspaceRequestLimitMapsStable413(t *testing.T) {
 	api := &workspaceAPIStub{}
 	recorder := serveConfigMutation(t, http.MethodPost, "/api/v1/config/workspaces", strings.Repeat("x", int(configSmallBodyLimit+1)), "", api, nil)

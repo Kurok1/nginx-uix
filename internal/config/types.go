@@ -73,6 +73,7 @@ type RawEntry struct {
 type Actor struct {
 	UserID    int64
 	RequestID string
+	System    bool
 }
 
 // ProductionState summarizes the currently managed production configuration.
@@ -377,6 +378,11 @@ func ValidateDisplayName(raw string) (string, error) {
 		}
 	}
 	return display, nil
+}
+
+// IsSystemWorkspaceName reports whether a workspace name belongs to a reserved internal transaction.
+func IsSystemWorkspaceName(name string) bool {
+	return strings.HasPrefix(name, "ACME ") || strings.HasPrefix(name, "Certificate ")
 }
 
 // NormalizeGroupName returns a validated display name and its uniqueness key.

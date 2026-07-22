@@ -14,11 +14,14 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/kuroky/nginx-uix/internal/auth"
+	"github.com/kuroky/nginx-uix/internal/certificate"
 	configservice "github.com/kuroky/nginx-uix/internal/config"
 	nginxruntime "github.com/kuroky/nginx-uix/internal/runtime"
 	"github.com/kuroky/nginx-uix/internal/store"
@@ -298,6 +301,38 @@ func TestRunUIWiresConfigurationServiceIntoHTTPHandler(t *testing.T) {
 	}
 }
 
+func TestRunUIWiresCertificateServicesAndClosesVault(t *testing.T) {
+	directory := t.TempDir()
+	if err := os.Chmod(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(directory, "certs")
+	status := 0
+	operations := defaultUIOperations()
+	operations.runServer = func(_ context.Context, server *http.Server, _ *slog.Logger, _ time.Duration) error {
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodGet, "/api/v1/acme/accounts", nil)
+		server.Handler.ServeHTTP(recorder, request)
+		status = recorder.Code
+		return nil
+	}
+	err := runUI(context.Background(), Config{
+		ListenAddr: "127.0.0.1:9000", DatabasePath: filepath.Join(directory, "nginx-uix.db"),
+		WorkspaceRoot: secureWorkspaceRoot(t, directory), CertificateRoot: root,
+		AdminUsername: "operator", AdminPassword: "correct-password-123", ShutdownTimeout: time.Second,
+	}, operations)
+	if err != nil {
+		t.Fatalf("runUI() error = %v", err)
+	}
+	if status != http.StatusUnauthorized {
+		t.Fatalf("certificate route status = %d, want 401", status)
+	}
+	information, err := os.Lstat(root)
+	if err != nil || information.Mode().Perm() != 0o700 {
+		t.Fatalf("certificate root info/error = %#v/%v", information, err)
+	}
+}
+
 func TestReleaseTaskOwnerStopsNewWorkAndCancelsAtShutdownDeadline(t *testing.T) {
 	started := make(chan struct{})
 	stopped := make(chan struct{})
@@ -319,6 +354,56 @@ func TestReleaseTaskOwnerStopsNewWorkAndCancelsAtShutdownDeadline(t *testing.T) 
 	<-stopped
 	if owner.Start("33333333333333333333333333333333") {
 		t.Fatal("Start() accepted work after shutdown")
+	}
+}
+
+func TestCertificateTaskOwnerBoundsRunningConcurrencyAndCancelsExactTask(t *testing.T) {
+	started := make(chan certificate.TaskID, 5)
+	finished := make(chan certificate.TaskID, 5)
+	owner := newCertificateTaskOwner(context.Background(), func(ctx context.Context, id certificate.TaskID) (certificate.Task, error) {
+		started <- id
+		<-ctx.Done()
+		finished <- id
+		return certificate.Task{ID: id}, ctx.Err()
+	}, slog.New(slog.DiscardHandler))
+
+	tasks := make([]certificate.Task, 5)
+	for index := range tasks {
+		tasks[index] = certificate.Task{ID: certificate.TaskID(strings.Repeat(strconv.Itoa(index+1), 32))}
+	}
+	for index := 0; index < 4; index++ {
+		if !owner.Start(tasks[index]) {
+			t.Fatalf("Start(%d) = false", index)
+		}
+	}
+	for range 4 {
+		<-started
+	}
+	if !owner.Start(tasks[4]) {
+		t.Fatal("Start() rejected bounded pending task")
+	}
+	select {
+	case id := <-started:
+		t.Fatalf("pending task %s exceeded running concurrency", id)
+	case <-time.After(25 * time.Millisecond):
+	}
+	if !owner.Cancel(tasks[1].ID) {
+		t.Fatal("Cancel(active) = false")
+	}
+	if got := <-finished; got != tasks[1].ID {
+		t.Fatalf("cancelled task = %s, want %s", got, tasks[1].ID)
+	}
+	if got := <-started; got != tasks[4].ID {
+		t.Fatalf("task started after exact cancellation = %s, want %s", got, tasks[4].ID)
+	}
+
+	stopContext, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := owner.Stop(stopContext); err != nil {
+		t.Fatalf("Stop() error = %v", err)
+	}
+	if owner.Start(tasks[1]) {
+		t.Fatal("Start() accepted work after Stop")
 	}
 }
 

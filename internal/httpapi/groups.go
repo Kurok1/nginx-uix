@@ -69,6 +69,11 @@ func (h *configHandler) groupsCollection(writer http.ResponseWriter, request *ht
 				return
 			}
 			workspaceID = &parsed
+			if h.workspaces != nil {
+				if _, ok := h.requirePublicWorkspace(writer, request, parsed); !ok {
+					return
+				}
+			}
 		}
 		view, err := h.groups.ListGroups(request.Context(), workspaceID)
 		if err != nil {

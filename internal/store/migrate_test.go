@@ -32,11 +32,14 @@ func TestMigrateAddsConfigSchemaWithoutChangingV1Data(t *testing.T) {
 		"config_publish_checks", "config_releases", "config_release_stages", "config_backups",
 		"config_production_lease", "config_restores", "config_restore_stages", "config_restarts",
 		"config_restart_stages", "config_retention_runs", "config_retention_items", "config_attention_cases",
-		"config_verifications", "route_lab_runs", "route_lab_stages",
+		"config_verifications", "route_lab_runs", "route_lab_stages", "certificate_accounts",
+		"certificate_dns_credentials", "certificate_order_plans", "certificates", "certificate_versions",
+		"certificate_bindings", "certificate_binding_plans", "certificate_tasks", "certificate_task_stages",
+		"certificate_challenge_artifacts",
 	)
 	assertV1UserAndSession(t, database)
-	if got := migrationVersions(t, database); !reflect.DeepEqual(got, []int{1, 2, 3, 4, 5, 6}) {
-		t.Fatalf("versions = %v, want [1 2 3 4 5 6]", got)
+	if got := migrationVersions(t, database); !reflect.DeepEqual(got, []int{1, 2, 3, 4, 5, 6, 7}) {
+		t.Fatalf("versions = %v, want [1 2 3 4 5 6 7]", got)
 	}
 }
 
@@ -253,8 +256,8 @@ func TestMigrateIsIdempotent(t *testing.T) {
 	if err := database.sql.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM schema_migrations").Scan(&count); err != nil {
 		t.Fatalf("count migrations: %v", err)
 	}
-	if count != 6 {
-		t.Fatalf("migration count = %d, want 6", count)
+	if count != 7 {
+		t.Fatalf("migration count = %d, want 7", count)
 	}
 }
 
@@ -366,7 +369,7 @@ func TestMigrateRollsBackFailedMigration(t *testing.T) {
 
 	database := openTestDatabase(t)
 	broken := fstest.MapFS{
-		"migrations/0007_broken.sql": {Data: []byte(`
+		"migrations/0008_broken.sql": {Data: []byte(`
 			CREATE TABLE migration_probe(id INTEGER PRIMARY KEY);
 			INSERT INTO table_that_does_not_exist(id) VALUES (1);
 		`)},
@@ -378,7 +381,7 @@ func TestMigrateRollsBackFailedMigration(t *testing.T) {
 
 	for query, label := range map[string]string{
 		"SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'migration_probe'": "probe table",
-		"SELECT COUNT(*) FROM schema_migrations WHERE version = 7":                             "migration row",
+		"SELECT COUNT(*) FROM schema_migrations WHERE version = 8":                             "migration row",
 	} {
 		var count int
 		if err := database.sql.QueryRowContext(context.Background(), query).Scan(&count); err != nil {

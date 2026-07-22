@@ -655,6 +655,11 @@ The following literal token contract is stable for CSS and tests:
 --component-route-candidate-max-height: 360px
 --component-route-history-min-width: 760px
 --component-route-body-min-height: 120px
+--component-certificate-list-width: 300px
+--component-certificate-detail-min-width: 420px
+--component-certificate-history-min-width: 760px
+--component-certificate-domain-max-height: 320px
+--component-certificate-secret-min-height: 96px
 ```
 
 `--color-state-success`, `--color-state-warning`, `--color-state-danger`, and `--color-state-info` are semantic status tokens only, never brand emphasis. `--color-diff-added`, `--color-diff-removed`, and `--color-diff-context` are status surfaces only; every added, removed, and context line also has its visible `+`, `−`, or context-line label. These tokens inherit the existing semantic foreground/surface approach and must never make a colored surface the sole state signal.
@@ -750,6 +755,56 @@ Route Lab uses the existing workspace thresholds:
 | `<= 640px` | Use Request, Analysis, Result, and History task tabs; show one panel at a time without destroying in-memory form values or an active run. |
 
 At 320 CSS px there is no page-level horizontal overflow. Candidate evidence, code snippets, and response details scroll only inside their labelled bounded regions. Below 480px, timeline timestamps and mismatch values stack under their labels. Keyboard focus remains visible, task-tab order follows reading order, and all form, history, modal, cancellation, and pagination controls retain 44 × 44px targets.
+
+#### Certificate Automation
+
+v0.5 adds a named “Certificates” page for ACME accounts, Cloudflare DNS credentials, certificate requests, Nginx server bindings, renewal state, and durable task evidence. It is a secret-aware operational surface: account keys, certificate private keys, Cloudflare API Tokens, challenge values, and export bodies never appear in normal read DTOs, history, URL state, browser persistence, configuration diff, or task logs. The page always distinguishes the ACME environment with visible “Staging” or “Production” text; environment is not represented by color alone.
+
+**`certificate-workbench`** — At desktop width, place the bounded certificate list at `--component-certificate-list-width` beside a flexible detail pane no narrower than `--component-certificate-detail-min-width`; Accounts & DNS credentials and Task history follow in full-width labelled sections or task tabs. Every pane uses `min-width: 0`. The selected certificate is reflected only by its opaque ID in the route; wizard fields, Token, imported account key, server selection, confirmation values, export content, and task secrets stay in memory only.
+
+**`certificate-list`** and **`certificate-card`** — Responsive projections of the same server-ordered certificate summary. Each item exposes primary name, SAN count, staging/production environment, challenge type, visible lifecycle word, not-after time, renewal state, and binding count. At widths that fit `--component-certificate-history-min-width`, history may use a native table; certificate selection remains a semantic list/listbox with 44px rows and Action Blue focus. Expiring, expired, failed-renewal, unbound, and needs-attention states include text plus the prescribed status icon/shape. The whole row may select detail but cannot renew, unbind, export, or delete as a side effect.
+
+**`certificate-request-wizard`** — A labelled ordered form with six visible steps: Identifiers, Challenge, Account, Server bindings, Review, Confirm. Step navigation never submits or discards values silently. Domain rows have explicit labels and 44 × 44px add/remove controls, a bounded list at `--component-certificate-domain-max-height`, and inline validation for duplicate, invalid, or misplaced wildcard names. Choosing HTTP-01 disables wildcard submission with the visible reason “Wildcard certificates require Cloudflare DNS-01”. Choosing production shows the required staging-preflight evidence and blocks execution when it is absent.
+
+**`cloudflare-token-field`** — A password input using `{component.form-field}` with at least `--component-certificate-secret-min-height` for its surrounding explanation. It names the required Cloudflare permissions (“Zone Read” and “DNS Write”), advises restricting resources to the required Zone, and states that Global API Key is unsupported. The browser never offers a reveal toggle, never copies the Token into review, and clears the field immediately after a successful credential response. The credential list shows display name, a short non-secret fingerprint, status, and verification time only; editing means replacing the credential through a new secret submission, never retrieving the old value.
+
+**`acme-account-panel`** — A neutral card/list showing environment, contact, account status, current Terms link, agreed time, and safe account ID abbreviation. Create requires a native Terms checkbox associated with the exact external Terms link. Import uses a bounded multiline secret field and clears it after submission. Deactivate opens a named modal, explains that existing certificates remain served but renewals stop, and requires the full visible account ID. No row displays JWK, key type details that fingerprint the private material, account key path, or ACME raw response.
+
+**`certificate-server-picker`** — A semantic multi-select list of server candidates. Each option shows server names, listen summary, relative source path/line, and an explicit editable/read-only reason. A certificate identifier that has no selected matching server remains a persistent validation error. Selection does not modify Nginx. Refresh replaces candidates only after confirmation if current selections or a generated review would become stale.
+
+**`certificate-binding-review`** — Reuses the complete `{component.structured-change-review}` diff grammar and adds the visible statement “No certificate or Nginx configuration has been changed.” It shows certificate/version ID abbreviations, each target server, exact added/replaced certificate paths, listen changes, production identity, plan expiry, and complete bounded per-file diff. It never renders PEM, private key, challenge material, Cloudflare values, or a partial diff as complete. Execution is unavailable when the plan expired, production identity changed, a server is ambiguous, staging evidence is missing, or diff completeness cannot be proven.
+
+**`certificate-confirmation-modal`** — A named `{component.workspace-modal}` that summarizes environment, domains, challenge method, server count, staging gate, certificate file commit, full Nginx validation, backup, publication, reload, rollback, and challenge cleanup. The primary action is enabled only when the value exactly equals the full visible primary identifier; production execution also shows the explicit production-rate-limit warning. Closing before submission has no effect; after 202 it never cancels the server task.
+
+**`certificate-task-timeline`** — An ordered list of server-persisted stages using the existing neutral `--component-release-timeline-marker` grammar. Every row has stage name, visible status word, timestamp, and safe message. Separate labelled groups show “Domain validation”, “Certificate validation”, “Nginx deployment”, and “Challenge cleanup”; a stage only appears if persisted. The current concise phrase alone uses a local polite live region. SSE reconnect rebuilds from the task resource and `Last-Event-ID`; browser disconnect has no cancellation semantics. Cleanup uncertainty is a blocking inline state, never a toast.
+
+**`certificate-detail`** — A labelled evidence region with SAN list, issuer summary, serial fingerprint abbreviation, validity, environment, challenge type, current immutable version, server bindings, automatic-renewal switch, next attempt, latest result, and safe task links. PEM and private key are not part of ordinary detail. Manual renewal is a separate 44px action. Unbind, private-key export, and delete each use their own named confirmation; delete remains disabled with an adjacent exact reference reason while any database or current Nginx reference exists.
+
+**`certificate-export-modal`** — Defaults to fullchain only. “Include private key” is an unselected native checkbox followed by a persistent warning that the response contains sensitive key material. Including it requires the full certificate ID in a second confirmation field. The UI sends a no-store POST and passes the response directly to a user-initiated save flow; it does not preview, log, cache, copy to clipboard automatically, or retain the body after completion.
+
+Certificate states remain local and always combine words with an icon/shape:
+
+| State | Required visible behavior |
+| --- | --- |
+| Empty | Explain how to create an ACME account before requesting a certificate; do not show a disabled unexplained wizard. |
+| Loading | Preserve pane dimensions, set `aria-busy="true"`, and retain already loaded certificate evidence during refresh. |
+| Staging required | State “A matching staging preflight is required before production” and provide the staging action without a bypass disguised as retry. |
+| Running | Show the persisted stage, environment, explicit Cancel action, and the statement that leaving the page does not cancel the task. |
+| Expiring | Show the exact not-after time and next renewal attempt; warning color is redundant to text/icon. |
+| Renewal failed | Keep the currently served certificate/version and latest safe failure code visible; do not imply that HTTPS has stopped unless runtime evidence says so. |
+| Cancelled | State that cancellation was recorded by the server and show challenge-cleanup evidence. |
+| Needs attention | Use a blocking inline alert: “Certificate or challenge cleanup cannot be confirmed.” Permit evidence, export of still-readable public chain, and documented remediation only. |
+
+Certificate Automation responsive behavior:
+
+| Width | Required certificate layout |
+| --- | --- |
+| `>= 1069px` | Certificate list and selected detail sit side by side; account/credential and history regions span full width below. |
+| `834–1068px` | Narrow the list without reducing target size; detail remains beside it; wizard review uses a drawer. |
+| `735–833px` | Stack list, detail, accounts, and history in reading order; wizard remains one continuous labelled form. |
+| `<= 640px` | Use Overview, Request, Accounts, and History task tabs; one panel is visible without destroying in-memory wizard values or an active task. |
+
+At 320 CSS px and 400% reflow there is no page-level horizontal overflow. SANs and paths wrap; diff, PEM-free technical evidence, and task details scroll only inside labelled bounded panes. Below 480px timeline timestamps, binding labels, and certificate metadata values stack beneath their terms. All wizard, server-picker, task, account, credential, export, pagination, modal, and tab controls retain a 44 × 44px target and visible keyboard focus.
 
 #### Configuration Recovery and History
 

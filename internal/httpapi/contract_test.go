@@ -80,6 +80,7 @@ type openAPISchema struct {
 	AdditionalProperties any                      `yaml:"additionalProperties"`
 	MinItems             *int                     `yaml:"minItems"`
 	MaxItems             *int                     `yaml:"maxItems"`
+	WriteOnly            bool                     `yaml:"writeOnly"`
 }
 
 type contractOperation struct {
@@ -179,6 +180,34 @@ var routeContractOperations = []routeContractOperation{
 	{http.MethodPost, "/api/v1/route-tests/{run_id}/cancellations", "createRouteTestCancellation", "202", "RouteTestRun", "application/json", nil, 4 << 10, false, false, false},
 }
 
+var certificateContractOperations = []routeContractOperation{
+	{http.MethodGet, "/api/v1/acme/directories", "listACMEDirectories", "200", "ACMEDirectoryCollection", "application/json", nil, 0, false, false, false},
+	{http.MethodGet, "/api/v1/acme/accounts", "listACMEAccounts", "200", "ACMEAccountCollection", "application/json", nil, 0, false, false, false},
+	{http.MethodPost, "/api/v1/acme/accounts", "createACMEAccount", "201", "ACMEAccount", "application/json", nil, 128 << 10, false, false, false},
+	{http.MethodPost, "/api/v1/acme/account-imports", "importACMEAccount", "201", "ACMEAccount", "application/json", nil, 256 << 10, false, false, false},
+	{http.MethodPost, "/api/v1/acme/accounts/{account_id}/deactivations", "deactivateACMEAccount", "200", "ACMEAccount", "application/json", nil, 128 << 10, false, false, false},
+	{http.MethodGet, "/api/v1/certificate-dns-credentials", "listCertificateDNSCredentials", "200", "CertificateDNSCredentialCollection", "application/json", nil, 0, false, false, false},
+	{http.MethodPost, "/api/v1/certificate-dns-credentials", "createCertificateDNSCredential", "201", "CertificateDNSCredential", "application/json", nil, 256 << 10, false, false, false},
+	{http.MethodDelete, "/api/v1/certificate-dns-credentials/{credential_id}", "deleteCertificateDNSCredential", "204", "", "", nil, 128 << 10, false, false, false},
+	{http.MethodGet, "/api/v1/certificate-server-candidates", "listCertificateServerCandidates", "200", "CertificateServerCandidateCollection", "application/json", nil, 0, false, false, false},
+	{http.MethodPost, "/api/v1/certificate-order-plans", "createCertificateOrderPlan", "201", "CertificateOrderPlan", "application/json", nil, 128 << 10, false, false, false},
+	{http.MethodGet, "/api/v1/certificate-order-plans/{plan_id}", "getCertificateOrderPlan", "200", "CertificateOrderPlan", "application/json", nil, 0, false, false, false},
+	{http.MethodPost, "/api/v1/certificate-order-plans/{plan_id}/executions", "executeCertificateOrderPlan", "202", "CertificateTask", "application/json", nil, 128 << 10, true, false, false},
+	{http.MethodGet, "/api/v1/certificate-tasks", "listCertificateTasks", "200", "CertificateTaskCollection", "application/json", []string{"limit"}, 0, false, false, false},
+	{http.MethodGet, "/api/v1/certificate-tasks/{task_id}", "getCertificateTask", "200", "CertificateTask", "application/json", nil, 0, false, false, false},
+	{http.MethodGet, "/api/v1/certificate-tasks/{task_id}/events", "streamCertificateTaskEvents", "200", "", "text/event-stream", nil, 0, false, true, false},
+	{http.MethodPost, "/api/v1/certificate-tasks/{task_id}/cancellations", "cancelCertificateTask", "202", "CertificateTask", "application/json", nil, 128 << 10, false, false, false},
+	{http.MethodGet, "/api/v1/certificates", "listCertificates", "200", "CertificateCollection", "application/json", []string{"limit"}, 0, false, false, false},
+	{http.MethodGet, "/api/v1/certificates/{certificate_id}", "getCertificate", "200", "Certificate", "application/json", nil, 0, false, false, false},
+	{http.MethodPost, "/api/v1/certificates/{certificate_id}/renewals", "renewCertificate", "202", "CertificateTask", "application/json", nil, 128 << 10, true, false, false},
+	{http.MethodPut, "/api/v1/certificates/{certificate_id}/renewal-policy", "updateCertificateRenewalPolicy", "200", "Certificate", "application/json", nil, 128 << 10, false, false, false},
+	{http.MethodPost, "/api/v1/certificates/{certificate_id}/binding-plans", "createCertificateBindingPlan", "201", "CertificateBindingPlan", "application/json", nil, 128 << 10, false, false, false},
+	{http.MethodPost, "/api/v1/certificate-binding-plans/{plan_id}/executions", "executeCertificateBindingPlan", "202", "CertificateTask", "application/json", nil, 128 << 10, true, false, false},
+	{http.MethodPost, "/api/v1/certificates/{certificate_id}/unbindings", "unbindCertificate", "200", "Certificate", "application/json", nil, 128 << 10, false, false, false},
+	{http.MethodPost, "/api/v1/certificates/{certificate_id}/exports", "exportCertificate", "200", "CertificatePEM", "application/x-pem-file", nil, 128 << 10, false, false, false},
+	{http.MethodDelete, "/api/v1/certificates/{certificate_id}", "deleteCertificate", "204", "", "", nil, 128 << 10, false, false, false},
+}
+
 func TestOpenAPIContract(t *testing.T) {
 	contents, err := os.ReadFile("../../api/v1/openapi.yaml")
 	if err != nil {
@@ -213,6 +242,9 @@ func TestOpenAPIContract(t *testing.T) {
 		businessOperations = append(businessOperations, publicOperation{method: operation.method, path: operation.path})
 	}
 	for _, operation := range routeContractOperations {
+		businessOperations = append(businessOperations, publicOperation{method: operation.method, path: operation.path})
+	}
+	for _, operation := range certificateContractOperations {
 		businessOperations = append(businessOperations, publicOperation{method: operation.method, path: operation.path})
 	}
 	businessOperations = append(businessOperations, publicOperation{method: http.MethodGet, path: "/api/v1/config/releases/{release_id}/events"})
@@ -256,6 +288,7 @@ func TestOpenAPIContract(t *testing.T) {
 	assertConfigOpenAPIContract(t, contents, document)
 	assertRecoveryOpenAPIContract(t, document)
 	assertRouteOpenAPIContract(t, document)
+	assertCertificateOpenAPIContract(t, document)
 }
 
 func assertConfigOpenAPIContract(t *testing.T, contents []byte, document openAPIContractDocument) {
@@ -376,6 +409,136 @@ func assertRouteOpenAPIContract(t *testing.T, document openAPIContractDocument) 
 		assertRouteErrors(t, expected, operation.Responses)
 	}
 	assertRouteSchemas(t, document.Components.Schemas)
+}
+
+func assertCertificateOpenAPIContract(t *testing.T, document openAPIContractDocument) {
+	t.Helper()
+	for _, expected := range certificateContractOperations {
+		operation, exists := document.Paths[expected.path][strings.ToLower(expected.method)]
+		if !exists {
+			t.Errorf("certificate contract missing %s %s", expected.method, expected.path)
+			continue
+		}
+		if operation.OperationID != expected.operationID {
+			t.Errorf("%s %s operationId = %q, want %q", expected.method, expected.path, operation.OperationID, expected.operationID)
+		}
+		if !hasSessionSecurity(operation.Security) {
+			t.Errorf("%s %s missing sessionCookie security", expected.method, expected.path)
+		}
+		parameters := resolveParameters(document.Components.Parameters, operation.Parameters)
+		assertRouteHeader(t, expected, parameters, "X-Request-ID", false)
+		if expected.method != http.MethodGet {
+			assertRouteHeader(t, expected, parameters, "Origin", true)
+			assertRouteHeader(t, expected, parameters, "X-CSRF-Token", true)
+		}
+		if expected.lastEventID {
+			assertRouteHeader(t, expected, parameters, "Last-Event-ID", false)
+		}
+		assertRouteQueries(t, expected, parameters)
+		assertRouteBody(t, expected, operation.RequestBody)
+		response, exists := operation.Responses[expected.successStatus]
+		switch {
+		case !exists:
+			t.Errorf("%s %s missing success status %s", expected.method, expected.path, expected.successStatus)
+		case expected.successStatus == "204":
+			if len(response.Content) != 0 {
+				t.Errorf("%s %s 204 response must not document a body", expected.method, expected.path)
+			}
+			assertCertificateResponseHeaders(t, expected, response)
+		default:
+			assertRouteSuccess(t, expected, response)
+		}
+		assertRouteErrors(t, expected, operation.Responses)
+	}
+	assertCertificateSchemas(t, document.Components.Schemas)
+}
+
+func assertCertificateResponseHeaders(
+	t *testing.T,
+	expected routeContractOperation,
+	response openAPIResponse,
+) {
+	t.Helper()
+	cache := response.Headers["Cache-Control"].Schema
+	if schemaType(cache) != "string" || !slices.Contains(cache.Enum, "no-store") {
+		t.Errorf("%s %s success response does not guarantee Cache-Control no-store", expected.method, expected.path)
+	}
+	if _, exists := response.Headers["X-Request-ID"]; !exists {
+		t.Errorf("%s %s success response does not document X-Request-ID", expected.method, expected.path)
+	}
+}
+
+func assertCertificateSchemas(t *testing.T, schemas map[string]openAPISchema) {
+	t.Helper()
+	for _, name := range []string{
+		"ACMEDirectory", "ACMEDirectoryCollection", "ACMEAccount", "ACMEAccountCollection",
+		"CreateACMEAccountRequest", "ImportACMEAccountRequest", "CertificateDNSCredential",
+		"CertificateDNSCredentialCollection", "CreateCertificateDNSCredentialRequest", "CertificateServerRef",
+		"CertificateServerCandidate", "CertificateServerCandidateCollection", "CertificateBindingDiff",
+		"CreateCertificateOrderPlanRequest", "CertificateOrderPlan", "ExecuteCertificateOrderPlanRequest",
+		"CertificateTaskStage", "CertificateTask", "CertificateTaskCollection", "CertificateVersion",
+		"CertificateBinding", "Certificate", "CertificateCollection", "CertificateRenewalRequest",
+		"CertificateRenewalPolicyRequest", "CreateCertificateBindingPlanRequest", "CertificateBindingPlan",
+		"CertificateConfirmationRequest", "CertificateExportRequest", "CertificatePEM",
+	} {
+		if _, exists := schemas[name]; !exists {
+			t.Errorf("OpenAPI missing certificate schema %s", name)
+		}
+	}
+	for name, propertyAndMaximum := range map[string]struct {
+		property string
+		maximum  int
+	}{
+		"ACMEDirectoryCollection":              {property: "directories", maximum: 2},
+		"ACMEAccountCollection":                {property: "accounts", maximum: 100},
+		"CertificateDNSCredentialCollection":   {property: "credentials", maximum: 100},
+		"CertificateServerCandidateCollection": {property: "candidates", maximum: 100},
+		"CertificateTaskCollection":            {property: "tasks", maximum: 100},
+		"CertificateCollection":                {property: "certificates", maximum: 100},
+		"CertificateTask":                      {property: "stages", maximum: 512},
+	} {
+		property := schemas[name].Properties[propertyAndMaximum.property]
+		if schemaType(property) != "array" || property.MinItems == nil || property.MaxItems == nil ||
+			*property.MinItems != 0 || *property.MaxItems != propertyAndMaximum.maximum {
+			t.Errorf("%s.%s must be bounded 0..%d", name, propertyAndMaximum.property, propertyAndMaximum.maximum)
+		}
+	}
+	if token := schemas["CreateCertificateDNSCredentialRequest"].Properties["api_token"]; !token.WriteOnly {
+		t.Error("CreateCertificateDNSCredentialRequest.api_token must be writeOnly")
+	}
+	if _, exists := schemas["CertificateDNSCredential"].Properties["api_token"]; exists {
+		t.Error("CertificateDNSCredential must never expose api_token")
+	}
+	if key := schemas["ImportACMEAccountRequest"].Properties["private_key_pem"]; !key.WriteOnly {
+		t.Error("ImportACMEAccountRequest.private_key_pem must be writeOnly")
+	}
+	for _, forbidden := range []string{"private_key_pem", "fullchain_pem", "api_token", "challenge_value"} {
+		if _, exists := schemas["Certificate"].Properties[forbidden]; exists {
+			t.Errorf("Certificate exposes forbidden secret field %s", forbidden)
+		}
+	}
+	pem := schemas["CertificatePEM"]
+	if schemaType(pem) != "string" || pem.Format != "binary" {
+		t.Errorf("CertificatePEM = type %q format %q", schemaType(pem), pem.Format)
+	}
+	for _, code := range []string{
+		"ACME_TERMS_REQUIRED", "ACME_ACCOUNT_INVALID", "ACME_ACCOUNT_DEACTIVATED",
+		"ACME_STAGING_PREFLIGHT_REQUIRED", "ACME_RATE_LIMITED", "ACME_ORDER_FAILED",
+		"CERTIFICATE_IDENTIFIER_INVALID", "CERTIFICATE_WILDCARD_REQUIRES_DNS",
+		"CLOUDFLARE_TOKEN_INVALID", "CLOUDFLARE_PERMISSION_DENIED", "CLOUDFLARE_ZONE_NOT_FOUND",
+		"CLOUDFLARE_UNAVAILABLE", "DNS_PROPAGATION_TIMEOUT", "CHALLENGE_CLEANUP_FAILED",
+		"CERTIFICATE_KEY_MISMATCH", "CERTIFICATE_SAN_MISMATCH", "CERTIFICATE_FILE_INVALID",
+		"CERTIFICATE_SERVER_NOT_FOUND", "CERTIFICATE_SERVER_AMBIGUOUS", "CERTIFICATE_BINDING_CONFLICT",
+		"CERTIFICATE_REFERENCED", "CERTIFICATE_TASK_ACTIVE", "CERTIFICATE_PLAN_EXPIRED",
+		"CERTIFICATE_NEEDS_ATTENTION", "CERTIFICATE_PRIVATE_KEY_CONFIRMATION_REQUIRED",
+		"CERTIFICATE_RENEWAL_POLICY_INVALID", "CERTIFICATE_OPERATION_TIMEOUT",
+		"CERTIFICATE_RESOURCE_NOT_FOUND", "CERTIFICATE_SERVICE_UNAVAILABLE", "CERTIFICATE_LIMIT_EXCEEDED",
+		"CERTIFICATE_REQUEST_INVALID",
+	} {
+		if !slices.Contains(schemas["ConfigErrorCode"].Enum, code) {
+			t.Errorf("ConfigErrorCode missing %s", code)
+		}
+	}
 }
 
 func assertRouteHeader(

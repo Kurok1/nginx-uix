@@ -14,6 +14,7 @@ import { watch } from 'vue'
 import { apiClient, type APIClient } from './api/client'
 import { sessionStore, type SessionStore } from './session'
 import { workspaceStore, type WorkspaceStore } from './workspace'
+import CertificatesView from './views/CertificatesView.vue'
 import ConfigWorkspaceView from './views/ConfigWorkspaceView.vue'
 import DashboardView from './views/DashboardView.vue'
 import EffectiveConfigView from './views/EffectiveConfigView.vue'
@@ -80,6 +81,17 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true },
   },
   {
+    path: '/certificates/:certificateId?',
+    name: 'certificates',
+    component: CertificatesView,
+    props: (route) => ({
+      certificateId: typeof route.params.certificateId === 'string'
+        ? route.params.certificateId
+        : '',
+    }),
+    meta: { requiresAuth: true },
+  },
+  {
     path: '/login',
     name: 'login',
     component: LoginView,
@@ -102,6 +114,7 @@ export function createAppRouter(
           resolved.name === 'config-workspaces' ||
           resolved.name === 'config-operations' ||
           resolved.name === 'route-lab' ||
+          resolved.name === 'certificates' ||
           resolved.name === 'structured-upstreams' ||
           resolved.name === 'structured-servers'
         ) {

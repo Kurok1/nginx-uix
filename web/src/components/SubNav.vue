@@ -34,6 +34,11 @@
           </RouterLink>
         </li>
         <li>
+          <RouterLink to="/certificates">
+            Certificates
+          </RouterLink>
+        </li>
+        <li>
           <RouterLink to="/config/operations">
             Recovery &amp; History
           </RouterLink>

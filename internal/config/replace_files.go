@@ -62,6 +62,9 @@ func (s *Service) ReplaceFiles(
 	if err != nil {
 		return ReplaceFilesResult{}, fmt.Errorf("replace workspace files: %w", err)
 	}
+	if err := requireWorkspaceActor(workspace, actor); err != nil {
+		return ReplaceFilesResult{}, fmt.Errorf("replace workspace files: %w", err)
+	}
 	if err := requireWorkspaceETag(input.IfMatch, workspace); err != nil {
 		return ReplaceFilesResult{}, err
 	}

@@ -61,6 +61,11 @@
           </RouterLink>
         </li>
         <li>
+          <RouterLink to="/certificates">
+            Certificates
+          </RouterLink>
+        </li>
+        <li>
           <RouterLink to="/config/operations">
             Recovery &amp; History
           </RouterLink>
@@ -119,6 +124,14 @@
               @click="closeMenu"
             >
               Route Lab
+            </RouterLink>
+          </li>
+          <li>
+            <RouterLink
+              to="/certificates"
+              @click="closeMenu"
+            >
+              Certificates
             </RouterLink>
           </li>
           <li>

@@ -77,8 +77,9 @@ func writeAPIError(
 
 func whitelistDetails(code string, details map[string]any) map[string]any {
 	allowed := map[string]map[string]struct{}{
-		"invalid_request": {"field": {}},
-		"rate_limited":    {"retry_after_seconds": {}},
+		"invalid_request":   {"field": {}},
+		"rate_limited":      {"retry_after_seconds": {}},
+		"ACME_RATE_LIMITED": {"retry_after_seconds": {}},
 	}
 	for configCode, keys := range configErrorDetails {
 		allowed[configCode] = keys

@@ -8,6 +8,7 @@ package httpapi
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"net/http"
 	"net/url"
 	"path"
@@ -164,6 +165,9 @@ func (h *configHandler) workspacesCollection(writer http.ResponseWriter, request
 			writeConfigAPIError(writer, request, err, nil)
 			return
 		}
+		workspaces = slices.DeleteFunc(workspaces, func(workspace config.Workspace) bool {
+			return config.IsSystemWorkspaceName(workspace.Name)
+		})
 		slices.SortFunc(workspaces, func(left, right config.Workspace) int {
 			if compared := right.UpdatedAt.Compare(left.UpdatedAt); compared != 0 {
 				return compared
@@ -193,6 +197,11 @@ func (h *configHandler) workspacesCollection(writer http.ResponseWriter, request
 			writeInvalidConfigRequest(writer, request, "name")
 			return
 		}
+		if config.IsSystemWorkspaceName(strings.TrimSpace(input.Name)) {
+			writeAPIError(writer, requestIDFromContext(request.Context()), http.StatusUnprocessableEntity,
+				"CONFIG_NAME_INVALID", "工作区名称无效", map[string]any{"field": "name"})
+			return
+		}
 		workspace, err := h.workspaces.Create(request.Context(), actor, input.Name)
 		if err != nil {
 			writeConfigAPIError(writer, request, err, nil)
@@ -216,9 +225,8 @@ func (h *configHandler) workspace(writer http.ResponseWriter, request *http.Requ
 		if !ok || !requireNoQuery(writer, request) {
 			return
 		}
-		workspace, err := h.workspaces.Get(request.Context(), id)
-		if err != nil {
-			writeConfigAPIError(writer, request, err, nil)
+		workspace, ok := h.requirePublicWorkspace(writer, request, id)
+		if !ok {
 			return
 		}
 		writeETagJSON(writer, http.StatusOK, workspace.ETag(), newWorkspaceResponse(workspace))
@@ -267,6 +275,9 @@ func (h *configHandler) files(writer http.ResponseWriter, request *http.Request)
 		}
 		id, ok := parseWorkspaceRouteID(writer, request)
 		if !ok {
+			return
+		}
+		if _, ok := h.requirePublicWorkspace(writer, request, id); !ok {
 			return
 		}
 		h.readFiles(writer, request, id)
@@ -429,6 +440,9 @@ func (h *configHandler) search(writer http.ResponseWriter, request *http.Request
 	if !ok {
 		return
 	}
+	if _, ok := h.requirePublicWorkspace(writer, request, id); !ok {
+		return
+	}
 	values, ok := parseExactQuery(writer, request, "query", true)
 	if !ok {
 		return
@@ -454,6 +468,9 @@ func (h *configHandler) diff(writer http.ResponseWriter, request *http.Request) 
 	}
 	id, ok := parseWorkspaceRouteID(writer, request)
 	if !ok {
+		return
+	}
+	if _, ok := h.requirePublicWorkspace(writer, request, id); !ok {
 		return
 	}
 	values, ok := parseExactQuery(writer, request, "path", false)
@@ -491,6 +508,10 @@ func (h *configHandler) requireWorkspaceIfMatch(
 		writeConfigAPIError(writer, request, err, nil)
 		return "", false
 	}
+	if config.IsSystemWorkspaceName(workspace.Name) {
+		writeConfigAPIError(writer, request, fs.ErrNotExist, nil)
+		return "", false
+	}
 	if requireWritable && workspace.State == config.StateStale {
 		writeAPIError(writer, requestIDFromContext(request.Context()), http.StatusConflict, "CONFIG_WORKSPACE_STALE", "生产配置已变化，工作区只读", nil)
 		return "", false
@@ -504,6 +525,32 @@ func (h *configHandler) requireWorkspaceIfMatch(
 		return "", false
 	}
 	return raw, true
+}
+
+func (h *configHandler) requirePublicWorkspace(
+	writer http.ResponseWriter,
+	request *http.Request,
+	id config.WorkspaceID,
+) (config.Workspace, bool) {
+	return requirePublicWorkspaceAccess(h.workspaces, writer, request, id)
+}
+
+func requirePublicWorkspaceAccess(
+	workspaces WorkspaceAPI,
+	writer http.ResponseWriter,
+	request *http.Request,
+	id config.WorkspaceID,
+) (config.Workspace, bool) {
+	workspace, err := workspaces.Get(request.Context(), id)
+	if err != nil {
+		writeConfigAPIError(writer, request, err, nil)
+		return config.Workspace{}, false
+	}
+	if config.IsSystemWorkspaceName(workspace.Name) {
+		writeConfigAPIError(writer, request, fs.ErrNotExist, nil)
+		return config.Workspace{}, false
+	}
+	return workspace, true
 }
 
 func oneStrongIfMatch(request *http.Request, prefix string) (string, bool) {
