@@ -17,14 +17,18 @@ import (
 )
 
 const (
-	sessionTokenBytes = 32
-	idleLifetime      = 8 * time.Hour
-	absoluteLifetime  = 24 * time.Hour
-	sessionTouchEvery = 5 * time.Minute
-	throttleWindow    = 5 * time.Minute
-	throttleLimit     = 5
-	throttleBlock     = 15 * time.Minute
-	csrfContext       = "nginx-uix-csrf-v1"
+	sessionTokenBytes   = 32
+	idleLifetime        = 8 * time.Hour
+	absoluteLifetime    = 24 * time.Hour
+	sessionTouchEvery   = 5 * time.Minute
+	throttleWindow      = 5 * time.Minute
+	throttleLimit       = 5
+	sourceThrottleLimit = 20
+	throttleBlock       = 15 * time.Minute
+	csrfContext         = "nginx-uix-csrf-v1"
+	// sourceThrottleName starts with whitespace, so it cannot collide with a
+	// username accepted by NormalizeUsername.
+	sourceThrottleName = " nginx-uix-source-throttle"
 	// #nosec G101 -- this fixed non-secret input equalizes missing-user verification work.
 	dummyPassword = "nginx-uix-dummy-password-value"
 )
@@ -103,8 +107,14 @@ func (s *Service) Login(ctx context.Context, input LoginInput) (IssuedSession, e
 	}
 	normalizedName, validName := normalizeLoginName(input.Username)
 	key := ThrottleKey{NormalizedName: normalizedName, SourceIP: input.SourceIP.String()}
+	sourceKey := ThrottleKey{NormalizedName: sourceThrottleName, SourceIP: input.SourceIP.String()}
 	now := s.clock.Now().UTC()
 	if limited, err := s.activeRateLimit(ctx, key, now); err != nil {
+		return IssuedSession{}, err
+	} else if limited != nil {
+		return IssuedSession{}, limited
+	}
+	if limited, err := s.activeRateLimit(ctx, sourceKey, now); err != nil {
 		return IssuedSession{}, err
 	} else if limited != nil {
 		return IssuedSession{}, limited
@@ -122,20 +132,29 @@ func (s *Service) Login(ctx context.Context, input LoginInput) (IssuedSession, e
 		return IssuedSession{}, fmt.Errorf("verify login password: %w", err)
 	}
 	if !validName || lookupErr != nil || user.Disabled || !verified {
-		throttle, err := s.repository.RecordLoginFailure(ctx, LoginFailure{
+		userThrottle, err := s.repository.RecordLoginFailure(ctx, LoginFailure{
 			Key: key, At: now, Window: throttleWindow, Limit: throttleLimit, BlockDuration: throttleBlock,
 		})
 		if err != nil {
 			return IssuedSession{}, fmt.Errorf("record login failure: %w", err)
 		}
-		if throttle.BlockedUntil != nil && now.Before(*throttle.BlockedUntil) {
-			return IssuedSession{}, newRateLimitError(throttle.BlockedUntil.Sub(now))
+		sourceThrottle, err := s.repository.RecordLoginFailure(ctx, LoginFailure{
+			Key: sourceKey, At: now, Window: throttleWindow, Limit: sourceThrottleLimit, BlockDuration: throttleBlock,
+		})
+		if err != nil {
+			return IssuedSession{}, fmt.Errorf("record source login failure: %w", err)
+		}
+		if retryAfter := longestRetryAfter(now, userThrottle, sourceThrottle); retryAfter > 0 {
+			return IssuedSession{}, newRateLimitError(retryAfter)
 		}
 		return IssuedSession{}, ErrInvalidCredentials
 	}
 
 	if err := s.repository.ClearLoginFailures(ctx, key); err != nil {
 		return IssuedSession{}, fmt.Errorf("clear login failures: %w", err)
+	}
+	if err := s.repository.ClearLoginFailures(ctx, sourceKey); err != nil {
+		return IssuedSession{}, fmt.Errorf("clear source login failures: %w", err)
 	}
 	tokenBytes := make([]byte, sessionTokenBytes)
 	if _, err := io.ReadFull(s.random, tokenBytes); err != nil {
@@ -242,6 +261,19 @@ func (s *Service) activeRateLimit(ctx context.Context, key ThrottleKey, now time
 		return newRateLimitError(throttle.BlockedUntil.Sub(now)), nil
 	}
 	return nil, nil
+}
+
+func longestRetryAfter(now time.Time, throttles ...Throttle) time.Duration {
+	var longest time.Duration
+	for _, throttle := range throttles {
+		if throttle.BlockedUntil == nil || !now.Before(*throttle.BlockedUntil) {
+			continue
+		}
+		if retryAfter := throttle.BlockedUntil.Sub(now); retryAfter > longest {
+			longest = retryAfter
+		}
+	}
+	return longest
 }
 
 func normalizeLoginName(username string) (string, bool) {

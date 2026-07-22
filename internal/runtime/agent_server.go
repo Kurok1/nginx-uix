@@ -46,6 +46,7 @@ type agentServerConfig struct {
 	listenUnix      func(string, *net.UnixAddr) (*net.UnixListener, error)
 	chown           func(string, int, int) error
 	chmod           func(string, fs.FileMode) error
+	ownerMatches    func(fs.FileInfo, int, int) bool
 }
 
 // RunAgentServer owns the fixed production Unix Socket Agent lifecycle.
@@ -75,6 +76,7 @@ func newAgentServerConfig(operations agentOperations, logger *slog.Logger) agent
 		listenUnix:      net.ListenUnix,
 		chown:           os.Chown,
 		chmod:           os.Chmod,
+		ownerMatches:    agentSocketOwnerMatches,
 	}
 }
 
@@ -190,6 +192,12 @@ func prepareAgentSocket(config agentServerConfig) (*net.UnixListener, fs.FileInf
 	if !os.SameFile(socketInformation, configuredInformation) || configuredInformation.Mode()&os.ModeSocket == 0 {
 		return nil, nil, errors.Join(
 			fmt.Errorf("verify agent socket: socket changed during setup"),
+			cleanupAgentSocket(config, listener, socketInformation),
+		)
+	}
+	if config.ownerMatches == nil || !config.ownerMatches(configuredInformation, agentSocketRootUID, groupID) {
+		return nil, nil, errors.Join(
+			fmt.Errorf("verify agent socket: owner must be %d:%d", agentSocketRootUID, groupID),
 			cleanupAgentSocket(config, listener, socketInformation),
 		)
 	}

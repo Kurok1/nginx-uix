@@ -1777,9 +1777,58 @@ function closeTaskStream(): void {
 }
 
 function safeMessage(error: unknown, fallback: string): string {
-  return error instanceof APIRequestError && error.kind === 'api' && error.apiError !== undefined
-    ? error.apiError.message
-    : fallback
+  if (!(error instanceof APIRequestError) || error.kind !== 'api' || error.apiError === undefined) {
+    return fallback
+  }
+  const guidance = certificateErrorGuidance(error.apiError.code, fallback)
+  return `${guidance} Request ID: ${error.apiError.request_id}.`
+}
+
+function certificateErrorGuidance(code: string, fallback: string): string {
+  switch (code) {
+    case 'CERTIFICATE_SERVICE_UNAVAILABLE':
+    case 'AGENT_UNAVAILABLE':
+      return 'The certificate service is unavailable. Retry after checking the Agent and network.'
+    case 'ACME_RATE_LIMITED':
+      return 'The certificate authority rate-limited this operation. Retry after the documented backoff.'
+    case 'ACME_STAGING_PREFLIGHT_REQUIRED':
+      return 'A successful staging preflight is required before this production request.'
+    case 'ACME_TERMS_REQUIRED':
+      return 'Accept the current ACME Terms of Service before retrying.'
+    case 'ACME_ACCOUNT_DEACTIVATED':
+      return 'The selected ACME account is deactivated. Select or create a valid account.'
+    case 'CERTIFICATE_PLAN_EXPIRED':
+      return 'This certificate review expired. Prepare and confirm a new review.'
+    case 'CERTIFICATE_TASK_ACTIVE':
+      return 'Another certificate task is active. Wait for its persisted terminal state.'
+    case 'CERTIFICATE_REFERENCED':
+      return 'The certificate is still referenced by Nginx. Remove its bindings before deletion.'
+    case 'CERTIFICATE_NEEDS_ATTENTION':
+    case 'CHALLENGE_CLEANUP_FAILED':
+      return 'Certificate or challenge cleanup cannot be confirmed. Administrator attention is required.'
+    case 'CERTIFICATE_BINDING_CONFLICT':
+    case 'CERTIFICATE_SERVER_AMBIGUOUS':
+    case 'CERTIFICATE_SERVER_NOT_FOUND':
+      return 'The selected Nginx server evidence changed. Refresh and prepare a new binding review.'
+    case 'CLOUDFLARE_TOKEN_INVALID':
+      return 'The Cloudflare Token is invalid. Submit a new restricted Token.'
+    case 'CLOUDFLARE_PERMISSION_DENIED':
+      return 'The Cloudflare Token lacks Zone Read or DNS Write permission for this zone.'
+    case 'CLOUDFLARE_ZONE_NOT_FOUND':
+      return 'No matching Cloudflare zone was found for the requested identifier.'
+    case 'CLOUDFLARE_UNAVAILABLE':
+      return 'Cloudflare is unavailable. Retry without changing the current certificate.'
+    case 'DNS_PROPAGATION_TIMEOUT':
+      return 'DNS validation timed out. Check propagation before retrying.'
+    case 'CERTIFICATE_OPERATION_TIMEOUT':
+      return 'The certificate operation timed out. Refresh task evidence before retrying.'
+    case 'CERTIFICATE_RESOURCE_NOT_FOUND':
+      return 'The certificate resource no longer exists. Refresh the inventory.'
+    case 'CERTIFICATE_WILDCARD_REQUIRES_DNS':
+      return 'Wildcard certificates require Cloudflare DNS-01.'
+    default:
+      return fallback
+  }
 }
 
 function environmentForAccount(id: string): string {

@@ -192,6 +192,20 @@ go mod verify
 - 本地开发和构建必须使用项目级 `web/node_modules`；禁止依赖全局安装的前端工具或包。
 - Node 和 npm 版本必须在仓库及构建镜像中明确固定；可复现安装使用 `npm ci`。
 
+#### Node 与 npm 本地环境
+
+- 本仓库的本地开发、测试和构建必须使用 nvm 管理的 Node.js 24 环境，不得直接使用系统 Node.js 或系统 npm。
+- 每个新终端或非交互 Shell 在执行任何 `npm`、`npx` 或前端质量命令前，必须先显式加载 nvm，并切换到 `web/package.json` 的 `engines.node` 所声明版本；当前命令为：
+
+```bash
+export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+. "$NVM_DIR/nvm.sh"
+nvm use 24.17.0
+```
+
+- 切换后必须运行 `node --version` 和 `npm --version`，确认分别符合 `web/package.json` 的 `engines.node` 与 `engines.npm`；当前应为 Node.js `v24.17.0`、npm `11.13.0`。
+- 出现 `EBADENGINE` 或版本不匹配时必须先修正 nvm 环境，不得忽略警告继续执行或据此声明前端门禁通过。
+
 ### 8.2 `DESIGN.md` 是强制设计基线
 
 - 实现任何页面或组件前，必须读取 `DESIGN.md` 对应 token、组件、Do/Don't 和响应式章节。

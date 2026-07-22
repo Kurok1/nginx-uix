@@ -7,6 +7,7 @@ package httpapi
 import (
 	"bytes"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -59,6 +60,47 @@ func TestRequestBoundaryPreservesValidRequestID(t *testing.T) {
 	NewHandler(Dependencies{}).ServeHTTP(recorder, request)
 	if got, want := recorder.Header().Get("X-Request-ID"), "request_123.test-ok"; got != want {
 		t.Fatalf("X-Request-ID = %q, want %q", got, want)
+	}
+}
+
+func TestRequestBoundaryLogsOnlyRedactedRequestMetadata(t *testing.T) {
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, nil))
+	handler := requestBoundary(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.WriteHeader(http.StatusNoContent)
+	}), logger, newRequestIDGenerator(nil))
+
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/auth/session?token=query-secret",
+		strings.NewReader(`{"password":"body-secret"}`),
+	)
+	request.Header.Set("X-Request-ID", "request-redaction")
+	request.Header.Set("Authorization", "Bearer authorization-secret")
+	request.Header.Set("Cookie", "nginx_uix_session=cookie-secret")
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, request)
+
+	logged := logs.String()
+	for _, secret := range []string{
+		"query-secret",
+		"body-secret",
+		"authorization-secret",
+		"cookie-secret",
+	} {
+		if strings.Contains(logged, secret) {
+			t.Errorf("request log contains secret %q: %s", secret, logged)
+		}
+	}
+	for _, metadata := range []string{
+		"POST /api/v1/auth/session",
+		"request-redaction",
+		"result=204",
+	} {
+		if !strings.Contains(logged, metadata) {
+			t.Errorf("request log %q does not contain metadata %q", logged, metadata)
+		}
 	}
 }
 

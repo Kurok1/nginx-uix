@@ -14,6 +14,7 @@ import type {
   CertificateTask,
   DNSCredential,
 } from '../api/certificates'
+import { APIRequestError } from '../api/client'
 import { sessionStore } from '../session'
 import CertificatesView from './CertificatesView.vue'
 
@@ -293,6 +294,42 @@ async function mountView() {
 }
 
 describe('CertificatesView', () => {
+  it('uses stable English guidance and a request ID instead of a backend error message', async () => {
+    const client = clientFixture()
+    const backendMessage = '内部路径 /var/lib/nginx-uix/private.pem 暂时不可读取'
+    client.listACMEDirectories.mockRejectedValue(new APIRequestError({
+      kind: 'api',
+      message: backendMessage,
+      status: 503,
+      apiError: {
+        code: 'CERTIFICATE_SERVICE_UNAVAILABLE',
+        message: backendMessage,
+        request_id: 'request-certificate-safe',
+      },
+    }))
+    const wrapper = mount(CertificatesView, {
+      props: {
+        client,
+        eventSourceFactory: () => new FakeEventSource(),
+      },
+      global: {
+        stubs: {
+          RouterLink: {
+            props: ['to'],
+            template: '<a :href="typeof to === \'string\' ? to : to.path"><slot /></a>',
+          },
+        },
+      },
+    })
+
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('The certificate service is unavailable. Retry after checking the Agent and network.')
+    expect(wrapper.text()).toContain('Request ID: request-certificate-safe')
+    expect(wrapper.text()).not.toContain(backendMessage)
+    wrapper.unmount()
+  })
+
   it('uses the authenticated session CSRF token when the route does not pass one', async () => {
     const previousPhase = sessionStore.state.phase
     const previousSession = sessionStore.state.session

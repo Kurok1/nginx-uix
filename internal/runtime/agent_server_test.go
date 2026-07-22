@@ -132,6 +132,12 @@ func TestAgentServerFailsClosedWhenOwnershipOrModeCannotBeEstablished(t *testing
 			},
 		},
 		{
+			name: "owner verification",
+			mutate: func(config *agentServerConfig) {
+				config.ownerMatches = func(fs.FileInfo, int, int) bool { return false }
+			},
+		},
+		{
 			name: "mode",
 			mutate: func(config *agentServerConfig) {
 				config.chmod = func(string, fs.FileMode) error { return errors.New("chmod denied") }
@@ -242,11 +248,32 @@ func TestDarwinPeerCredentialsAreExplicitlyUnsupported(t *testing.T) {
 	}
 }
 
+func TestAgentSocketOwnerMatchesFileMetadata(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "ownership")
+	if err := os.WriteFile(path, []byte("ownership"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	information, err := os.Lstat(path)
+	if err != nil {
+		t.Fatalf("Lstat() error = %v", err)
+	}
+	if !agentSocketOwnerMatches(information, os.Getuid(), os.Getgid()) {
+		t.Fatal("agentSocketOwnerMatches() = false for the current owner")
+	}
+	if agentSocketOwnerMatches(information, os.Getuid()+1, os.Getgid()) {
+		t.Fatal("agentSocketOwnerMatches() = true for a different UID")
+	}
+	if agentSocketOwnerMatches(information, os.Getuid(), os.Getgid()+1) {
+		t.Fatal("agentSocketOwnerMatches() = true for a different GID")
+	}
+}
+
 func testAgentServerConfig(path string, checker peerUIDChecker) agentServerConfig {
 	config := newAgentServerConfig(&recordingAgentOperations{}, nil)
 	config.socketPath = path
 	config.lookupGroupID = func(string) (int, error) { return agentSocketGroupID, nil }
 	config.chown = func(string, int, int) error { return nil }
+	config.ownerMatches = func(fs.FileInfo, int, int) bool { return true }
 	config.peerUID = checker
 	return config
 }

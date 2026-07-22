@@ -9,6 +9,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"errors"
+	"fmt"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -219,6 +220,52 @@ func TestLoginThrottlePersistsAndSuccessfulLoginClearsExactKey(t *testing.T) {
 	key := auth.ThrottleKey{NormalizedName: "operator", SourceIP: input.SourceIP.String()}
 	if _, err := database.Throttle(context.Background(), key); !errors.Is(err, auth.ErrNotFound) {
 		t.Fatalf("Throttle() after successful login error = %v, want cleared", err)
+	}
+}
+
+func TestLoginThrottleBlocksCrossUsernameSprayingFromOneSource(t *testing.T) {
+	service, database, clock := bootstrappedService(t)
+	source := netip.MustParseAddr("192.0.2.32")
+	for attempt := 1; attempt < 20; attempt++ {
+		_, err := service.Login(context.Background(), auth.LoginInput{
+			Username: fmt.Sprintf("candidate-%02d", attempt),
+			Password: "wrong-password-123",
+			SourceIP: source,
+		})
+		if !errors.Is(err, auth.ErrInvalidCredentials) {
+			t.Fatalf("Login() spray attempt %d error = %v, want ErrInvalidCredentials", attempt, err)
+		}
+	}
+
+	_, err := service.Login(context.Background(), auth.LoginInput{
+		Username: "candidate-20", Password: "wrong-password-123", SourceIP: source,
+	})
+	var limited *auth.RateLimitError
+	if !errors.As(err, &limited) {
+		t.Fatalf("Login() twentieth spray attempt error = %v, want RateLimitError", err)
+	}
+	if limited.RetryAfter != 15*time.Minute {
+		t.Fatalf("RetryAfter = %s, want 15m", limited.RetryAfter)
+	}
+
+	restarted := newAuthService(t, database, clock, 0x53)
+	if _, err := restarted.Login(context.Background(), auth.LoginInput{
+		Username: "operator", Password: "correct-password-123", SourceIP: source,
+	}); !errors.Is(err, auth.ErrRateLimited) {
+		t.Fatalf("Login(correct after restart from blocked source) error = %v, want ErrRateLimited", err)
+	}
+	if _, err := restarted.Login(context.Background(), auth.LoginInput{
+		Username: "operator", Password: "correct-password-123", SourceIP: netip.MustParseAddr("192.0.2.33"),
+	}); err != nil {
+		t.Fatalf("Login(correct from independent source) error = %v", err)
+	}
+
+	clock.Advance(15 * time.Minute)
+	afterBlock := newAuthService(t, database, clock, 0x54)
+	if _, err := afterBlock.Login(context.Background(), auth.LoginInput{
+		Username: "operator", Password: "correct-password-123", SourceIP: source,
+	}); err != nil {
+		t.Fatalf("Login(correct after source block expiration) error = %v", err)
 	}
 }
 

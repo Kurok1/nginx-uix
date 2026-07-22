@@ -156,6 +156,35 @@ func TestEffectiveConfigWithRealIsolatedNginx(t *testing.T) {
 	})
 }
 
+func TestCompatibilityMatrixWithRealIsolatedNginx(t *testing.T) {
+	binary := requireIntegrationNginx(t)
+	harness := newNginxHarness(t, binary, "compatibility")
+	commandContext, cancelCommands := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelCommands()
+
+	validation, err := harness.run(commandContext, "-t")
+	if err != nil {
+		t.Fatalf("nginx -t error = %v, stderr = %q", err, validation.stderr)
+	}
+	dump, err := harness.run(commandContext, "-T")
+	if err != nil {
+		t.Fatalf("nginx -T error = %v, stderr = %q", err, dump.stderr)
+	}
+	for name, snippet := range map[string]string{
+		"IPv4 upstream":               "server 127.0.0.1:18081",
+		"IPv6 upstream":               "server [::1]:18082 backup",
+		"Unix upstream":               "server unix:/tmp/nginx-uix-compatibility.sock down",
+		"wildcard name":               "*.example.test",
+		"regular expression location": "location ~* \\.(?:css|js)$",
+		"named location":              "location @named_fallback",
+		"map":                         "map $http_upgrade $connection_upgrade",
+	} {
+		if !strings.Contains(dump.stdout, snippet) {
+			t.Errorf("nginx -T output does not contain %s %q", name, snippet)
+		}
+	}
+}
+
 func TestCertificateAutomationWithRealIsolatedNginx(t *testing.T) {
 	binary := requireIntegrationNginx(t)
 
