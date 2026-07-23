@@ -92,7 +92,7 @@ func (publisher *ConfigCertificatePublisher) Deploy(
 				string(currentDiff) != plan.BindingDiffJSON {
 				return ConfigurationChange{}, fmt.Errorf("deploy certificate configuration: %w", ErrPlanChanged)
 			}
-			bindings, planErr = publisher.buildBindings(plan, bindingPlan.ServerRefs)
+			bindings, planErr = publisher.buildBindings(plan, bindingPlan.PublishedServerRefs)
 			if planErr != nil {
 				return ConfigurationChange{}, planErr
 			}
@@ -151,7 +151,7 @@ func (publisher *ConfigCertificatePublisher) Bind(
 			}
 			bindings, planErr = publisher.buildBindings(OrderPlan{
 				CertificateID: plan.CertificateID, VersionID: plan.VersionID,
-			}, bindingPlan.ServerRefs)
+			}, bindingPlan.PublishedServerRefs)
 			if planErr != nil {
 				return ConfigurationChange{}, planErr
 			}

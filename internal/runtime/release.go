@@ -332,7 +332,7 @@ func (s *Service) applyReleaseFiles(ctx context.Context, options releaseOptions,
 				if err := productionRoot.AtomicReplace(ctx, path, contents, current.Mode.Perm()); err != nil {
 					return err
 				}
-			} else if err := productionRoot.CreateRegular(ctx, path, contents, 0o640); err != nil {
+			} else if err := productionRoot.CreateRegular(ctx, path, contents, entry.Mode.Perm()); err != nil {
 				return err
 			}
 		}

@@ -46,6 +46,7 @@ type ACMEOrderClient interface {
 	DNS01Record(string) (string, error)
 	Accept(context.Context, ACMEChallenge) error
 	WaitAuthorization(context.Context, string) error
+	WaitOrderReady(context.Context, string) error
 	Finalize(context.Context, string, []byte) ([][]byte, error)
 }
 
@@ -137,6 +138,17 @@ func (client *xCryptoACMEOrderClient) WaitAuthorization(ctx context.Context, uri
 		return err
 	}
 	if authorization == nil || authorization.Status != acme.StatusValid {
+		return ErrACMEUnavailable
+	}
+	return nil
+}
+
+func (client *xCryptoACMEOrderClient) WaitOrderReady(ctx context.Context, uri string) error {
+	order, err := client.client.WaitOrder(ctx, uri)
+	if err != nil {
+		return err
+	}
+	if order == nil || order.Status != acme.StatusReady {
 		return ErrACMEUnavailable
 	}
 	return nil

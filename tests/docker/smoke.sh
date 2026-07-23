@@ -7,7 +7,7 @@ set -eu
 REPOSITORY_ROOT=${REPOSITORY_ROOT:-$(pwd)}
 . "${REPOSITORY_ROOT}/tests/docker/lib/image.sh"
 
-IMAGE=${IMAGE:-nginx-uix:0.2.1-test}
+IMAGE=${IMAGE:-nginx-uix:0.7.0-test}
 PLATFORM=${PLATFORM:-}
 BUILD_IMAGE=${BUILD_IMAGE:-auto}
 SMOKE_PROFILE=${SMOKE_PROFILE:-full}
@@ -355,7 +355,8 @@ snapshot_volume() {
         --mount "type=volume,src=$snapshot_volume_name,dst=/snapshot,readonly" \
         --entrypoint /bin/sh "$IMAGE" -c '
             set -eu
-            find /snapshot -mindepth 1 -printf "%P\n" | LC_ALL=C sort | while IFS= read -r relative; do
+            cd /snapshot
+            find . -mindepth 1 -print | sed "s#^\\./##" | LC_ALL=C sort | while IFS= read -r relative; do
                 path="/snapshot/$relative"
                 metadata=$(stat -c "%F|%a|%u|%g|%Y|%s" "$path")
                 payload=-
@@ -377,7 +378,8 @@ snapshot_digest() {
 }
 
 assert_default_tree() {
-    docker exec "$MAIN_CONTAINER" /usr/bin/find /etc/nginx -mindepth 1 -printf '%P\n' |
+    docker exec "$MAIN_CONTAINER" /bin/sh -c \
+        'cd /etc/nginx && find . -mindepth 1 -print | sed "s#^\\./##"' |
         LC_ALL=C sort >"$WORK_DIR/default-tree.actual"
     printf '%s\n' \
         'conf.d' \
@@ -387,7 +389,7 @@ assert_default_tree() {
         'nginx.conf' >"$WORK_DIR/default-tree.expected"
     cmp -s "$WORK_DIR/default-tree.expected" "$WORK_DIR/default-tree.actual" ||
         fail 'empty configuration volume did not receive exactly the default tree'
-    docker exec "$MAIN_CONTAINER" /usr/bin/curl -fsS --max-time 5 http://127.0.0.1/ >"$WORK_DIR/nginx-welcome"
+    docker exec "$MAIN_CONTAINER" /usr/bin/wget -q -T 5 -O - http://127.0.0.1/ >"$WORK_DIR/nginx-welcome"
     grep -Fq '<h1>Nginx UIX</h1>' "$WORK_DIR/nginx-welcome" || fail 'default Nginx HTTP service did not serve the welcome page'
 }
 
@@ -567,12 +569,19 @@ assert_process_and_listener_boundaries() {
         done
     ' || fail 'process identities, groups, permissions, or listener boundaries differ from the image contract'
 
-    docker exec --user 10001:10002 "$MAIN_CONTAINER" /usr/bin/curl -fsS --max-time 5 \
-        --unix-socket /run/nginx-uix/agent.sock http://localhost/v1/health >/dev/null ||
+    docker exec --user 10001:10002 "$MAIN_CONTAINER" /usr/bin/timeout 5 /command/s6-ipcclient \
+        /run/nginx-uix/agent.sock /bin/sh -ec '
+          printf "GET /v1/health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n" >&7
+          IFS= read -r status <&6
+          case "$status" in "HTTP/1.1 200"*) exit 0 ;; *) exit 1 ;; esac
+        ' ||
         fail 'authorized UI UID could not call the Agent socket'
-    if docker exec --user 65534:10002 "$MAIN_CONTAINER" /usr/bin/curl -fsS --max-time 5 \
-        --unix-socket /run/nginx-uix/agent.sock http://localhost/v1/health \
-        >"$WORK_DIR/unauthorized-agent" 2>/dev/null; then
+    if docker exec --user 65534:10002 "$MAIN_CONTAINER" /usr/bin/timeout 5 /command/s6-ipcclient \
+        /run/nginx-uix/agent.sock /bin/sh -ec '
+          printf "GET /v1/health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n" >&7
+          IFS= read -r status <&6
+          case "$status" in "HTTP/1.1 200"*) exit 0 ;; *) exit 1 ;; esac
+        ' >"$WORK_DIR/unauthorized-agent" 2>/dev/null; then
         fail 'Agent peer-credential check accepted an unauthorized UID'
     fi
     if docker port "$MAIN_CONTAINER" 80/tcp >/dev/null 2>&1; then
@@ -665,15 +674,19 @@ start_traffic() {
     TRAFFIC_STATUS_PID=$!
     (
         while :; do
-            docker exec --user 10001:10002 "$MAIN_CONTAINER" /usr/bin/curl -fsS --max-time 2 \
-                --unix-socket /run/nginx-uix/agent.sock http://localhost/v1/health >/dev/null 2>&1 || true
+            docker exec --user 10001:10002 "$MAIN_CONTAINER" /usr/bin/timeout 2 /command/s6-ipcclient \
+                /run/nginx-uix/agent.sock /bin/sh -ec '
+                  printf "GET /v1/health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n" >&7
+                  IFS= read -r status <&6
+                  case "$status" in "HTTP/1.1 200"*) exit 0 ;; *) exit 1 ;; esac
+                ' >/dev/null 2>&1 || true
             sleep 0.2
         done
     ) &
     TRAFFIC_AGENT_PID=$!
     (
         while :; do
-            docker exec "$MAIN_CONTAINER" /usr/bin/curl -fsS --max-time 2 http://127.0.0.1/ >/dev/null 2>&1 || true
+            docker exec "$MAIN_CONTAINER" /usr/bin/wget -q -T 2 -O /dev/null http://127.0.0.1/ >/dev/null 2>&1 || true
             sleep 0.2
         done
     ) &

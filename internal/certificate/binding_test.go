@@ -8,6 +8,7 @@ package certificate
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
@@ -98,6 +99,34 @@ func TestPlanCertificateBindingAppendsMissingSettingsWithLocalFormatting(t *test
 	}
 	if strings.Contains(strings.ReplaceAll(after, "\r\n", ""), "\n") {
 		t.Fatal("binding changed CRLF line endings")
+	}
+}
+
+func TestPlanCertificateBindingReturnsPostReleaseServerRefs(t *testing.T) {
+	project := bindingProject(t, "events {}\nhttp { server { listen 80; server_name example.com; } }\n")
+	before := oneEditableServerRef(t, project)
+	plan, err := PlanCertificateBinding(
+		context.Background(), project, []ServerRef{before},
+		testBindingCertificateID, testBindingVersionID,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Files) != 1 || len(plan.ServerRefs) != 1 || len(plan.PublishedServerRefs) != 1 {
+		t.Fatalf("plan = %#v", plan)
+	}
+
+	after := oneEditableServerRef(t, bindingProject(t, plan.Files[0].After))
+	got := plan.PublishedServerRefs[0]
+	if got.Path != after.Path || got.Fingerprint != after.Fingerprint ||
+		!slices.Equal(got.ServerNames, after.ServerNames) || !slices.Equal(got.Listeners, after.Listeners) {
+		t.Fatalf("server ref = %#v, want post-release ref %#v", got, after)
+	}
+	if got.Fingerprint == before.Fingerprint {
+		t.Fatal("server ref retained the pre-release listener fingerprint")
+	}
+	if plan.ServerRefs[0].Fingerprint != before.Fingerprint {
+		t.Fatal("binding plan no longer retains the pre-release ref needed for revalidation")
 	}
 }
 

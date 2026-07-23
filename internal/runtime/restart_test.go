@@ -8,6 +8,7 @@ package runtime
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"slices"
 	"sync"
@@ -21,8 +22,10 @@ func TestExecuteRestartUsesOnlyFixedSupervisorCommandAndConfirmsNewRuntime(t *te
 	root := t.TempDir()
 	production := filepath.Join(root, "production")
 	restarts := filepath.Join(root, "restarts")
+	expectedExitMarker := filepath.Join(root, "run", "nginx-restart-expected")
 	mustMkdirCandidate(t, production)
 	mustMkdirCandidate(t, restarts)
+	mustMkdirCandidate(t, filepath.Dir(expectedExitMarker))
 	mustWriteCandidate(t, filepath.Join(production, "nginx.conf"), "events {}\n", 0o640)
 	digest := mustProductionDigest(t, production)
 	var commands []commandSpec
@@ -35,7 +38,21 @@ func TestExecuteRestartUsesOnlyFixedSupervisorCommandAndConfirmsNewRuntime(t *te
 	statusIndex := 0
 	service := mustRestartService(t, restartOptions{
 		NginxRoot: production, RestartRoot: restarts, Entry: "nginx.conf", Limits: config.DefaultLimits(),
+		ExpectedExitMarker: expectedExitMarker,
 		Executor: func(_ context.Context, specification commandSpec) (commandResult, error) {
+			if specification.executable == fixedSupervisorExecutable {
+				payload, err := os.ReadFile(expectedExitMarker)
+				if err != nil || string(payload) != "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n" {
+					t.Fatalf("expected restart marker = %q, error = %v", payload, err)
+				}
+				information, err := os.Lstat(expectedExitMarker)
+				if err != nil || !information.Mode().IsRegular() || information.Mode().Perm() != 0o600 {
+					t.Fatalf("expected restart marker mode = %v, error = %v", information, err)
+				}
+				if err := os.Remove(expectedExitMarker); err != nil {
+					t.Fatalf("consume expected restart marker: %v", err)
+				}
+			}
 			commandLock.Lock()
 			commands = append(commands, specification)
 			commandLock.Unlock()
@@ -73,6 +90,9 @@ func TestExecuteRestartUsesOnlyFixedSupervisorCommandAndConfirmsNewRuntime(t *te
 	if len(supervisor) != 1 || !slices.Equal(supervisor[0].arguments, []string{"-r", fixedNginxServiceDirectory}) ||
 		supervisor[0].timeout != restartCommandTimeout || supervisor[0].maxOutputBytes != restartOutputLimit {
 		t.Fatalf("supervisor commands = %#v", supervisor)
+	}
+	if _, err := os.Lstat(expectedExitMarker); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected restart marker remains after success: %v", err)
 	}
 }
 
@@ -143,6 +163,7 @@ func TestExecuteRestartSupervisorTimeoutAndCancellationNeedAttention(t *testing.
 			root := t.TempDir()
 			production := filepath.Join(root, "production")
 			restarts := filepath.Join(root, "restarts")
+			expectedExitMarker := filepath.Join(restarts, ".nginx-restart-expected")
 			mustMkdirCandidate(t, production)
 			mustMkdirCandidate(t, restarts)
 			mustWriteCandidate(t, filepath.Join(production, "nginx.conf"), "events {}\n", 0o640)
@@ -164,6 +185,9 @@ func TestExecuteRestartSupervisorTimeoutAndCancellationNeedAttention(t *testing.
 			if !errors.Is(err, supervisorErr) || result.State != config.RestartStateNeedsAttention ||
 				result.ErrorCode != "restart_supervisor_uncertain" {
 				t.Fatalf("uncertain supervisor result = %#v, error = %v", result, err)
+			}
+			if _, err := os.Lstat(expectedExitMarker); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("expected restart marker remains after supervisor uncertainty: %v", err)
 			}
 		})
 	}

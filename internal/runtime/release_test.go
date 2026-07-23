@@ -7,6 +7,7 @@ package runtime
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
 	"io/fs"
 	"os"
@@ -51,6 +52,49 @@ func TestExecuteReleasePublishesValidatedDraftAndPersistsStages(t *testing.T) {
 	journal, err := os.ReadFile(filepath.Join(fixture.releases, string(request.ReleaseID), "control", "state.json"))
 	if err != nil || !bytes.Contains(journal, []byte(`"stage":"committed"`)) {
 		t.Fatalf("journal = %q, err = %v", journal, err)
+	}
+}
+
+func TestExecuteReleaseCreatesNewFileWithDraftManifestMode(t *testing.T) {
+	fixture := newReleaseFixture(t)
+	newPath := config.RelativePath("nginx-uix-acme-22222222222222222222222222222222.conf")
+	newContent := []byte("location = /.well-known/acme-challenge/token { return 200; }\n")
+	mustWriteCandidate(t, filepath.Join(fixture.workspaces, string(fixture.workspaceID), "draft", string(newPath)), string(newContent), 0o600)
+	entry := config.Entry{
+		Path: newPath, Type: config.EntryRegular, Class: config.EntryManagedText,
+		Mode: 0o600, Size: int64(len(newContent)), ContentDigest: config.Digest(sha256.Sum256(newContent)),
+	}
+	insertAt := slices.IndexFunc(fixture.manifest.Entries, func(existing config.Entry) bool {
+		return existing.Path == "nginx.conf"
+	})
+	if insertAt < 0 {
+		t.Fatal("fixture manifest has no nginx.conf entry")
+	}
+	fixture.manifest.Entries = slices.Insert(fixture.manifest.Entries, insertAt, entry)
+	fixture.manifest.EntryCount++
+	fixture.manifest.ManagedBytes += entry.Size
+	workspaceRoot, err := config.OpenScopedRoot(filepath.Join(fixture.workspaces, string(fixture.workspaceID)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := config.WriteControlManifest(context.Background(), workspaceRoot, fixture.manifest); err != nil {
+		t.Fatal(err)
+	}
+	if err := workspaceRoot.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	request := fixture.request(t)
+	service := fixture.service(t, func(context.Context, commandSpec) (commandResult, error) {
+		return commandResult{exitCode: 0}, nil
+	})
+	result, err := service.ExecuteRelease(context.Background(), request)
+	if err != nil || result.State != config.ReleaseStateSucceeded {
+		t.Fatalf("ExecuteRelease() = %+v, %v", result, err)
+	}
+	information, err := os.Stat(filepath.Join(fixture.production, string(newPath)))
+	if err != nil || information.Mode().Perm() != entry.Mode {
+		t.Fatalf("created file mode = %v, error = %v, want %v", information.Mode().Perm(), err, entry.Mode)
 	}
 }
 

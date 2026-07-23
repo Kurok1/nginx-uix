@@ -149,6 +149,9 @@ func completeLocalACMEOrder(
 	if err := client.WaitAuthorization(ctx, authorization.URI); err != nil {
 		t.Fatal(err)
 	}
+	if err := client.WaitOrderReady(ctx, order.URI); err != nil {
+		t.Fatal(err)
+	}
 	certificateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		t.Fatal(err)

@@ -124,14 +124,25 @@ func validateRouteLabOptions(options routeLabOptions) error {
 		filepath.Clean(options.NginxExecutable) != options.NginxExecutable {
 		return fmt.Errorf("configure route lab: dependencies are required")
 	}
-	for _, root := range []string{options.NginxRoot, options.WorkspaceRoot, options.StageRoot} {
-		if root == "" || !filepath.IsAbs(root) || filepath.Clean(root) != root {
+	roots := []struct {
+		path      string
+		ownerOnly bool
+	}{
+		{path: options.NginxRoot},
+		{path: options.WorkspaceRoot, ownerOnly: true},
+		{path: options.StageRoot, ownerOnly: true},
+	}
+	for _, root := range roots {
+		if root.path == "" || !filepath.IsAbs(root.path) || filepath.Clean(root.path) != root.path {
 			return fmt.Errorf("configure route lab root: %w", config.ErrPathInvalid)
 		}
-		information, err := os.Lstat(root)
-		if err != nil || information.Mode()&fs.ModeSymlink != 0 || !information.IsDir() ||
-			information.Mode().Perm()&0o077 != 0 {
+		information, err := os.Lstat(root.path)
+		if err != nil || information.Mode()&fs.ModeSymlink != 0 || !information.IsDir() {
 			return errors.Join(fmt.Errorf("configure route lab root: %w", config.ErrPathInvalid), err)
+		}
+		permissions := information.Mode().Perm()
+		if root.ownerOnly && permissions&0o077 != 0 || !root.ownerOnly && permissions&0o022 != 0 {
+			return fmt.Errorf("configure route lab root: %w", config.ErrPathInvalid)
 		}
 	}
 	if options.NginxRoot == options.WorkspaceRoot || options.NginxRoot == options.StageRoot ||

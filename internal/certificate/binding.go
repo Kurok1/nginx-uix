@@ -65,10 +65,11 @@ type BindingFileChange struct {
 
 // BindingChangePlan is a deterministic lossless set of server-local source changes.
 type BindingChangePlan struct {
-	Mode       string                `json:"mode"`
-	ServerRefs []ServerRef           `json:"server_refs"`
-	Files      []BindingFileChange   `json:"files"`
-	Edits      []nginxast.SourceEdit `json:"-"`
+	Mode                string                `json:"mode"`
+	ServerRefs          []ServerRef           `json:"server_refs"`
+	Files               []BindingFileChange   `json:"files"`
+	Edits               []nginxast.SourceEdit `json:"-"`
+	PublishedServerRefs []ServerRef           `json:"-"`
 }
 
 // CertificateFullchainPath derives the fixed immutable full-chain path.
@@ -196,7 +197,15 @@ func PlanCertificateBinding(
 		edits = append(edits, serverEdits...)
 		currentRefs = append(currentRefs, candidate.Ref)
 	}
-	return renderBindingPlan(ctx, project, "bind", currentRefs, edits)
+	plan, err := renderBindingPlan(ctx, project, "bind", currentRefs, edits)
+	if err != nil {
+		return BindingChangePlan{}, err
+	}
+	plan.PublishedServerRefs, err = publishedBindingServerRefs(project, resolved, edits)
+	if err != nil {
+		return BindingChangePlan{}, fmt.Errorf("plan certificate binding: %w", err)
+	}
+	return plan, nil
 }
 
 // PlanCertificateUnbinding removes only the exact active version's direct cert/key directives.
@@ -368,6 +377,113 @@ func planTLSListen(project *nginxast.Project, serverID string) (*nginxast.Source
 		}, false
 	}
 	return nil, true
+}
+
+func publishedBindingServerRefs(
+	project *nginxast.Project,
+	resolved []ServerCandidate,
+	edits []nginxast.SourceEdit,
+) ([]ServerRef, error) {
+	candidates, err := BuildServerCandidates(project)
+	if err != nil {
+		return nil, err
+	}
+	targets := make(map[string]bool, len(resolved))
+	for _, candidate := range resolved {
+		targets[serverRefKey(candidate.Ref)] = true
+	}
+
+	publishedByTarget := make(map[string]ServerRef, len(resolved))
+	identityCounts := make(map[string]int, len(candidates))
+	for _, candidate := range candidates {
+		key := serverRefKey(candidate.Ref)
+		published := candidate.Ref
+		if targets[key] {
+			published, err = serverRefAfterBinding(project, candidate)
+			if err != nil {
+				return nil, err
+			}
+			publishedByTarget[key] = published
+		}
+		published.StartOffset, err = serverOffsetAfterEdits(candidate.Ref.Path, candidate.Ref.StartOffset, edits)
+		if err != nil || !validServerRef(published) {
+			return nil, ErrBindingConflict
+		}
+		if targets[key] {
+			publishedByTarget[key] = published
+		}
+		identityCounts[serverRefKey(published)]++
+	}
+
+	result := make([]ServerRef, 0, len(resolved))
+	for _, candidate := range resolved {
+		published, exists := publishedByTarget[serverRefKey(candidate.Ref)]
+		if !exists {
+			return nil, ErrServerNotFound
+		}
+		if identityCounts[serverRefKey(published)] != 1 {
+			return nil, ErrServerAmbiguous
+		}
+		result = append(result, published)
+	}
+	return result, nil
+}
+
+func serverRefAfterBinding(project *nginxast.Project, candidate ServerCandidate) (ServerRef, error) {
+	published := candidate.Ref
+	published.ServerNames = slices.Clone(candidate.Ref.ServerNames)
+	published.Listeners = slices.Clone(candidate.Ref.Listeners)
+	if !candidate.TLSEnabled {
+		reference := findServerReference(project, candidate.Ref)
+		if _, ok := serverBlock(reference); !ok {
+			return ServerRef{}, ErrServerNotFound
+		}
+		listeners := make([]string, 0)
+		updated := false
+		for _, listener := range directServerDirectives(project, reference.ID, "listen") {
+			directive, ok := listener.Node.(*nginxast.Directive)
+			if !ok || len(directive.Arguments) == 0 {
+				continue
+			}
+			values := make([]string, 0, len(directive.Arguments))
+			for _, argument := range directive.Arguments {
+				values = append(values, strings.ToLower(argument.Value))
+			}
+			if !updated && listenEndpointIs443(directive.Arguments[0].Value) {
+				values = append(values, "ssl")
+				updated = true
+			}
+			listeners = append(listeners, strings.Join(values, " "))
+		}
+		if !updated {
+			listeners = append(listeners, "443 ssl")
+		}
+		published.Listeners = sortedUnique(listeners)
+	}
+	published.Fingerprint = serverFingerprint(published.Path, published.ServerNames, published.Listeners)
+	return published, nil
+}
+
+func serverOffsetAfterEdits(sourcePath string, offset int, edits []nginxast.SourceEdit) (int, error) {
+	adjusted := offset
+	for _, edit := range edits {
+		if edit.Path != sourcePath || edit.Edit.Span.End.Offset > offset {
+			continue
+		}
+		removed := edit.Edit.Span.End.Offset - edit.Edit.Span.Start.Offset
+		if removed < 0 {
+			return 0, ErrBindingConflict
+		}
+		adjusted += len(edit.Edit.Replacement) - removed
+	}
+	if adjusted < 0 {
+		return 0, ErrBindingConflict
+	}
+	return adjusted, nil
+}
+
+func serverRefKey(reference ServerRef) string {
+	return reference.Path + "\x00" + reference.Fingerprint
 }
 
 func renderBindingPlan(

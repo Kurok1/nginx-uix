@@ -4,6 +4,14 @@
 
 set -eu
 
+expected_exit_marker=/run/nginx-uix/nginx-restart-expected
+if [ -f "${expected_exit_marker}" ] && [ ! -L "${expected_exit_marker}" ] &&
+    [ "$(stat -c '%u:%g:%a' "${expected_exit_marker}")" = '0:0:600' ]; then
+    rm -f "${expected_exit_marker}"
+    sleep 1
+    exit 0
+fi
+
 if ! /usr/local/bin/nginx-uix-agent record-nginx-exit "$1" "$2"; then
     echo 'nginx-uix: failed to record nginx exit' >&2
 fi

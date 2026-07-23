@@ -4,6 +4,8 @@
 
 set -eu
 umask 077
+export LC_ALL=C
+export LANG=C
 
 SCRIPT_DIR=$(CDPATH= cd "$(dirname "$0")" && pwd)
 REPOSITORY_ROOT=$(CDPATH= cd "${SCRIPT_DIR}/../.." && pwd)
@@ -12,8 +14,9 @@ cd "${REPOSITORY_ROOT}"
 # shellcheck source=lib/image.sh
 . "${SCRIPT_DIR}/lib/image.sh"
 
-IMAGE=${IMAGE:-nginx-uix:0.2.1-test}
+IMAGE=${IMAGE:-nginx-uix:0.7.0-test}
 BUILD_IMAGE=${BUILD_IMAGE:-0}
+WORKSPACE_PROFILE=${WORKSPACE_PROFILE:-full}
 V01_SOURCE_REF=${V01_SOURCE_REF:-d1446e8}
 V01_IMAGE=${V01_IMAGE:-nginx-uix:0.1.0-upgrade-seed}
 PLAYWRIGHT_IMAGE='mcr.microsoft.com/playwright:v1.61.0-noble@sha256:57b65fdc9ceabe0ef613124c7bbe2babcf9362c4d85e382fe3b03604e84b428a'
@@ -472,6 +475,24 @@ api_get_expected() {
   assert_safe_artifact "${expected_output}"
 }
 
+wait_terminal_resource() {
+  terminal_url=$1
+  terminal_prefix=$2
+  terminal_limit=$3
+  TASK_FILE="${WORK_DIR}/${terminal_prefix}.terminal.json"
+  terminal_count=0
+  while [ "${terminal_count}" -lt "${terminal_limit}" ]; do
+    api_get "${terminal_url}" "${TASK_FILE}"
+    TASK_STATE=$(jq -er '.state | select(type == "string" and length > 0)' "${TASK_FILE}")
+    case "${TASK_STATE}" in
+      succeeded|failed|rolled_back|needs_attention|cancelled|timed_out) return 0 ;;
+    esac
+    terminal_count=$((terminal_count + 1))
+    sleep 1
+  done
+  fail "${terminal_prefix} did not reach a terminal state within ${terminal_limit} seconds"
+}
+
 groups_etag_from_body() {
   jq -er '.groups_etag | select(test("^\\\"groups-v1:[0-9a-f]{64}\\\"$"))' "$1"
 }
@@ -508,8 +529,9 @@ copy_database() {
 assert_upgrade_database() {
   database_file=$1
   migrations=$(sqlite3 "${database_file}" \
-    'SELECT COALESCE(group_concat(version, ","), "") FROM (SELECT version FROM schema_migrations ORDER BY version);')
-  [ "${migrations}" = '1,2' ] || fail 'upgraded database does not contain exactly migrations [1,2]'
+    "SELECT COALESCE(group_concat(version, ','), '') FROM (SELECT version FROM schema_migrations ORDER BY version);")
+  [ "${migrations}" = '1,2,3,4,5,6,7' ] ||
+    fail 'upgraded database does not contain exactly migrations [1,2,3,4,5,6,7]'
   [ "$(sqlite3 "${database_file}" 'SELECT COUNT(*) FROM users;')" -ge 1 ] ||
     fail 'upgraded database lost the bootstrap user'
   [ "$(sqlite3 "${database_file}" 'SELECT COUNT(*) FROM sessions;')" -ge 1 ] ||
@@ -533,22 +555,22 @@ verify_upgrade() {
   [ "$(fixture_digest)" = "${FIXTURE_DIGEST}" ] || fail 'v0.1 startup overwrote preexisting configuration bytes'
   stop_main_container 'v0.1 upgrade fixture'
 
-  log 'starting v0.2.1 on the same configuration and data volumes'
+  log 'starting v0.7.0 on the same configuration and data volumes'
   start_main_container "${IMAGE}"
   api_get "${BASE_URL}/api/v1/auth/session" "${WORK_DIR}/upgraded-session.json"
   jq -e --arg username "${ADMIN_USERNAME}" '.user.username == $username and (.csrf_token | type == "string" and length > 20)' \
-    "${WORK_DIR}/upgraded-session.json" >/dev/null || fail 'v0.1 user/session did not survive the v0.2 upgrade'
+    "${WORK_DIR}/upgraded-session.json" >/dev/null || fail 'v0.1 user/session did not survive the v0.7 upgrade'
   api_get "${BASE_URL}/api/v1/system/status" "${WORK_DIR}/upgraded-status.json"
   api_get "${BASE_URL}/api/v1/nginx/effective-config" "${WORK_DIR}/upgraded-effective.json"
   assert_workspace_root_permissions
-  [ "$(fixture_digest)" = "${FIXTURE_DIGEST}" ] || fail 'v0.2 upgrade overwrote preexisting configuration bytes'
+  [ "$(fixture_digest)" = "${FIXTURE_DIGEST}" ] || fail 'v0.7 upgrade overwrote preexisting configuration bytes'
 
-  stop_main_container 'v0.2 migration inspection'
+  stop_main_container 'v0.7 migration inspection'
   copy_database "${WORK_DIR}/upgraded-database"
   assert_upgrade_database "${WORK_DIR}/upgraded-database/nginx-uix.db"
   start_main_container "${IMAGE}"
   login upgraded-login
-  pass 'v0.1.0 data/session/configuration upgraded to migrations [1,2] with exact bytes and permissions preserved'
+  pass 'v0.1.0 data/session/configuration upgraded to migrations [1..7] with exact bytes and permissions preserved'
 }
 
 create_workspace() {
@@ -734,7 +756,7 @@ assert_workspace_disk_separation() {
 }
 
 verify_workspace_recreation() {
-  log 'recreating v0.2.1 with the same configuration and data volumes'
+  log 'recreating v0.7.0 with the same configuration and data volumes'
   stop_main_container 'workspace persistence recreation'
   start_main_container "${IMAGE}"
   login recreate-login
@@ -967,6 +989,7 @@ build_browser_test_image() {
     --label "${LABEL}" \
     --tag "${BROWSER_TEST_IMAGE}" . >"${WORK_DIR}/playwright-build.log" 2>&1; then
     assert_safe_artifact "${WORK_DIR}/playwright-build.log"
+    tail -n 120 "${WORK_DIR}/playwright-build.log" >&2 || true
     fail 'pinned Playwright test image build failed'
   fi
   assert_safe_artifact "${WORK_DIR}/playwright-build.log"
@@ -989,6 +1012,7 @@ run_browser_acceptance() {
     "${BROWSER_TEST_IMAGE}" npm run test:e2e -- e2e/config_workspace_docker.spec.ts \
     >"${WORK_DIR}/playwright-run.log" 2>&1; then
     assert_safe_artifact "${WORK_DIR}/playwright-run.log"
+    tail -n 200 "${WORK_DIR}/playwright-run.log" >&2 || true
     fail 'real-container Playwright workspace spec failed'
   fi
   assert_safe_artifact "${WORK_DIR}/playwright-run.log"
@@ -999,16 +1023,316 @@ run_browser_acceptance() {
   [ "$(status_signature "${WORK_DIR}/browser-status.json")" = "${BASELINE_STATUS}" ] ||
     fail 'browser draft workflow changed Nginx process/health identity'
   [ "$(fixture_digest)" = "${FIXTURE_DIGEST}" ] || fail 'browser draft workflow changed production fixture bytes'
-  pass 'pinned external Playwright container completed the real workspace UI flow without altering the release image'
+  pass 'pinned external Playwright container completed real persistence, six-width responsive, keyboard and logout flows without altering the release image'
+}
+
+sanitize_release_fixture() {
+  log 'removing only the bounded special-entry safety fixtures before release transactions'
+  helper_name="nginx-uix-${RUN_ID}-release-fixture"
+  register_container "${helper_name}"
+  run_bounded 30 docker run --rm --name "${helper_name}" --entrypoint /bin/sh \
+    --mount "type=volume,src=${CONFIG_VOLUME},dst=/fixture" \
+    "${IMAGE}" -eu -c '
+      test -L /fixture/conf.d/external-link.conf
+      test -L /fixture/conf.d/broken-link.conf
+      test -p /fixture/conf.d/stream.fifo
+      rm -f /fixture/conf.d/external-link.conf /fixture/conf.d/broken-link.conf /fixture/conf.d/stream.fifo
+    ' >/dev/null || fail 'could not remove the bounded special-entry safety fixtures'
+  [ "$(fixture_digest)" = "${FIXTURE_DIGEST}" ] ||
+    fail 'sanitizing special-entry fixtures changed managed production bytes'
+  wait_ready "${MAIN_CONTAINER}" "${BASE_URL}" 20 ||
+    fail 'application readiness changed while sanitizing special-entry fixtures'
+}
+
+preview_and_apply_structured_change() {
+  structured_prefix=$1
+  structured_request=$2
+  api_mutation POST \
+    "${BASE_URL}/api/v1/config/workspaces/${CLOSURE_WORKSPACE_ID}/structured-change-previews" \
+    "${structured_request}" '' 200 "${structured_prefix}-preview"
+  [ "${RESPONSE_ETAG}" = "${CLOSURE_WORKSPACE_ETAG}" ] ||
+    fail "${structured_prefix} preview returned an unexpected ETag"
+  jq -e --arg etag "${CLOSURE_WORKSPACE_ETAG}" \
+    '.complete == true and .draft_etag == $etag and (.changed_files | length) > 0' \
+    "${WORK_DIR}/${structured_prefix}-preview.response.json" >/dev/null ||
+    fail "${structured_prefix} preview was incomplete or malformed"
+  structured_preview_id=$(jq -er '.preview_id | select(test("^[0-9a-f]{64}$"))' \
+    "${WORK_DIR}/${structured_prefix}-preview.response.json")
+  jq --arg preview_id "${structured_preview_id}" '. + {preview_id:$preview_id}' \
+    "${structured_request}" >"${WORK_DIR}/${structured_prefix}-apply.request.json"
+  api_mutation POST \
+    "${BASE_URL}/api/v1/config/workspaces/${CLOSURE_WORKSPACE_ID}/structured-changes" \
+    "${WORK_DIR}/${structured_prefix}-apply.request.json" "${CLOSURE_WORKSPACE_ETAG}" 200 \
+    "${structured_prefix}-apply"
+  CLOSURE_WORKSPACE_ETAG=$(jq -er '.draft_etag | select(test("^\\\"draft-v1:[0-9a-f]{64}\\\"$"))' \
+    "${WORK_DIR}/${structured_prefix}-apply.response.json")
+  [ "${RESPONSE_ETAG}" = "${CLOSURE_WORKSPACE_ETAG}" ] ||
+    fail "${structured_prefix} apply header/body ETags differ"
+  jq -e '.workspace.state == "ready" and (.changed_paths | length) > 0' \
+    "${WORK_DIR}/${structured_prefix}-apply.response.json" >/dev/null ||
+    fail "${structured_prefix} apply did not leave a ready workspace"
+}
+
+exercise_structured_and_route_lab() {
+  log 'exercising typed structured edits and an isolated real-Nginx Route Lab request'
+  CLOSURE_WORKSPACE_NAME="closure-${RUN_RANDOM}"
+  create_workspace "${CLOSURE_WORKSPACE_NAME}" closure-create
+  CLOSURE_WORKSPACE_ID=${CREATE_WORKSPACE_ID}
+  CLOSURE_WORKSPACE_ETAG=${CREATE_WORKSPACE_ETAG}
+
+  api_get "${BASE_URL}/api/v1/config/workspaces/${CLOSURE_WORKSPACE_ID}/structured-config" \
+    "${WORK_DIR}/closure-structured-initial.json"
+  jq -e '
+    .complete == true and .project_diagnostics == [] and
+    any(.http_blocks[]; .editable == true) and
+    any(.servers[]; .editable == true and (.server_names | index("workspace-fixture.example.test")) != null)
+  ' "${WORK_DIR}/closure-structured-initial.json" >/dev/null ||
+    fail 'initial structured projection did not expose the editable fixture'
+  CLOSURE_HTTP_BLOCK_ID=$(jq -er 'first(.http_blocks[] | select(.editable == true)) | .id' \
+    "${WORK_DIR}/closure-structured-initial.json")
+  CLOSURE_UPSTREAM_NAME="closure_backend_${RUN_RANDOM}"
+  jq -n --arg block_id "${CLOSURE_HTTP_BLOCK_ID}" --arg name "${CLOSURE_UPSTREAM_NAME}" \
+    '{kind:"upstream.create",input:{http_block_id:$block_id,name:$name,servers:[{address:"127.0.0.1",port:18080}]}}' \
+    >"${WORK_DIR}/closure-upstream.request.json"
+  preview_and_apply_structured_change closure-upstream "${WORK_DIR}/closure-upstream.request.json"
+
+  api_get "${BASE_URL}/api/v1/config/workspaces/${CLOSURE_WORKSPACE_ID}/structured-config" \
+    "${WORK_DIR}/closure-after-upstream.json"
+  CLOSURE_UPSTREAM_ID=$(jq -er --arg name "${CLOSURE_UPSTREAM_NAME}" \
+    'first(.upstreams[] | select(.name == $name and .editable == true)) | .id' \
+    "${WORK_DIR}/closure-after-upstream.json")
+  CLOSURE_SERVER_ID=$(jq -er \
+    'first(.servers[] | select(.editable == true and (.server_names | index("workspace-fixture.example.test")) != null)) | .id' \
+    "${WORK_DIR}/closure-after-upstream.json")
+  jq -n --arg parent_id "${CLOSURE_SERVER_ID}" --arg upstream_id "${CLOSURE_UPSTREAM_ID}" \
+    '{kind:"location.create",input:{parent_id:$parent_id,type:"prefix",matcher:"/closure",proxy_pass:{upstream_id:$upstream_id,scheme:"http",uri:"/"}}}' \
+    >"${WORK_DIR}/closure-location.request.json"
+  preview_and_apply_structured_change closure-location "${WORK_DIR}/closure-location.request.json"
+
+  api_get "${BASE_URL}/api/v1/config/workspaces/${CLOSURE_WORKSPACE_ID}/structured-config" \
+    "${WORK_DIR}/closure-structured-final.json"
+  jq -e --arg upstream_id "${CLOSURE_UPSTREAM_ID}" '
+    .complete == true and
+    any(.servers[].locations[]; .matcher == "/closure" and
+      any(.proxy_passes[]; .upstream_id == $upstream_id and .scheme == "http"))
+  ' "${WORK_DIR}/closure-structured-final.json" >/dev/null ||
+    fail 'structured location and proxy_pass did not survive reparsing'
+
+  jq -n '{
+    scheme:"http",host:"workspace-fixture.example.test",port:8080,method:"GET",uri:"/healthz",
+    confirmation:"RUN SIDE-EFFECTING REQUEST",
+    assertions:{status_code:200,contains_text:"nginx-uix workspace fixture"}
+  }' >"${WORK_DIR}/closure-route.request.json"
+  api_mutation POST \
+    "${BASE_URL}/api/v1/config/workspaces/${CLOSURE_WORKSPACE_ID}/route-analyses" \
+    "${WORK_DIR}/closure-route.request.json" "${CLOSURE_WORKSPACE_ETAG}" 200 closure-route-analysis
+  jq -e '
+    .complete == true and (.predicted_server_route_id | length) > 0 and
+    (.predicted_location_route_id | length) > 0 and
+    any(.servers[]; .disposition == "selected" and
+      (.server_names | index("workspace-fixture.example.test")) != null) and
+    any(.locations[]; .disposition == "selected" and .matcher == "/healthz")
+  ' "${WORK_DIR}/closure-route-analysis.response.json" >/dev/null ||
+    fail 'Route Lab static analysis did not select the fixture health route'
+
+  api_mutation POST \
+    "${BASE_URL}/api/v1/config/workspaces/${CLOSURE_WORKSPACE_ID}/route-tests" \
+    "${WORK_DIR}/closure-route.request.json" "${CLOSURE_WORKSPACE_ETAG}" 202 closure-route-run
+  CLOSURE_ROUTE_RUN_ID=$(jq -er '.id | select(test("^[0-9a-f]{32}$"))' \
+    "${WORK_DIR}/closure-route-run.response.json")
+  wait_terminal_resource "${BASE_URL}/api/v1/route-tests/${CLOSURE_ROUTE_RUN_ID}" closure-route-run 90
+  jq -e '
+    .state == "succeeded" and .stage == "completed" and
+    .terminal_result.agent_result.response.status_code == 200 and
+    .terminal_result.agent_result.response.assertions.passed == true and
+    .terminal_result.agent_result.response.assertions.complete == true and
+    .terminal_result.agent_result.evidence.status_code == 200 and
+    .terminal_result.agent_result.cleanup.master_reaped == true and
+    .terminal_result.agent_result.cleanup.port_closed == true and
+    .terminal_result.agent_result.cleanup.stage_removed == true
+  ' "${TASK_FILE}" >/dev/null || fail 'isolated Route Lab execution or cleanup evidence failed'
+  pass 'typed upstream/location edits and isolated Route Lab execution completed with cleanup evidence'
+}
+
+queue_workspace_release() {
+  release_prefix=$1
+  release_workspace_id=$2
+  release_workspace_name=$3
+  release_workspace_etag=$4
+  jq -n '{}' >"${WORK_DIR}/${release_prefix}-check.request.json"
+  api_mutation POST \
+    "${BASE_URL}/api/v1/config/workspaces/${release_workspace_id}/publish-checks" \
+    "${WORK_DIR}/${release_prefix}-check.request.json" "${release_workspace_etag}" 201 \
+    "${release_prefix}-check"
+  release_check_id=$(jq -er \
+    'select(.state == "valid" and .diagnostic_count == 0 and .details.diagnostics == []) | .id | select(test("^[0-9a-f]{32}$"))' \
+    "${WORK_DIR}/${release_prefix}-check.response.json")
+  jq -n --arg check_id "${release_check_id}" --arg name "${release_workspace_name}" \
+    '{check_id:$check_id,confirm_name:$name}' >"${WORK_DIR}/${release_prefix}.request.json"
+  api_mutation POST "${BASE_URL}/api/v1/config/workspaces/${release_workspace_id}/releases" \
+    "${WORK_DIR}/${release_prefix}.request.json" "${release_workspace_etag}" 202 "${release_prefix}"
+  QUEUED_RELEASE_ID=$(jq -er '.id | select(test("^[0-9a-f]{32}$"))' \
+    "${WORK_DIR}/${release_prefix}.response.json")
+}
+
+exercise_release_recovery_closure() {
+  log 'exercising release, fixed restart, manual restore, automatic rollback, and durable history'
+  queue_workspace_release closure-release "${CLOSURE_WORKSPACE_ID}" \
+    "${CLOSURE_WORKSPACE_NAME}" "${CLOSURE_WORKSPACE_ETAG}"
+  CLOSURE_RELEASE_ID=${QUEUED_RELEASE_ID}
+  wait_terminal_resource "${BASE_URL}/api/v1/config/releases/${CLOSURE_RELEASE_ID}" closure-release 150
+  if ! jq -e '
+    .state == "succeeded" and .stage == "committed" and
+    (.backup_id | test("^[0-9a-f]{32}$")) and
+    any(.stages[]; .stage == "runtime_confirmed" and .result == "success")
+  ' "${TASK_FILE}" >/dev/null; then
+    jq -c '{state,stage,last_error_code,stages:[.stages[] | {stage,result,code}]}' "${TASK_FILE}" >&2
+    fail 'typed workspace release did not commit successfully'
+  fi
+  CLOSURE_BACKUP_ID=$(jq -er '.backup_id' "${TASK_FILE}")
+  PUBLISHED_FIXTURE_DIGEST=$(fixture_digest)
+  [ "${PUBLISHED_FIXTURE_DIGEST}" != "${FIXTURE_DIGEST}" ] ||
+    fail 'committed structured release did not change production bytes'
+  BEFORE_RESTART_STATUS=$(status_signature "${WORK_DIR}/closure-before-restart-status.json")
+  BEFORE_RESTART_MASTER=$(printf '%s\n' "${BEFORE_RESTART_STATUS}" | jq -er '.master')
+
+  jq -n '{attention_case_id:"",reason:"v0.7 final-image restart verification",confirmation:"RESTART NGINX"}' \
+    >"${WORK_DIR}/closure-restart.request.json"
+  api_mutation POST "${BASE_URL}/api/v1/nginx/restarts" \
+    "${WORK_DIR}/closure-restart.request.json" '' 202 closure-restart
+  CLOSURE_RESTART_ID=$(jq -er '.id | select(test("^[0-9a-f]{32}$"))' \
+    "${WORK_DIR}/closure-restart.response.json")
+  wait_terminal_resource "${BASE_URL}/api/v1/nginx/restarts/${CLOSURE_RESTART_ID}" closure-restart 90
+  if ! jq -e --argjson before "${BEFORE_RESTART_MASTER}" '
+    .state == "succeeded" and .stage == "succeeded" and
+    .before_master_pid == $before and .after_master_pid != $before and
+    .worker_count > 0 and .http_status >= 200 and .http_status < 400
+  ' "${TASK_FILE}" >/dev/null; then
+    jq -c '{state,stage,before_master_pid,after_master_pid,worker_count,http_status,last_error_code,stages:[.stages[] | {stage,result,code}]}' \
+      "${TASK_FILE}" >&2
+    printf '[workspace] restart live baseline master: %s\n' "${BEFORE_RESTART_MASTER}" >&2
+    fail 'fixed supervised Nginx restart evidence was malformed'
+  fi
+  AFTER_RESTART_STATUS=$(status_signature "${WORK_DIR}/closure-after-restart-status.json")
+  AFTER_RESTART_MASTER=$(printf '%s\n' "${AFTER_RESTART_STATUS}" | jq -er '.master')
+  [ "${AFTER_RESTART_MASTER}" = "$(jq -er '.after_master_pid' "${TASK_FILE}")" ] ||
+    fail 'fixed restart API evidence did not match the live Nginx master'
+
+  jq -n --arg backup_id "${CLOSURE_BACKUP_ID}" \
+    '{attention_case_id:"",reason:"v0.7 final-image restore verification",confirm_backup_id:$backup_id}' \
+    >"${WORK_DIR}/closure-restore.request.json"
+  api_mutation POST "${BASE_URL}/api/v1/config/backups/${CLOSURE_BACKUP_ID}/restores" \
+    "${WORK_DIR}/closure-restore.request.json" '' 202 closure-restore
+  CLOSURE_RESTORE_ID=$(jq -er '.id | select(test("^[0-9a-f]{32}$"))' \
+    "${WORK_DIR}/closure-restore.response.json")
+  wait_terminal_resource "${BASE_URL}/api/v1/config/restores/${CLOSURE_RESTORE_ID}" closure-restore 150
+  jq -e --arg backup_id "${CLOSURE_BACKUP_ID}" '
+    .state == "succeeded" and .stage == "succeeded" and .target_backup_id == $backup_id and
+    any(.stages[]; .stage == "runtime_confirmed" and .result == "success")
+  ' "${TASK_FILE}" >/dev/null || fail 'manual restore did not succeed with runtime confirmation'
+  [ "$(fixture_digest)" = "${FIXTURE_DIGEST}" ] ||
+    fail 'manual restore did not recover the original production bytes'
+  wait_ready "${MAIN_CONTAINER}" "${BASE_URL}" 30 || fail 'readiness failed after manual restore'
+
+  ROLLBACK_WORKSPACE_NAME="rollback-${RUN_RANDOM}"
+  create_workspace "${ROLLBACK_WORKSPACE_NAME}" rollback-create
+  ROLLBACK_WORKSPACE_ID=${CREATE_WORKSPACE_ID}
+  ROLLBACK_WORKSPACE_ETAG=${CREATE_WORKSPACE_ETAG}
+  api_get "${BASE_URL}/api/v1/config/workspaces/${ROLLBACK_WORKSPACE_ID}/files?path=conf.d%2Fsite.conf" \
+    "${WORK_DIR}/rollback-site.json"
+  jq '{content:(.content + "\nserver { listen 9000; }\n")}' "${WORK_DIR}/rollback-site.json" \
+    >"${WORK_DIR}/rollback-site.request.json"
+  api_mutation PUT \
+    "${BASE_URL}/api/v1/config/workspaces/${ROLLBACK_WORKSPACE_ID}/files?path=conf.d%2Fsite.conf" \
+    "${WORK_DIR}/rollback-site.request.json" "${ROLLBACK_WORKSPACE_ETAG}" 200 rollback-site
+  ROLLBACK_WORKSPACE_ETAG=$(workspace_etag_from_body "${WORK_DIR}/rollback-site.response.json")
+  queue_workspace_release rollback-release "${ROLLBACK_WORKSPACE_ID}" \
+    "${ROLLBACK_WORKSPACE_NAME}" "${ROLLBACK_WORKSPACE_ETAG}"
+  ROLLBACK_RELEASE_ID=${QUEUED_RELEASE_ID}
+  wait_terminal_resource "${BASE_URL}/api/v1/config/releases/${ROLLBACK_RELEASE_ID}" rollback-release 180
+  jq -e '
+    .state == "rolled_back" and .stage == "rolled_back" and
+    any(.stages[]; .stage == "files_applied" and .result == "success") and
+    any(.stages[]; .stage == "rollback_files_restored" and .result == "success") and
+    any(.stages[]; .stage == "rolled_back" and .result == "warning" and (.code | length) > 0)
+  ' "${TASK_FILE}" >/dev/null ||
+    fail 'the bounded UI-port conflict did not produce a confirmed automatic rollback'
+  [ "$(fixture_digest)" = "${FIXTURE_DIGEST}" ] ||
+    fail 'automatic rollback did not restore original production bytes'
+  wait_ready "${MAIN_CONTAINER}" "${BASE_URL}" 30 || fail 'readiness failed after automatic rollback'
+
+  verify_closure_history
+  verify_certificate_boundary
+  verify_closure_recreation
+  pass 'release, restart, restore, automatic rollback, certificate boundary, and durable history passed'
+}
+
+verify_closure_history() {
+  api_get "${BASE_URL}/api/v1/config/history/releases?limit=100" "${WORK_DIR}/closure-release-history.json"
+  jq -e --arg committed "${CLOSURE_RELEASE_ID}" --arg rolled_back "${ROLLBACK_RELEASE_ID}" '
+    any(.items[]; .id == $committed and .state == "succeeded") and
+    any(.items[]; .id == $rolled_back and .state == "rolled_back")
+  ' "${WORK_DIR}/closure-release-history.json" >/dev/null || fail 'release history omitted a closure task'
+  api_get "${BASE_URL}/api/v1/config/history/restores?limit=100" "${WORK_DIR}/closure-restore-history.json"
+  jq -e --arg id "${CLOSURE_RESTORE_ID}" 'any(.items[]; .id == $id and .state == "succeeded")' \
+    "${WORK_DIR}/closure-restore-history.json" >/dev/null || fail 'restore history omitted the successful restore'
+  api_get "${BASE_URL}/api/v1/config/history/restarts?limit=100" "${WORK_DIR}/closure-restart-history.json"
+  jq -e --arg id "${CLOSURE_RESTART_ID}" 'any(.items[]; .id == $id and .state == "succeeded")' \
+    "${WORK_DIR}/closure-restart-history.json" >/dev/null || fail 'restart history omitted the fixed restart'
+  api_get "${BASE_URL}/api/v1/config/backups?limit=100" "${WORK_DIR}/closure-backups.json"
+  jq -e --arg id "${CLOSURE_BACKUP_ID}" \
+    'any(.items[]; .id == $id and .state == "complete" and .body_present == true)' \
+    "${WORK_DIR}/closure-backups.json" >/dev/null || fail 'backup index omitted the verified release backup'
+  api_get "${BASE_URL}/api/v1/route-tests?workspace_id=${CLOSURE_WORKSPACE_ID}&limit=100" \
+    "${WORK_DIR}/closure-route-history.json"
+  jq -e --arg id "${CLOSURE_ROUTE_RUN_ID}" 'any(.runs[]; .id == $id and .state == "succeeded")' \
+    "${WORK_DIR}/closure-route-history.json" >/dev/null || fail 'Route Lab history omitted the isolated run'
+  api_get "${BASE_URL}/api/v1/config/audit-events?limit=100" "${WORK_DIR}/closure-audit.json"
+  jq -e --arg release "${ROLLBACK_RELEASE_ID}" --arg restore "${CLOSURE_RESTORE_ID}" \
+    --arg restart "${CLOSURE_RESTART_ID}" '
+    any(.items[]; .object_id == $release) and
+    any(.items[]; .object_id == $restore) and
+    any(.items[]; .object_id == $restart) and
+    all(.items[]; (.details | type) == "object")
+  ' "${WORK_DIR}/closure-audit.json" >/dev/null || fail 'redacted audit history omitted a closure operation'
+}
+
+verify_certificate_boundary() {
+  api_get "${BASE_URL}/api/v1/certificates?limit=100" "${WORK_DIR}/closure-certificates.json"
+  jq -e '.certificates == []' "${WORK_DIR}/closure-certificates.json" >/dev/null ||
+    fail 'final-image certificate inventory was not initially empty'
+  certificate_directories=$(docker exec "${MAIN_CONTAINER}" /bin/sh -eu -c '
+    for path in /var/lib/nginx-uix/certs /var/lib/nginx-uix/certs/accounts \
+      /var/lib/nginx-uix/certs/credentials /var/lib/nginx-uix/certs/certificates \
+      /var/lib/nginx-uix/certs/staging; do
+      stat -c "%u:%g:%a" "$path"
+    done
+  ')
+  [ "$(printf '%s\n' "${certificate_directories}" | sed -n '/^10001:10001:700$/p' | wc -l | tr -d ' ')" = 5 ] ||
+    fail 'certificate vault directories do not all use UID/GID 10001 and mode 0700'
+  [ "$(docker exec "${MAIN_CONTAINER}" stat -c '%u:%g:%a:%s' /var/lib/nginx-uix/certs/master.key)" = \
+    '10001:10001:600:32' ] || fail 'certificate vault master key does not use the required owner, mode, and size'
+}
+
+verify_closure_recreation() {
+  stop_main_container 'closure history persistence recreation'
+  start_main_container "${IMAGE}"
+  login closure-recreate-login
+  wait_ready "${MAIN_CONTAINER}" "${BASE_URL}" 30 || fail 'recreated closure container was not ready'
+  verify_closure_history
+  verify_certificate_boundary
+  [ "$(fixture_digest)" = "${FIXTURE_DIGEST}" ] ||
+    fail 'production bytes changed across final closure recreation'
 }
 
 validate_inputs() {
   case "${BUILD_IMAGE}" in auto|0|1) ;; *) fail 'BUILD_IMAGE must be auto, 0, or 1' ;; esac
+  case "${WORKSPACE_PROFILE}" in full|closure) ;; *) fail 'WORKSPACE_PROFILE must be full or closure' ;; esac
   case "${PLATFORM:-}" in ''|linux/amd64|linux/arm64) ;; *) fail 'PLATFORM must be linux/amd64 or linux/arm64' ;; esac
   for required_command in docker curl openssl git go jq sqlite3 tar awk sed grep cmp date uname stat chmod; do
     require_command "${required_command}"
   done
-  [ "$(tr -d '\r\n' <VERSION)" = 0.2.1 ] || fail 'workspace acceptance requires project VERSION 0.2.1'
+  [ "$(tr -d '\r\n' <VERSION)" = 0.7.0 ] || fail 'workspace acceptance requires project VERSION 0.7.0'
   for required_fixture in \
     "${FIXTURE_ROOT}/nginx.conf" \
     "${FIXTURE_ROOT}/conf.d/site.conf" \
@@ -1049,13 +1373,25 @@ main() {
   validate_inputs
   create_owned_resources
   ensure_test_image "${IMAGE}" "${BUILD_IMAGE}" "${PLATFORM:-}" ||
-    fail 'v0.2 release image identity could not be ensured'
-  pass 'v0.2 image has the exact deterministic source/platform identity'
-  ensure_v01_image
+    fail 'v0.7 release image identity could not be ensured'
+  pass 'v0.7 image has the exact deterministic source/platform identity'
   seed_fixture_volume
   FIXTURE_DIGEST=$(fixture_digest)
   [ -n "${FIXTURE_DIGEST}" ] || fail 'fixed production fixture digest is empty'
 
+  if [ "${WORKSPACE_PROFILE}" = closure ]; then
+    start_main_container "${IMAGE}"
+    login closure-profile-login
+    BASELINE_STATUS=$(status_signature "${WORK_DIR}/closure-profile-status.json")
+    sanitize_release_fixture
+    exercise_structured_and_route_lab
+    exercise_release_recovery_closure
+    capture_logs "${MAIN_CONTAINER}" "${WORK_DIR}/main-final.log"
+    pass 'focused workspace release and recovery acceptance completed'
+    return
+  fi
+
+  ensure_v01_image
   verify_upgrade
   BASELINE_STATUS=$(status_signature "${WORK_DIR}/fault-baseline-status.json")
   create_workspace "baseline-${RUN_RANDOM}" baseline-production
@@ -1071,9 +1407,12 @@ main() {
   verify_data_root_failures
   verify_deterministic_fault_evidence
   run_browser_acceptance
+  sanitize_release_fixture
+  exercise_structured_and_route_lab
+  exercise_release_recovery_closure
 
   capture_logs "${MAIN_CONTAINER}" "${WORK_DIR}/main-final.log"
-  pass 'workspace upgrade, persistence, safety, fault and browser acceptance completed'
+  pass 'workspace upgrade, persistence, safety, fault, browser, release and recovery acceptance completed'
 }
 
 main "$@"

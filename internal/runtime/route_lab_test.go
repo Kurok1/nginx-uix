@@ -18,6 +18,61 @@ import (
 	"github.com/kuroky/nginx-uix/internal/routelab"
 )
 
+func TestValidateRouteLabOptionsAcceptsTraversableProductionRoot(t *testing.T) {
+	root := t.TempDir()
+	production := filepath.Join(root, "production")
+	workspaces := filepath.Join(root, "workspaces")
+	stages := filepath.Join(root, "route-lab")
+	for _, directory := range []string{production, workspaces, stages} {
+		mustMkdirCandidate(t, directory)
+	}
+	if err := os.Chmod(production, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	options := defaultRouteLabOptions()
+	options.NginxRoot = production
+	options.WorkspaceRoot = workspaces
+	options.StageRoot = stages
+	if err := validateRouteLabOptions(options); err != nil {
+		t.Fatalf("validateRouteLabOptions() error = %v", err)
+	}
+}
+
+func TestValidateRouteLabOptionsRejectsUnsafeRootPermissions(t *testing.T) {
+	tests := []struct {
+		name       string
+		root       string
+		permission os.FileMode
+	}{
+		{name: "writable production root", root: "production", permission: 0o775},
+		{name: "group-readable workspace root", root: "workspaces", permission: 0o750},
+		{name: "world-traversable stage root", root: "route-lab", permission: 0o701},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			production := filepath.Join(root, "production")
+			workspaces := filepath.Join(root, "workspaces")
+			stages := filepath.Join(root, "route-lab")
+			for _, directory := range []string{production, workspaces, stages} {
+				mustMkdirCandidate(t, directory)
+			}
+			if err := os.Chmod(filepath.Join(root, test.root), test.permission); err != nil {
+				t.Fatal(err)
+			}
+
+			options := defaultRouteLabOptions()
+			options.NginxRoot = production
+			options.WorkspaceRoot = workspaces
+			options.StageRoot = stages
+			if err := validateRouteLabOptions(options); !errors.Is(err, config.ErrPathInvalid) {
+				t.Fatalf("validateRouteLabOptions() error = %v, want path invalid", err)
+			}
+		})
+	}
+}
+
 func TestExecuteRouteTestMaterializesInstrumentsAndCleansCandidate(t *testing.T) {
 	root := t.TempDir()
 	production := filepath.Join(root, "production")

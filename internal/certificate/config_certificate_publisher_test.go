@@ -62,8 +62,13 @@ func TestConfigCertificatePublisherRevalidatesPlanAndReturnsExactBindings(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
+	if len(publisher.changes) != 1 || len(publisher.changes[0].Replacements) != 1 {
+		t.Fatalf("changes=%#v", publisher.changes)
+	}
+	publishedRef := oneEditableServerRef(t, bindingProject(t, string(publisher.changes[0].Replacements[0].Content)))
 	if result.ReleaseID != "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" || len(result.Bindings) != 1 ||
-		result.Bindings[0].ConfigPath != ref.Path || result.Bindings[0].ServerFingerprint != ref.Fingerprint ||
+		result.Bindings[0].ConfigPath != publishedRef.Path ||
+		result.Bindings[0].ServerFingerprint != publishedRef.Fingerprint ||
 		len(publisher.changes) != 1 || publisher.changes[0].OperationKind != "certificate.bind" ||
 		len(publisher.changes[0].Replacements) != 1 {
 		t.Fatalf("result=%#v changes=%#v", result, publisher.changes)

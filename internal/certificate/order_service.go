@@ -319,7 +319,7 @@ func (service *OrderService) Run(ctx context.Context, id TaskID) (Task, error) {
 		return task, err
 	}
 	order, err := client.CreateOrder(taskCtx, identifiers)
-	if err != nil || order.FinalizeURL == "" || len(order.AuthorizationURLs) == 0 || len(order.AuthorizationURLs) > 100 {
+	if err != nil || order.URI == "" || order.FinalizeURL == "" || len(order.AuthorizationURLs) == 0 || len(order.AuthorizationURLs) > 100 {
 		cause := externalACMEError(taskCtx, "create ACME order", err)
 		return service.fail(taskCtx, task, certificateErrorCode(cause), cause)
 	}
@@ -383,6 +383,10 @@ func (service *OrderService) Run(ctx context.Context, id TaskID) (Task, error) {
 	task, err = service.advance(taskCtx, task, TaskStageFinalizing)
 	if err != nil {
 		return task, err
+	}
+	if err := client.WaitOrderReady(taskCtx, order.URI); err != nil {
+		cause := externalACMEError(taskCtx, "wait ACME order", err)
+		return service.fail(taskCtx, task, certificateErrorCode(cause), cause)
 	}
 	certificateKey, csrDER, err := newCertificateCSR(service.random, identifiers)
 	if err != nil {

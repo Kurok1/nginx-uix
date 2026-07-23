@@ -1,19 +1,21 @@
-# Nginx UIX v0.6.0 安装与验收
+# Nginx UIX v0.7.0 安装与验收
 
 ## 当前发布边界
 
-v0.6.0 是功能冻结后的发布候选版。它完成源码、原生进程、SQLite、真实隔离 Nginx 和浏览器验收，但不把 Docker 镜像声明为已验证的生产发布物。Docker 构建、容器进程生命周期、volume 升级、故障注入、镜像扫描和 `linux/amd64`/`linux/arm64` 统一留给 v0.7.0。
+v0.7.0 是功能冻结后的 Docker 统一验证版。它已经在原生 arm64 daemon 上完成一体化镜像、容器生命周期、volume 升级、故障注入、Docker 浏览器、安全边界和供应链验收，同时完成 linux/amd64 与 linux/arm64 OCI/SBOM 静态验证。
 
-因此本页区分两件事：
+当前仍有两项发布边界：
 
-- “源码验收”可以在当前版本执行，并用于复核功能和安全边界。
-- “目标部署接口”描述最终一体化镜像必须提供的端口、目录和身份，不代表 v0.6.0 已通过容器验收。
+- 本版本只形成经过验证的本地候选 `nginx-uix:0.7.0-acceptance`，没有远端 pull 地址、不可变 tag 或正式发布承诺。
+- 当前主机没有真实 amd64 runner；amd64 OCI/SBOM/静态内容通过，原生运行留给 v1.0.0 发布环境。
+
+完整环境、image ID、manifest/SBOM digest、命令与限制见 [v0.7.0 验收证据](../release/v0.7.0-verification.md)。
 
 ## 固定工具链
 
 | 工具 | 仓库固定版本 |
 | --- | --- |
-| Go | `1.26.4`（`go.mod` toolchain） |
+| Go | `1.26.5`（`go.mod` toolchain） |
 | Node.js | `24.17.0` |
 | npm | `11.13.0` |
 | Nginx | 发布镜像目标为 `1.30.3`；原生兼容测试记录实际二进制版本 |
@@ -25,7 +27,7 @@ v0.6.0 是功能冻结后的发布候选版。它完成源码、原生进程、S
 在仓库根目录执行：
 
 ```sh
-test "$(tr -d '\n' < VERSION)" = "0.6.0"
+test "$(tr -d '\n' < VERSION)" = "0.7.0"
 go mod verify
 go test ./...
 go test -race ./...
@@ -48,9 +50,9 @@ NGINX_UIX_INTEGRATION=1 NGINX_BIN=/absolute/path/to/nginx \
 
 该命令不得指向包装了 production reload 行为的脚本。测试不会读取、写入或 reload `/etc/nginx` 的生产实例。
 
-## 目标运行布局
+## 已验证运行布局
 
-官方部署目标是一体化 Linux 镜像，同时包含 UI、特权 Agent、进程监督器和受管理的 Nginx。不会提供 UI 与 Nginx 分离容器，也不会使用 Docker Socket 或 `--privileged` 管理宿主机 Nginx。
+官方部署是一体化 Linux 镜像，同时包含 UI、特权 Agent、进程监督器和受管理的 Nginx。不会提供 UI 与 Nginx 分离容器，也不会使用 Docker Socket 或 `--privileged` 管理宿主机 Nginx。
 
 | 项目 | 固定接口 |
 | --- | --- |
@@ -64,6 +66,41 @@ NGINX_UIX_INTEGRATION=1 NGINX_BIN=/absolute/path/to/nginx \
 | Agent Socket 组 | GID `10002`；Socket 必须为 `0:10002`、`0660` |
 
 `/etc/nginx` 和 `/var/lib/nginx-uix` 必须是两个独立、持久、可一起备份的挂载。`/run/nginx-uix` 是运行期状态，不能当成持久卷。
+
+## 启动本地候选
+
+以下命令只引用本机已经验收的候选标签，不会从远端下载镜像。先创建权限为 `0600`、内容为初始管理员密码的 Secret 文件：
+
+```sh
+test -f ./admin-password
+test "$(stat -f '%Lp' ./admin-password 2>/dev/null || stat -c '%a' ./admin-password)" = "600"
+docker image inspect nginx-uix:0.7.0-acceptance >/dev/null
+```
+
+然后使用两个命名 volume 启动：
+
+```sh
+docker run --detach \
+  --name nginx-uix \
+  --cap-drop ALL \
+  --cap-add CHOWN \
+  --cap-add DAC_OVERRIDE \
+  --cap-add FOWNER \
+  --cap-add KILL \
+  --cap-add SETGID \
+  --cap-add SETUID \
+  --publish 80:80 \
+  --publish 443:443 \
+  --publish 127.0.0.1:9000:9000 \
+  --mount type=volume,src=nginx-uix-nginx,dst=/etc/nginx \
+  --mount type=volume,src=nginx-uix-data,dst=/var/lib/nginx-uix \
+  --mount type=bind,src="$PWD/admin-password",dst=/run/secrets/nginx-uix-admin,readonly \
+  --env NGINX_UIX_ADMIN_USERNAME=admin \
+  --env NGINX_UIX_ADMIN_PASSWORD_FILE=/run/secrets/nginx-uix-admin \
+  nginx-uix:0.7.0-acceptance
+```
+
+原生验收使用 `--cap-drop ALL` 逐项证明了上述六项 capability；不要增加 `--privileged`、host PID/network、Docker Socket 或额外设备。本机 daemon 上不需要 `NET_BIND_SERVICE`。UI 只映射到宿主回环地址；若需要远程管理，应通过受控 HTTPS 入口访问并设置精确的 `NGINX_UIX_PUBLIC_URL`。
 
 ## 首次管理员
 
@@ -97,4 +134,4 @@ curl --fail --show-error http://127.0.0.1:9000/health/ready
 - readiness 同时要求 SQLite、Agent 和真实 Nginx 状态可确认；任一不满足返回 503。
 - readiness 失败不能通过修改探针或扩大超时伪装为健康，应按[故障排查](troubleshooting.md)保留 request ID 与安全诊断。
 
-生产安装前还必须完成[升级与回滚](upgrade-and-rollback.md)和[冷备与灾难恢复](backup-and-disaster-recovery.md)演练。v0.6.0 没有已验证的 Docker 安装结论，等待 v0.7.0 验收记录后再把目标接口提升为生产安装步骤。
+正式使用前仍必须完成[升级与回滚](upgrade-and-rollback.md)和[冷备与灾难恢复](backup-and-disaster-recovery.md)演练。v0.7.0 已证明本地 arm64 候选的安装接口；远端不可变 multiarch 镜像、真实 amd64 runtime 和正式发布承诺属于 v1.0.0。

@@ -31,17 +31,22 @@ write_summary() {
 }
 
 CURRENT_LOG="${TEST_ROOT}/current.log"
-write_summary "${CURRENT_LOG}" 48 1
+write_summary "${CURRENT_LOG}" 82 1
 verify_playwright_summary "${CURRENT_LOG}" ||
-    fail 'current 48 passed plus 1 skipped summary was rejected'
+    fail 'current 82 passed plus 1 skipped summary was rejected'
+
+CUSTOM_LOG="${TEST_ROOT}/custom.log"
+write_summary "${CUSTOM_LOG}" 1 0
+verify_playwright_summary "${CUSTOM_LOG}" 1 0 ||
+    fail 'explicit expected summary was rejected'
 
 for fixture in old-count low-count high-count no-skip extra-skip; do
     case "${fixture}" in
-        old-count) passed=42 skipped=1 ;;
-        low-count) passed=47 skipped=1 ;;
-        high-count) passed=49 skipped=1 ;;
-        no-skip) passed=48 skipped=0 ;;
-        extra-skip) passed=48 skipped=2 ;;
+        old-count) passed=48 skipped=1 ;;
+        low-count) passed=81 skipped=1 ;;
+        high-count) passed=83 skipped=1 ;;
+        no-skip) passed=82 skipped=0 ;;
+        extra-skip) passed=82 skipped=2 ;;
     esac
     fixture_log="${TEST_ROOT}/${fixture}.log"
     write_summary "${fixture_log}" "${passed}" "${skipped}"
@@ -51,8 +56,8 @@ for fixture in old-count low-count high-count no-skip extra-skip; do
 done
 
 DUPLICATE_LOG="${TEST_ROOT}/duplicate.log"
-write_summary "${DUPLICATE_LOG}" 48 1
-printf '  48 passed (retry report)\n' >>"${DUPLICATE_LOG}"
+write_summary "${DUPLICATE_LOG}" 82 1
+printf '  82 passed (retry report)\n' >>"${DUPLICATE_LOG}"
 if verify_playwright_summary "${DUPLICATE_LOG}"; then
     fail 'duplicate passed summaries were accepted'
 fi

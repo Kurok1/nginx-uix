@@ -26,6 +26,7 @@ import (
 const (
 	fixedSupervisorExecutable  = "/command/s6-svc"
 	fixedNginxServiceDirectory = "/run/service/nginx"
+	fixedExpectedExitMarker    = "/run/nginx-uix/nginx-restart-expected"
 	restartCommandTimeout      = 15 * time.Second
 	restartConfirmLimit        = 45 * time.Second
 	restartOutputLimit         = 1 << 20
@@ -35,14 +36,15 @@ const (
 )
 
 type restartOptions struct {
-	NginxRoot      string
-	RestartRoot    string
-	Entry          config.RelativePath
-	Limits         config.Limits
-	Executor       commandExecutor
-	Status         func(context.Context) (Status, error)
-	Probe          func(context.Context) (int, error)
-	ConfirmTimeout time.Duration
+	NginxRoot          string
+	RestartRoot        string
+	Entry              config.RelativePath
+	Limits             config.Limits
+	Executor           commandExecutor
+	Status             func(context.Context) (Status, error)
+	Probe              func(context.Context) (int, error)
+	ConfirmTimeout     time.Duration
+	ExpectedExitMarker string
 }
 
 type restartJournal struct {
@@ -63,11 +65,12 @@ func defaultRestartOptions() restartOptions {
 	return restartOptions{
 		NginxRoot: defaultConfigNginxRoot, RestartRoot: "/var/lib/nginx-uix/restarts",
 		Entry: "nginx.conf", Limits: config.DefaultLimits(), Executor: executeCommand,
-		ConfirmTimeout: restartConfirmLimit,
+		ConfirmTimeout: restartConfirmLimit, ExpectedExitMarker: fixedExpectedExitMarker,
 	}
 }
 
 func newRestartService(options restartOptions) (*Service, error) {
+	options = normalizeRestartOptions(options)
 	if err := validateRestartOptions(options); err != nil {
 		return nil, err
 	}
@@ -94,6 +97,19 @@ func validateRestartOptions(options restartOptions) error {
 	}
 	if options.NginxRoot == options.RestartRoot {
 		return fmt.Errorf("configure restart roots: %w", config.ErrPathInvalid)
+	}
+	if options.ExpectedExitMarker == "" || !filepath.IsAbs(options.ExpectedExitMarker) ||
+		filepath.Clean(options.ExpectedExitMarker) != options.ExpectedExitMarker {
+		return fmt.Errorf("configure restart marker: %w", config.ErrPathInvalid)
+	}
+	markerRoot := filepath.Dir(options.ExpectedExitMarker)
+	information, err := os.Lstat(markerRoot)
+	if err != nil || information.Mode()&fs.ModeSymlink != 0 || !information.IsDir() {
+		return errors.Join(fmt.Errorf("configure restart marker: %w", config.ErrPathInvalid), err)
+	}
+	canonicalMarkerRoot, err := filepath.EvalSymlinks(markerRoot)
+	if err != nil || filepath.Clean(canonicalMarkerRoot) != markerRoot {
+		return errors.Join(fmt.Errorf("configure restart marker: %w", config.ErrPathInvalid), err)
 	}
 	if _, err := config.ParseRelativePath(string(options.Entry), options.Limits); err != nil {
 		return err
@@ -176,12 +192,16 @@ func (s *Service) ExecuteRestart(
 	if err := appendStage(config.RestartStageRestartRequested, config.StageResultRunning, ""); err != nil {
 		return result, err
 	}
+	if err := createExpectedRestartMarker(ctx, options.ExpectedExitMarker, request.RestartID); err != nil {
+		return fail(config.RestartStateFailed, "restart_marker_failed", err)
+	}
 	_, commandErr := options.Executor(ctx, commandSpec{
 		executable: fixedSupervisorExecutable, arguments: []string{"-r", fixedNginxServiceDirectory},
 		timeout: restartCommandTimeout, maxOutputBytes: restartOutputLimit,
 		allowedExitCodes: map[int]struct{}{0: {}},
 	})
 	if commandErr != nil {
+		commandErr = errors.Join(commandErr, removeExpectedRestartMarker(options.ExpectedExitMarker))
 		var exitErr *commandExitError
 		if errors.As(commandErr, &exitErr) {
 			return fail(config.RestartStateFailed, "restart_supervisor_failed", commandErr)
@@ -196,7 +216,11 @@ func (s *Service) ExecuteRestart(
 	}
 	confirmed, httpStatus, err := s.confirmRestartRuntime(ctx, options, request, journal.BeforeMasterPID)
 	if err != nil {
-		return fail(config.RestartStateNeedsAttention, "restart_runtime_unconfirmed", err)
+		return fail(config.RestartStateNeedsAttention, "restart_runtime_unconfirmed",
+			errors.Join(err, removeExpectedRestartMarker(options.ExpectedExitMarker)))
+	}
+	if err := removeExpectedRestartMarker(options.ExpectedExitMarker); err != nil {
+		return fail(config.RestartStateNeedsAttention, "restart_marker_cleanup_failed", err)
 	}
 	result.AfterMasterPID = confirmed.Master.PID
 	result.WorkerCount = len(confirmed.Workers)
@@ -308,6 +332,66 @@ func validateRestartExecutionRequest(request config.RestartExecutionRequest) err
 	}
 	if request.ProductionDigest == (config.Digest{}) {
 		return config.ErrDigestInvalid
+	}
+	return nil
+}
+
+func normalizeRestartOptions(options restartOptions) restartOptions {
+	if options.ExpectedExitMarker == "" && options.RestartRoot != "" {
+		options.ExpectedExitMarker = filepath.Join(options.RestartRoot, ".nginx-restart-expected")
+	}
+	if options.ExpectedExitMarker != "" {
+		markerRoot := filepath.Dir(options.ExpectedExitMarker)
+		if canonicalRoot, err := filepath.EvalSymlinks(markerRoot); err == nil {
+			options.ExpectedExitMarker = filepath.Join(canonicalRoot, filepath.Base(options.ExpectedExitMarker))
+		}
+	}
+	return options
+}
+
+func createExpectedRestartMarker(ctx context.Context, path string, id config.RestartID) (returnErr error) {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	// #nosec G304 -- path is the fixed marker in a canonical, non-symlink process root validated by validateRestartOptions.
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return fmt.Errorf("create expected nginx exit marker: %w", err)
+	}
+	owned := true
+	defer func() {
+		if owned {
+			returnErr = errors.Join(returnErr, file.Close(), removeExpectedRestartMarker(path))
+		}
+	}()
+	if err := file.Chmod(0o600); err != nil {
+		return fmt.Errorf("secure expected nginx exit marker: %w", err)
+	}
+	if _, err := file.WriteString(string(id) + "\n"); err != nil {
+		return fmt.Errorf("write expected nginx exit marker: %w", err)
+	}
+	if err := file.Sync(); err != nil {
+		return fmt.Errorf("sync expected nginx exit marker: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("close expected nginx exit marker: %w", err)
+	}
+	owned = false
+	if err := syncDirectory(filepath.Dir(path)); err != nil {
+		return fmt.Errorf("sync expected nginx exit marker directory: %w", err)
+	}
+	return nil
+}
+
+func removeExpectedRestartMarker(path string) error {
+	if err := os.Remove(path); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("remove expected nginx exit marker: %w", err)
+	}
+	if err := syncDirectory(filepath.Dir(path)); err != nil {
+		return fmt.Errorf("sync expected nginx exit marker directory: %w", err)
 	}
 	return nil
 }

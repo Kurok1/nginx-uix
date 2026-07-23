@@ -1,6 +1,6 @@
 # Nginx UIX
 
-Nginx UIX 是面向单节点 HTTP/HTTPS Nginx 的安全管理界面。当前版本为 **v0.6.0 发布候选版**：v0.1–v0.5 的功能闭环已经完成，v0.6 不新增产品功能，只处理安全审计、升级与灾备、Nginx 兼容回归、跨模块浏览器验收、错误文案一致性和发布文档。
+Nginx UIX 是面向单节点 HTTP/HTTPS Nginx 的安全管理界面。当前已完成 **v0.7.0 Docker 一体化统一验证版**：产品功能在 v0.6.0 冻结，本版本完成最终镜像、容器生命周期、持久化升级、故障恢复、安全边界、浏览器、供应链和多架构验收。
 
 ## 当前能力
 
@@ -25,7 +25,7 @@ v1.0 范围固定为单节点 Nginx。项目不提供集群、Kubernetes、WAF�
 
 ## 发布与 Docker 边界
 
-v0.6.0 已覆盖源码、SQLite、原生进程、浏览器和真实隔离 Nginx 验收。**本版本没有执行 Docker 构建、容器运行、volume 升级、容器故障注入或 multiarch 验证。** `deploy/docker/Dockerfile` 描述最终一体化镜像接口，但只有 v0.7.0 完整镜像验收后才构成生产安装证据。
+v0.7.0 已在原生 arm64 Docker daemon 上通过完整容器验收，并完成 amd64/arm64 OCI、SBOM 和静态一致性验证。由于当前没有真实 amd64 runner，amd64 原生运行明确记录为未运行。该版本只形成经过验证的本地候选，没有推送远端镜像或创建不可变发布 tag；正式发布属于 v1.0.0。
 
 目标镜像固定暴露 Nginx `80/443` 和 UI `9000`，并持久化：
 
@@ -38,7 +38,7 @@ v0.6.0 已覆盖源码、SQLite、原生进程、浏览器和真实隔离 Nginx 
 
 ## 源码验收
 
-固定工具链为 Go `1.26.4`、Node.js `24.17.0`、npm `11.13.0`。前端只使用项目级 `web/node_modules`。
+固定工具链为 Go `1.26.5`、Node.js `24.17.0`、npm `11.13.0`。前端只使用项目级 `web/node_modules`。
 
 ```sh
 go mod verify
@@ -75,6 +75,8 @@ readiness 失败返回 503。只要 liveness 仍可用，管理员可登录查�
 ## 文档入口
 
 - [v0.6.0 发布候选设计](docs/superpowers/specs/2026-07-22-v0.6-release-candidate-design.md)
+- [v0.7.0 Docker 一体化统一验证设计](docs/superpowers/specs/2026-07-22-v0.7-docker-validation-design.md)
+- [v0.7.0 验收证据](docs/release/v0.7.0-verification.md)
 - [安装与验收](docs/operations/installation.md)
 - [升级与回滚](docs/operations/upgrade-and-rollback.md)
 - [冷备与灾难恢复](docs/operations/backup-and-disaster-recovery.md)
@@ -84,4 +86,4 @@ readiness 失败返回 503。只要 liveness 仍可用，管理员可登录查�
 - [视觉与交互规范](DESIGN.md)
 - [REST API 契约](api/v1/openapi.yaml)
 
-历史版本的设计与验收记录继续保留在 `docs/superpowers/specs/` 和 `docs/release/`，但不能替代 v0.6.0 当前工作树的复验。
+历史版本的设计与验收记录继续保留在 `docs/superpowers/specs/` 和 `docs/release/`，但不能替代 v0.7.0 当前工作树的最终 Docker 证据。

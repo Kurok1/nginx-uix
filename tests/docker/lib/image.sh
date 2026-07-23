@@ -6,8 +6,8 @@ REPOSITORY_ROOT=${REPOSITORY_ROOT:-$(pwd)}
 BUILDX_CACHE_SEED_DIR=${BUILDX_CACHE_SEED_DIR:-}
 
 NODE_BASE_DIGEST=9022946fb57e6fb6a2503931470deba4b49db02bfc8f587f93007fd33ef54415
-GO_BASE_DIGEST=68b7145ec43d1820b9a56704554b53d1520aa2a15cb5233e374188a31b2a1bce
-NGINX_BASE_DIGEST=b6edb43d9e6e3df4914ffee84030c41f84a9a8c38d9af9b0d44ee4ee295a0a2b
+GO_BASE_DIGEST=4ee9ffa999b4583ce281939cdff828763083610292f252279a0cee77473bd9a7
+NGINX_BASE_DIGEST=d5b51cfc7d55fc7a7bcf4d1d577b9c3738331df56d68f0b1d8ac9795b9470a5a
 
 . "${REPOSITORY_ROOT}/tests/docker/lib/cache.sh"
 
@@ -319,6 +319,15 @@ ensure_test_image() {
             --build-arg "SOURCE_FINGERPRINT=${SOURCE_FINGERPRINT}" \
             --build-arg "BUILD_IDENTITY=${BUILD_IDENTITY}" \
             --build-arg "SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}"
+        if [ -n "${BUILD_STEP_HTTP_PROXY:-}" ]; then
+            set -- "$@" --build-arg "http_proxy=${BUILD_STEP_HTTP_PROXY}"
+        fi
+        if [ -n "${BUILD_STEP_HTTPS_PROXY:-}" ]; then
+            set -- "$@" --build-arg "https_proxy=${BUILD_STEP_HTTPS_PROXY}"
+        fi
+        if [ -n "${BUILD_STEP_NO_PROXY:-}" ]; then
+            set -- "$@" --build-arg "no_proxy=${BUILD_STEP_NO_PROXY}"
+        fi
         if [ "${ensure_driver}" = docker-container ]; then
             set -- "$@" --cache-to "type=local,dest=${ensure_staging_cache},mode=max"
             if [ -n "${BUILDX_CACHE_FROM_CURRENT}" ]; then
@@ -331,6 +340,7 @@ ensure_test_image() {
         set -- "$@" "${REPOSITORY_ROOT}"
 
         if ! "$@" >"${ensure_build_log}" 2>&1; then
+            tail -n 120 "${ensure_build_log}" >&2 || true
             rm -f "${ensure_build_log}" >/dev/null 2>&1 || true
             if [ "${ensure_driver}" = docker-container ]; then
                 rm -rf "${ensure_staging_cache}" >/dev/null 2>&1 || true

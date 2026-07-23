@@ -1,7 +1,7 @@
 # @author hanchao <hanchao@66yunlian.com>
 # @since 0.1.0
 
-ARG VERSION=0.6.0
+ARG VERSION=0.7.0
 ARG COMMIT
 ARG BUILD_TIME
 ARG SOURCE_FINGERPRINT
@@ -26,7 +26,7 @@ COPY web/index.html \
 COPY web/src ./src
 RUN npm run build
 
-FROM golang:1.26.4-trixie@sha256:68b7145ec43d1820b9a56704554b53d1520aa2a15cb5233e374188a31b2a1bce AS go-builder
+FROM golang:1.26.5-trixie@sha256:4ee9ffa999b4583ce281939cdff828763083610292f252279a0cee77473bd9a7 AS go-builder
 
 ARG TARGETOS
 ARG TARGETARCH
@@ -36,7 +36,7 @@ ARG BUILD_TIME
 
 WORKDIR /workspace
 
-RUN test "$(go env GOVERSION)" = "go1.26.4"
+RUN test "$(go env GOVERSION)" = "go1.26.5"
 
 COPY go.mod go.sum VERSION ./
 RUN --mount=type=cache,target=/go/pkg/mod,sharing=locked \
@@ -62,13 +62,11 @@ RUN --mount=type=cache,target=/go/pkg/mod,sharing=locked \
     CGO_ENABLED=0 GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" \
       go build -buildvcs=false -trimpath -ldflags "${ldflags}" -o /out/nginx-uix-agent ./cmd/nginx-uix-agent
 
-FROM nginx:1.30.3-trixie@sha256:b6edb43d9e6e3df4914ffee84030c41f84a9a8c38d9af9b0d44ee4ee295a0a2b AS s6-overlay
+FROM nginx:1.30.3-alpine-slim@sha256:d5b51cfc7d55fc7a7bcf4d1d577b9c3738331df56d68f0b1d8ac9795b9470a5a AS s6-overlay
 
 ARG TARGETARCH
 
-RUN apt-get update \
-    && apt-get install --no-install-recommends --yes xz-utils \
-    && rm -rf /var/lib/apt/lists/*
+RUN apk add --no-cache xz=5.8.3-r0
 
 ADD --checksum=sha256:b720f9d9340efc8bb07528b9743813c836e4b02f8693d90241f047998b4c53cf \
     https://github.com/just-containers/s6-overlay/releases/download/v3.2.3.0/s6-overlay-noarch.tar.xz \
@@ -85,7 +83,7 @@ RUN set -eu; \
       'b720f9d9340efc8bb07528b9743813c836e4b02f8693d90241f047998b4c53cf' '/tmp/s6-overlay-noarch.tar.xz' \
       'a93f02882c6ed46b21e7adb5c0add86154f01236c93cd82c7d682722e8840563' '/tmp/s6-overlay-x86_64.tar.xz' \
       '0952056ff913482163cc30e35b2e944b507ba1025d78f5becbb89367bf344581' '/tmp/s6-overlay-aarch64.tar.xz' \
-      | sha256sum --check --strict; \
+      | sha256sum -c; \
     case "${TARGETARCH}" in \
       amd64) s6_arch='x86_64' ;; \
       arm64) s6_arch='aarch64' ;; \
@@ -95,7 +93,7 @@ RUN set -eu; \
     tar -C /s6-rootfs -Jxpf /tmp/s6-overlay-noarch.tar.xz; \
     tar -C /s6-rootfs -Jxpf "/tmp/s6-overlay-${s6_arch}.tar.xz"
 
-FROM nginx:1.30.3-trixie@sha256:b6edb43d9e6e3df4914ffee84030c41f84a9a8c38d9af9b0d44ee4ee295a0a2b AS runtime
+FROM nginx:1.30.3-alpine-slim@sha256:d5b51cfc7d55fc7a7bcf4d1d577b9c3738331df56d68f0b1d8ac9795b9470a5a AS runtime
 
 ARG VERSION
 ARG COMMIT
@@ -116,10 +114,11 @@ LABEL org.opencontainers.image.version="${VERSION}" \
       io.nginx-uix.reproducible-epoch="${SOURCE_DATE_EPOCH}"
 
 RUN set -eu; \
-    groupadd --gid 10001 nginx-uix; \
-    groupadd --gid 10002 nginx-uix-agent; \
-    useradd --uid 10001 --gid nginx-uix --groups nginx-uix-agent \
-      --no-create-home --home-dir /var/lib/nginx-uix --shell /usr/sbin/nologin nginx-uix; \
+    addgroup -S -g 10001 nginx-uix; \
+    addgroup -S -g 10002 nginx-uix-agent; \
+    adduser -S -D -H -u 10001 -G nginx-uix \
+      -h /var/lib/nginx-uix -s /sbin/nologin nginx-uix; \
+    addgroup nginx-uix nginx-uix-agent; \
     rm -rf /etc/nginx; \
     mkdir -p /etc/nginx /run/nginx-uix /usr/share/nginx-uix/default-nginx /var/lib/nginx-uix; \
     chown nginx-uix:nginx-uix /var/lib/nginx-uix; \

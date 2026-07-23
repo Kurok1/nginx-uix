@@ -15,6 +15,7 @@ const dockerEnvironmentNames = [
 const configuredDockerEnvironmentCount = dockerEnvironmentNames.filter(
   (name) => process.env[name] !== undefined && process.env[name] !== '',
 ).length
+const dockerViewportWidths = [1068, 833, 734, 640, 480, 320] as const
 
 test.describe.configure({ mode: 'serial' })
 test.skip(
@@ -22,7 +23,7 @@ test.skip(
   'real Docker browser acceptance runs in tests/docker/workspace.sh',
 )
 
-test('real Docker workspace flow persists edits and preserves local text on ETag conflict', async ({
+test('real Docker workspace flow covers persistence, responsive layout and keyboard access', async ({
   context,
   page,
 }) => {
@@ -160,6 +161,13 @@ test('real Docker workspace flow persists edits and preserves local text on ETag
     await expect(reopenedEditor).toContainText(serverConflictMarker)
     await expect(reopenedEditor).not.toContainText(localConflictMarker)
 
+    await verifyResponsiveAndKeyboardBehavior(
+      page,
+      environment.baseURL,
+      workspaceID,
+      workspaceName,
+    )
+
     const deleteResponsePromise = waitForAPIResponse(
       page,
       'DELETE',
@@ -170,6 +178,19 @@ test('real Docker workspace flow persists edits and preserves local text on ETag
     expect((await deleteResponsePromise).status()).toBe(204)
     workspaceID = ''
     await expect(page).toHaveURL(urlFor(environment.baseURL, '/config/workspaces'))
+
+    const logout = page.getByRole('button', { name: '退出登录' })
+    const precedingNavigationLink = page
+      .getByRole('navigation', { name: 'Global navigation' })
+      .getByRole('link', { name: 'Recovery & History', exact: true })
+    await precedingNavigationLink.focus()
+    await precedingNavigationLink.press('Tab')
+    await expect(logout).toBeFocused()
+    await assertVisibleFocus(logout)
+    const logoutResponsePromise = waitForAPIResponse(page, 'DELETE', '/api/v1/auth/session')
+    await logout.press('Enter')
+    expect((await logoutResponsePromise).status()).toBe(204)
+    await expect(page).toHaveURL(urlFor(environment.baseURL, '/login'))
   } finally {
     if (workspaceID !== '' && csrfToken !== '') {
       await cleanupWorkspace(
@@ -192,6 +213,173 @@ interface DockerEnvironment {
 interface ConfigFileState {
   content: string
   draftETag: string
+}
+
+async function verifyResponsiveAndKeyboardBehavior(
+  page: Page,
+  baseURL: URL,
+  workspaceID: string,
+  workspaceName: string,
+): Promise<void> {
+  const workspaceURL = urlFor(
+    baseURL,
+    `/config/workspaces/${encodeURIComponent(workspaceID)}`,
+  )
+  for (const width of dockerViewportWidths) {
+    await test.step(`verify real container workspace at ${width}px`, async () => {
+      await page.setViewportSize({ width, height: 900 })
+      await page.goto(workspaceURL)
+      await expect(page.getByRole('heading', { level: 1, name: workspaceName })).toBeVisible()
+      await assertResponsiveWorkspaceLayout(page, width)
+      await assertNoPageOverflow(page)
+      await assertMinimumVisibleTargets(page)
+    })
+  }
+
+  await page.setViewportSize({ width: 1068, height: 900 })
+  await page.goto(workspaceURL)
+  const tree = page.getByRole('tree', { name: 'Physical configuration files' })
+  const rows = tree.getByRole('treeitem')
+  const first = rows.first()
+  const last = rows.last()
+  await first.focus()
+  await assertVisibleFocus(first)
+  await page.keyboard.press('End')
+  await expect(last).toBeFocused()
+  await page.keyboard.press('Home')
+  await expect(first).toBeFocused()
+  await page.keyboard.press('ArrowRight')
+  await expect(first).toHaveAttribute('aria-expanded', 'true')
+  await page.keyboard.press('ArrowDown')
+  await expect(rows.nth(1)).toBeFocused()
+  await page.keyboard.press('ArrowLeft')
+  await expect(first).toBeFocused()
+
+  const reviewTrigger = page.getByRole('button', { name: 'Open workspace review' })
+  await reviewTrigger.focus()
+  await reviewTrigger.press('Enter')
+  const reviewDrawer = page.getByRole('dialog', { name: 'Workspace review' })
+  await expect(reviewDrawer).toBeVisible()
+  await expect(reviewDrawer.getByRole('button', { name: 'Close review' })).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(reviewDrawer).toBeHidden()
+  await expect(reviewTrigger).toBeFocused()
+
+  await page.goto(urlFor(baseURL, '/config/operations'))
+  await expect(page.getByRole('heading', { level: 1, name: 'Recovery & History' })).toBeVisible()
+  const overviewTab = page.getByRole('tab', { name: 'Overview' })
+  const backupsTab = page.getByRole('tab', { name: 'Backups' })
+  await overviewTab.focus()
+  await assertVisibleFocus(overviewTab)
+  await overviewTab.press('ArrowRight')
+  await expect(backupsTab).toBeFocused()
+  await expect(backupsTab).toHaveAttribute('aria-selected', 'true')
+
+  await page.goto(workspaceURL)
+  const deleteTrigger = page.getByRole('button', { name: `Delete workspace ${workspaceName}` })
+  await deleteTrigger.focus()
+  await assertVisibleFocus(deleteTrigger)
+  await deleteTrigger.press('Enter')
+  const deleteDialog = page.getByRole('dialog', { name: new RegExp(escapeRegExp(workspaceName)) })
+  await expect(deleteDialog).toBeVisible()
+  await expect(deleteDialog.getByRole('button', { name: 'Cancel' })).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(deleteDialog).toBeHidden()
+  await expect(deleteTrigger).toBeFocused()
+}
+
+async function assertResponsiveWorkspaceLayout(
+  page: Page,
+  width: (typeof dockerViewportWidths)[number],
+): Promise<void> {
+  const tree = page.locator('.workspace-tree-panel')
+  const editor = page.locator('.workspace-editor-panel')
+  const review = page.locator('.workspace-review-panel')
+  const selector = page.locator('.workspace-file-selector')
+  const taskTabs = page.getByRole('navigation', { name: 'Workspace tasks' })
+  const reviewTrigger = page.getByRole('button', { name: 'Open workspace review' })
+
+  if (width >= 833) {
+    await expect(tree).toBeVisible()
+    await expect(editor).toBeVisible()
+    await expect(review).toBeHidden()
+    await expect(selector).toBeHidden()
+    await expect(taskTabs).toBeHidden()
+    await expect(reviewTrigger).toBeVisible()
+    return
+  }
+  if (width === 734) {
+    await expect(tree).toBeHidden()
+    await expect(editor).toBeVisible()
+    await expect(review).toBeHidden()
+    await expect(selector).toBeVisible()
+    await expect(taskTabs).toBeHidden()
+    await expect(reviewTrigger).toBeVisible()
+    return
+  }
+
+  await expect(taskTabs).toBeVisible()
+  await expect(reviewTrigger).toBeHidden()
+  await expect(tree).toHaveAttribute('aria-hidden', 'false')
+  await expect(editor).toHaveAttribute('aria-hidden', 'true')
+  await expect(review).toHaveAttribute('aria-hidden', 'true')
+  await expect(selector).toHaveAttribute('aria-hidden', 'false')
+}
+
+async function assertNoPageOverflow(page: Page): Promise<void> {
+  const dimensions = await page.evaluate(() => ({
+    bodyClientWidth: document.body.clientWidth,
+    bodyScrollWidth: document.body.scrollWidth,
+    documentClientWidth: document.documentElement.clientWidth,
+    documentScrollWidth: document.documentElement.scrollWidth,
+  }))
+  expect(dimensions.documentScrollWidth).toBeLessThanOrEqual(dimensions.documentClientWidth)
+  expect(dimensions.bodyScrollWidth).toBeLessThanOrEqual(dimensions.bodyClientWidth)
+}
+
+async function assertMinimumVisibleTargets(page: Page): Promise<void> {
+  const undersized = await page
+    .locator(
+      'a[href], button, input, select, textarea, [role="treeitem"], [tabindex]:not([tabindex="-1"])',
+    )
+    .evaluateAll((elements) =>
+      elements.flatMap((element) => {
+        if (element.closest('[aria-hidden="true"], [inert]') !== null) return []
+        const rect = element.getBoundingClientRect()
+        const style = getComputedStyle(element)
+        if (
+          rect.width === 0 ||
+          rect.height === 0 ||
+          element.getClientRects().length === 0 ||
+          style.display === 'none' ||
+          style.visibility === 'hidden'
+        ) {
+          return []
+        }
+        if (rect.width >= 43.5 && rect.height >= 43.5) return []
+        return [{ element: element.outerHTML.slice(0, 180), height: rect.height, width: rect.width }]
+      }),
+    )
+  expect(undersized, 'visible interactive targets smaller than 44×44 CSS pixels').toEqual([])
+}
+
+async function assertVisibleFocus(locator: Locator): Promise<void> {
+  const focus = await locator.evaluate((element) => {
+    const style = getComputedStyle(element)
+    const rect = element.getBoundingClientRect()
+    return {
+      outlineStyle: style.outlineStyle,
+      outlineWidth: Number.parseFloat(style.outlineWidth),
+      visibleInViewport:
+        rect.bottom > 0 &&
+        rect.right > 0 &&
+        rect.top < window.innerHeight &&
+        rect.left < window.innerWidth,
+    }
+  })
+  expect(focus.outlineStyle).not.toBe('none')
+  expect(focus.outlineWidth).toBeGreaterThanOrEqual(2)
+  expect(focus.visibleInViewport).toBe(true)
 }
 
 async function loadEnvironment(): Promise<DockerEnvironment> {

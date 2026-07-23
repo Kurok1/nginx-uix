@@ -86,7 +86,7 @@ func TestOrderServiceRunsCloudflareDNS01ThroughExactCleanupAndDeployment(t *test
 	if !propagating {
 		t.Fatalf("DNS task stages did not expose propagation: %#v", result.Stages)
 	}
-	if !acmeClient.accepted || !acmeClient.waited || !acmeClient.finalized {
+	if !acmeClient.accepted || !acmeClient.waited || !acmeClient.orderReady || !acmeClient.finalized {
 		t.Fatalf("ACME flow = %#v", acmeClient)
 	}
 	if cloudflare.createdName != "_acme-challenge.example.com" ||
@@ -599,6 +599,7 @@ type orderACMEClientStub struct {
 	dnsValue        string
 	accepted        bool
 	waited          bool
+	orderReady      bool
 	finalized       bool
 	certificateAuth *ecdsa.PrivateKey
 }
@@ -637,7 +638,15 @@ func (client *orderACMEClientStub) WaitAuthorization(context.Context, string) er
 	return nil
 }
 
+func (client *orderACMEClientStub) WaitOrderReady(context.Context, string) error {
+	client.orderReady = true
+	return nil
+}
+
 func (client *orderACMEClientStub) Finalize(_ context.Context, _ string, csrDER []byte) ([][]byte, error) {
+	if !client.orderReady {
+		return nil, errors.New("finalize called before order became ready")
+	}
 	client.finalized = true
 	csr, err := x509.ParseCertificateRequest(csrDER)
 	if err != nil {
