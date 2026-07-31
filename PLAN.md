@@ -476,9 +476,9 @@ v0.2.1 验收记录中已经执行的 Docker、缓存和多架构步骤继续作
 **交付物：**
 
 - [x] 冻结 REST API v1、配置模型和数据库迁移规则。
-- [ ] Go 与前端单元测试通过。
-- [ ] Docker basic smoke 通过。
-- [ ] 生成 linux/amd64 与 linux/arm64 二进制和 OCI 镜像包。
+- [x] Go 与前端单元测试通过。
+- [x] Docker basic smoke 通过。
+- [x] 生成 linux/amd64 与 linux/arm64 二进制和 OCI 镜像包。
 - [ ] 发布 v1.0.0 源码、镜像与简明使用文档。
 
 **验收条件：**
@@ -582,7 +582,7 @@ v0.2.1 验收记录中已经执行的 Docker、缓存和多架构步骤继续作
 
 ## 14. 下一步
 
-- [ ] 通过 Go 与前端单元测试。
-- [ ] 通过 Docker basic smoke。
-- [ ] 构建 linux/amd64 与 linux/arm64 二进制和 OCI 镜像包。
+- [x] 通过 Go 与前端单元测试。
+- [x] 通过 Docker basic smoke。
+- [x] 构建 linux/amd64 与 linux/arm64 二进制和 OCI 镜像包。
 - [ ] 发布 v1.0.0。
