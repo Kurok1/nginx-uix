@@ -351,7 +351,7 @@ func (r *ScopedRoot) clearDirectory(ctx context.Context, descriptor, limit int, 
 		if err := unix.Fstatat(descriptor, entry.Name(), &stat, unix.AT_SYMLINK_NOFOLLOW); err != nil {
 			return classifyPathOperation("inspect cleanup entry", err)
 		}
-		entryType, _ := entryTypeAndMode(uint32(stat.Mode))
+		entryType, _ := entryTypeAndMode(uint64(stat.Mode))
 		if entryType == EntryDirectory {
 			child, err := unix.Openat(descriptor, entry.Name(), directoryOpenFlags(), 0)
 			if err != nil {
@@ -556,7 +556,7 @@ func (r *ScopedRoot) walkDirectory(ctx context.Context, descriptor int, prefix s
 		if err := unix.Fstatat(descriptor, directoryEntry.Name(), &stat, unix.AT_SYMLINK_NOFOLLOW); err != nil {
 			return classifyPathOperation("inspect walked entry", err)
 		}
-		entryType, mode := entryTypeAndMode(uint32(stat.Mode))
+		entryType, mode := entryTypeAndMode(uint64(stat.Mode))
 		raw := RawEntry{Path: path, Type: entryType, Mode: mode, Size: stat.Size}
 		switch entryType {
 		case EntryRegular:
@@ -626,7 +626,7 @@ func (r *ScopedRoot) resolveLinkTarget(ctx context.Context, candidate RelativePa
 				}
 				return "", EntrySymlinkUnavailable
 			}
-			entryType, _ := entryTypeAndMode(uint32(stat.Mode))
+			entryType, _ := entryTypeAndMode(uint64(stat.Mode))
 			if entryType == EntrySymlink {
 				physical := RelativePath(strings.Join(append(resolved, component), "/"))
 				if _, duplicate := seen[physical]; duplicate {
@@ -736,7 +736,7 @@ func readLinkAt(parent int, basename string, limit int) (string, error) {
 	return string(buffer[:count]), nil
 }
 
-func entryTypeAndMode(rawMode uint32) (EntryType, fs.FileMode) {
+func entryTypeAndMode(rawMode uint64) (EntryType, fs.FileMode) {
 	mode := fs.FileMode(rawMode & 0o777)
 	switch rawMode & unix.S_IFMT {
 	case unix.S_IFREG:

@@ -974,7 +974,7 @@ func removeEmptyDirectory(ctx context.Context, root *ScopedRoot, path RelativePa
 	if err := unix.Fstatat(parent, basename, &stat, unix.AT_SYMLINK_NOFOLLOW); err != nil {
 		return err
 	}
-	entryType, mode := entryTypeAndMode(uint32(stat.Mode))
+	entryType, mode := entryTypeAndMode(uint64(stat.Mode))
 	if entryType != EntryDirectory || mode.Perm() != workspaceDirectoryMode {
 		return ErrPathInvalid
 	}
