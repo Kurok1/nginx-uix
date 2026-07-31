@@ -10,7 +10,7 @@
 
 ## 升级前
 
-1. 阅读目标版本的 `PLAN.md`、设计规格和验收记录，确认没有未接受的平台限制。
+1. 阅读目标版本的 `PLAN.md` 和验收记录，确认没有未接受的平台限制。
 2. 记录当前应用版本、提交/构建身份、Nginx `-V`、持久根和服务身份。
 3. 在 UI 中确认没有执行中的 release、restore、restart、Route Lab 或 certificate task；未完成任务必须等待持久终态或按产品流程取消。
 4. 记录所有开放 `needs_attention` case。升级不会自动把不确定状态变成成功。

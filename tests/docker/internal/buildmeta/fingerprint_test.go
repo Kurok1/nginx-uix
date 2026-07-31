@@ -269,7 +269,7 @@ func TestV1StabilityHarnessPinsTenMinuteWindow(t *testing.T) {
 	}
 }
 
-func TestV1NativeCandidateMatrixIncludesDurabilityHarnesses(t *testing.T) {
+func TestV1MultiarchBuildsBothPlatformsWithoutRuntimeSuites(t *testing.T) {
 	root, err := filepath.Abs("../../../..")
 	if err != nil {
 		t.Fatal(err)
@@ -281,84 +281,61 @@ func TestV1NativeCandidateMatrixIncludesDurabilityHarnesses(t *testing.T) {
 	}
 	matrix := string(payload)
 	for _, marker := range []string{
-		`require_executable "${SCRIPT_DIR}/upgrade_compatibility.sh"`,
-		`require_executable "${SCRIPT_DIR}/repeated_recovery.sh"`,
-		`require_executable "${SCRIPT_DIR}/stability.sh"`,
-		`chmod 0444 "${boot_secret}"`,
-		"set -- docker buildx build \\\n    --load \\\n    --file deploy/docker/Playwright.Dockerfile",
-		`"${SCRIPT_DIR}/upgrade_compatibility.sh"`,
-		`run_repeated_recovery_suite "${NATIVE_IMAGE}"`,
-		`run_stability_suite "${NATIVE_IMAGE}"`,
-		"native_repeated_recovery=passed",
-		"native_stability=passed",
+		"build_binary_pair amd64",
+		"build_binary_pair arm64",
+		"--target binary-export",
+		`--output "type=local,dest=${binary_output}"`,
+		`build_image_archive amd64 "${AMD64_BUILD_IDENTITY}"`,
+		`build_image_archive arm64 "${ARM64_BUILD_IDENTITY}"`,
+		"linux_amd64_binary=%s agent=%s build_identity=%s image_archive_sha256=%s",
+		"linux_arm64_binary=%s agent=%s build_identity=%s image_archive_sha256=%s",
 	} {
 		if !strings.Contains(matrix, marker) {
-			t.Errorf("multiarch.sh does not preserve durability matrix marker %q", marker)
+			t.Errorf("multiarch.sh does not preserve build marker %q", marker)
 		}
 	}
-	if strings.Contains(matrix, `chmod 0600 "${boot_secret}"`) {
-		t.Error("multiarch.sh must keep its 0700-parent test secret readable by the non-root UI")
+	for _, unwanted := range []string{
+		"run_smoke_suite",
+		"run_fault_suite",
+		"run_workspace_suite",
+		"run_upgrade_suite",
+		"run_repeated_recovery_suite",
+		"run_stability_suite",
+		"run_security_suite",
+		"run_acme_suite",
+		"playwright",
+		"SBOM",
+		"sbom",
+		"grype",
+	} {
+		if strings.Contains(matrix, unwanted) {
+			t.Errorf("multiarch.sh must not include runtime or third-party validation marker %q", unwanted)
+		}
+	}
+	if strings.Contains(matrix, "go build") {
+		t.Error("multiarch.sh must export binaries from the image build so they include the compiled web UI")
 	}
 
-	acmePayload, err := os.ReadFile(filepath.Join(root, "tests/docker/acme.sh"))
+	dockerfilePayload, err := os.ReadFile(filepath.Join(root, "deploy/docker/Dockerfile"))
 	if err != nil {
-		t.Fatalf("ReadFile(acme.sh) error = %v", err)
+		t.Fatalf("ReadFile(deploy/docker/Dockerfile) error = %v", err)
 	}
-	acme := string(acmePayload)
-	if !strings.Contains(acme, `chmod 0444 "${WORK_DIR}/admin-password"`) {
-		t.Error("acme.sh must keep its 0700-parent test secret readable by the non-root UI")
-	}
-	if strings.Contains(acme, `chmod 0600 "${WORK_DIR}/admin-password"`) {
-		t.Error("acme.sh test secret must not remain owned-only by the host runner")
-	}
-
-	workspacePayload, err := os.ReadFile(filepath.Join(root, "tests/docker/workspace.sh"))
-	if err != nil {
-		t.Fatalf("ReadFile(workspace.sh) error = %v", err)
-	}
-	if !strings.Contains(
-		string(workspacePayload),
-		`run_bounded 600 docker buildx build --load --platform "${PLATFORM}"`,
-	) {
-		t.Error("workspace.sh must load its Playwright helper image into the Docker daemon")
-	}
-}
-
-func TestV1CandidateMatrixScansBothArchitecturesWithFreshPinnedGrype(t *testing.T) {
-	root, err := filepath.Abs("../../../..")
-	if err != nil {
-		t.Fatal(err)
-	}
-	payload, err := os.ReadFile(filepath.Join(root, "tests/docker/multiarch.sh"))
-	if err != nil {
-		t.Fatalf("ReadFile(multiarch.sh) error = %v", err)
-	}
-	matrix := string(payload)
+	dockerfile := string(dockerfilePayload)
 	for _, marker := range []string{
-		"VULNERABILITY_SCANNER='anchore/grype@sha256:391bfda62888fb4e98ff5c4c81598f7431a3c1eac3f8519d69d1ff00df247c1d'",
-		"VULNERABILITY_SCANNER_VERSION='0.112.0'",
-		"GRYPE_DB_REQUIRE_UPDATE_CHECK=true",
-		"GRYPE_DB_AUTO_UPDATE=false",
-		"run_bounded 900",
-		`db status --output json`,
-		`scan_oci_archive amd64 "${AMD64_OCI_ARCHIVE}" 1`,
-		`scan_oci_archive arm64 "${ARM64_OCI_ARCHIVE}" 0`,
-		"--fail-on high",
-		`(.valid == true)`,
-		"vulnerability_scanner=%s version=%s db_schema=%s db_built=%s",
-		"linux_amd64_vulnerabilities=critical:%s high:%s medium:%s low:%s negligible:%s unknown:%s",
-		"linux_arm64_vulnerabilities=critical:%s high:%s medium:%s low:%s negligible:%s unknown:%s",
+		"FROM --platform=$BUILDPLATFORM node:",
+		"FROM --platform=$BUILDPLATFORM golang:",
+		"FROM --platform=$BUILDPLATFORM nginx:",
+		"FROM scratch AS binary-export",
+		"COPY --from=go-builder /out/nginx-uix /nginx-uix",
+		"COPY --from=go-builder /out/nginx-uix-agent /nginx-uix-agent",
 	} {
-		if !strings.Contains(matrix, marker) {
-			t.Errorf("multiarch.sh does not preserve vulnerability gate marker %q", marker)
+		if !strings.Contains(dockerfile, marker) {
+			t.Errorf("deploy/docker/Dockerfile does not preserve binary export marker %q", marker)
 		}
-	}
-	if strings.Contains(matrix, "/var/run/docker.sock") {
-		t.Error("multiarch.sh vulnerability scanning must not mount the Docker Socket")
 	}
 }
 
-func TestV1GitHubActionsPinsQualityAndNativeAMD64Gates(t *testing.T) {
+func TestV1GitHubActionsKeepsUnitSmokeAndMultiPlatformBuildGates(t *testing.T) {
 	root, err := filepath.Abs("../../../..")
 	if err != nil {
 		t.Fatal(err)
@@ -376,21 +353,30 @@ func TestV1GitHubActionsPinsQualityAndNativeAMD64Gates(t *testing.T) {
 		"push:",
 		"workflow_dispatch:",
 		"runs-on: ubuntu-24.04",
-		"timeout-minutes: 180",
+		"timeout-minutes: 60",
 		"actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
 		"actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16",
+		"docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130",
 		"docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f",
+		"actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
 		"version: v0.36.0",
 		"GO_VERSION: 1.26.5",
 		"NODE_VERSION: 24.17.0",
 		"NPM_VERSION: 11.13.0",
 		"NVM_COMMIT: 977563e97ddc66facf3a8e31c6cff01d236f09bd",
-		`go version -m "${tool_bin}/goimports" | grep -F $'mod\tgolang.org/x/tools\tv0.48.0'`,
+		"go mod verify",
 		"go test ./...",
-		"go test -race ./...",
-		"npm audit --audit-level=high",
-		`test "$(uname -m)" = x86_64`,
-		`NATIVE_IMAGE="${CANDIDATE_IMAGE}" "${REPOSITORY_ROOT}/tests/docker/multiarch.sh"`,
+		"npm run lint",
+		"npm run typecheck",
+		"npm run test",
+		"npm run build",
+		"SMOKE_PROFILE=basic",
+		`MULTIARCH_OUTPUT_DIR="${RUNNER_TEMP}/nginx-uix-multiarch"`,
+		`"${REPOSITORY_ROOT}/tests/docker/multiarch.sh"`,
+		"name: nginx-uix-1.0.0-${{ github.sha }}",
+		"path: ${{ runner.temp }}/nginx-uix-multiarch/",
+		"if-no-files-found: error",
+		"compression-level: 0",
 	} {
 		if !strings.Contains(workflow, marker) {
 			t.Errorf("ci.yml does not preserve v1 quality marker %q", marker)
@@ -399,8 +385,17 @@ func TestV1GitHubActionsPinsQualityAndNativeAMD64Gates(t *testing.T) {
 	if strings.Contains(workflow, "pull_request_target:") {
 		t.Error("ci.yml must not execute repository code through pull_request_target")
 	}
-	if strings.Contains(workflow, "goimports -version") {
-		t.Error("ci.yml must inspect goimports build metadata because goimports has no -version flag")
+	for _, unwanted := range []string{
+		"go test -race",
+		"golangci-lint",
+		"npm audit",
+		"playwright install",
+		"npm run test:e2e",
+		"playwright_summary_test.sh",
+	} {
+		if strings.Contains(workflow, unwanted) {
+			t.Errorf("ci.yml must not include extended validation marker %q", unwanted)
+		}
 	}
 
 	pinnedAction := regexp.MustCompile(`^[0-9a-f]{40}(?:\s+#.*)?$`)

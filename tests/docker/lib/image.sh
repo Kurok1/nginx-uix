@@ -89,7 +89,7 @@ docker_build_metadata() {
             image_error 'a pinned release base digest is malformed'
             return 1
         }
-        grep -Eq "^FROM [^ ]+@sha256:${metadata_base_digest}( AS [^ ]+)?$" \
+        grep -Eq '^FROM (--platform=\$BUILDPLATFORM )?[^ ]+@sha256:'"${metadata_base_digest}"'( AS [^ ]+)?$' \
             "${REPOSITORY_ROOT}/deploy/docker/Dockerfile" || {
             image_error 'a pinned release base digest does not match the Dockerfile'
             return 1

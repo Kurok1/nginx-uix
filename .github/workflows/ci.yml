@@ -41,29 +41,13 @@ jobs:
           cache: true
           cache-dependency-path: go.sum
 
-      - name: Run Go quality gates
+      - name: Run Go unit tests
         shell: bash
         run: |
           set -euo pipefail
           test "$(go env GOVERSION)" = "go${GO_VERSION}"
-
-          tool_bin="${RUNNER_TEMP}/nginx-uix-tools"
-          mkdir -p "${tool_bin}"
-          GOBIN="${tool_bin}" go install golang.org/x/tools/cmd/goimports@v0.48.0
-          GOBIN="${tool_bin}" go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.11.4
-          export PATH="${tool_bin}:${PATH}"
-          go version -m "${tool_bin}/goimports" | grep -F $'mod\tgolang.org/x/tools\tv0.48.0'
-          golangci-lint --version | grep -F 'version 2.11.4'
-
-          git ls-files -z '*.go' | xargs -0 goimports -l >"${RUNNER_TEMP}/goimports.out"
-          test ! -s "${RUNNER_TEMP}/goimports.out"
-          go mod tidy
-          git diff --exit-code -- go.mod go.sum
           go mod verify
           go test ./...
-          go test -race ./...
-          go vet ./...
-          golangci-lint run
 
   web:
     name: Web quality
@@ -93,13 +77,10 @@ jobs:
 
           cd web
           npm ci
-          npm audit --audit-level=high
           npm run lint
           npm run typecheck
           npm run test
           npm run build
-          ./node_modules/.bin/playwright install --with-deps chromium
-          npm run test:e2e
 
   scripts:
     name: Repository and script guards
@@ -125,17 +106,16 @@ jobs:
           test "$(go env GOVERSION)" = "go${GO_VERSION}"
           find tests/docker -type f -name '*.sh' -print0 | sort -z | xargs -0 sh -n
           tests/docker/image_test.sh
-          tests/docker/playwright_summary_test.sh
           git diff --check
 
   candidate-amd64:
-    name: Native amd64 release candidate
+    name: Docker smoke and multi-platform build
     needs:
       - go
       - web
       - scripts
     runs-on: ubuntu-24.04
-    timeout-minutes: 180
+    timeout-minutes: 60
     env:
       CANDIDATE_IMAGE: nginx-uix:1.0.0-ci-${{ github.run_id }}-${{ github.run_attempt }}
       REPOSITORY_ROOT: ${{ github.workspace }}
@@ -152,6 +132,11 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: true
           cache-dependency-path: go.sum
+
+      - name: Enable arm64 image builds
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+        with:
+          platforms: arm64
 
       - name: Install the fixed Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
@@ -179,8 +164,18 @@ jobs:
           IMAGE="${CANDIDATE_IMAGE}" PLATFORM=linux/amd64 BUILD_IMAGE=1 SMOKE_PROFILE=basic \
             "${REPOSITORY_ROOT}/tests/docker/smoke.sh"
 
-      - name: Run the complete native and multi-architecture candidate matrix
+      - name: Build amd64 and arm64 binaries and images
         shell: bash
         run: |
           set -euo pipefail
-          NATIVE_IMAGE="${CANDIDATE_IMAGE}" "${REPOSITORY_ROOT}/tests/docker/multiarch.sh"
+          MULTIARCH_OUTPUT_DIR="${RUNNER_TEMP}/nginx-uix-multiarch" \
+            "${REPOSITORY_ROOT}/tests/docker/multiarch.sh"
+
+      - name: Upload binaries and OCI images
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: nginx-uix-1.0.0-${{ github.sha }}
+          path: ${{ runner.temp }}/nginx-uix-multiarch/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7

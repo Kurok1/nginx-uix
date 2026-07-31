@@ -9,7 +9,7 @@ ARG BUILD_IDENTITY
 ARG SOURCE_DATE_EPOCH
 ARG GOPROXY=https://proxy.golang.org,direct
 
-FROM node:24.17.0-trixie-slim@sha256:9022946fb57e6fb6a2503931470deba4b49db02bfc8f587f93007fd33ef54415 AS frontend
+FROM --platform=$BUILDPLATFORM node:24.17.0-trixie-slim@sha256:9022946fb57e6fb6a2503931470deba4b49db02bfc8f587f93007fd33ef54415 AS frontend
 
 WORKDIR /workspace/web
 
@@ -27,7 +27,7 @@ COPY web/index.html \
 COPY web/src ./src
 RUN npm run build
 
-FROM golang:1.26.5-trixie@sha256:4ee9ffa999b4583ce281939cdff828763083610292f252279a0cee77473bd9a7 AS go-builder
+FROM --platform=$BUILDPLATFORM golang:1.26.5-trixie@sha256:4ee9ffa999b4583ce281939cdff828763083610292f252279a0cee77473bd9a7 AS go-builder
 
 ARG TARGETOS
 ARG TARGETARCH
@@ -64,7 +64,12 @@ RUN --mount=type=cache,target=/go/pkg/mod,sharing=locked \
     CGO_ENABLED=0 GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" \
       go build -buildvcs=false -trimpath -ldflags "${ldflags}" -o /out/nginx-uix-agent ./cmd/nginx-uix-agent
 
-FROM nginx:1.30.3-alpine-slim@sha256:d5b51cfc7d55fc7a7bcf4d1d577b9c3738331df56d68f0b1d8ac9795b9470a5a AS s6-overlay
+FROM scratch AS binary-export
+
+COPY --from=go-builder /out/nginx-uix /nginx-uix
+COPY --from=go-builder /out/nginx-uix-agent /nginx-uix-agent
+
+FROM --platform=$BUILDPLATFORM nginx:1.30.3-alpine-slim@sha256:d5b51cfc7d55fc7a7bcf4d1d577b9c3738331df56d68f0b1d8ac9795b9470a5a AS s6-overlay
 
 ARG TARGETARCH
 

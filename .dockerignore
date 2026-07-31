@@ -9,7 +9,6 @@
 .golangci.yml
 AGENTS.md
 CLAUDE.md
-DESIGN.md
 PLAN.md
 README.md
 api
