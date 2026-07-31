@@ -117,10 +117,20 @@ jobs:
           IMAGE="${CANDIDATE_IMAGE}" PLATFORM=linux/amd64 BUILD_IMAGE=1 SMOKE_PROFILE=basic \
             "${REPOSITORY_ROOT}/tests/docker/smoke.sh"
 
+      - name: Log in to GHCR
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          printf '%s' "${GHCR_TOKEN}" |
+            docker login ghcr.io --username "${GITHUB_ACTOR}" --password-stdin
+
       - name: Build release binaries and OCI images
         shell: bash
         run: |
           set -euo pipefail
+          MULTIARCH_IMAGE_REPOSITORY="${IMAGE_REPOSITORY}" \
           MULTIARCH_OUTPUT_DIR="${RELEASE_OUTPUT_DIR}" \
             "${REPOSITORY_ROOT}/tests/docker/multiarch.sh"
 
@@ -155,28 +165,10 @@ jobs:
             "nginx-uix-${VERSION}-linux-arm64.oci.tar" \
             >SHA256SUMS
 
-      - name: Log in to GHCR
-        shell: bash
-        env:
-          GHCR_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          printf '%s' "${GHCR_TOKEN}" |
-            docker login ghcr.io --username "${GITHUB_ACTOR}" --password-stdin
-
       - name: Publish the multi-platform GHCR image
         shell: bash
         run: |
           set -euo pipefail
-          for arch in amd64 arm64; do
-            docker load --input \
-              "${RELEASE_OUTPUT_DIR}/nginx-uix-${VERSION}-linux-${arch}.oci.tar"
-            source_image="nginx-uix:${VERSION}-${arch}"
-            platform_image="${IMAGE_REPOSITORY}:${VERSION}-${arch}"
-            docker image tag "${source_image}" "${platform_image}"
-            docker push "${platform_image}"
-          done
-
           docker buildx imagetools create \
             --tag "${IMAGE_REPOSITORY}:${VERSION}" \
             --tag "${IMAGE_REPOSITORY}:${GITHUB_REF_NAME}" \

@@ -99,6 +99,10 @@ build_image_archive() {
     --build-arg "SOURCE_FINGERPRINT=${SOURCE_FINGERPRINT}" \
     --build-arg "BUILD_IDENTITY=${image_identity}" \
     --build-arg "SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}"
+  if [ -n "${MULTIARCH_IMAGE_REPOSITORY:-}" ]; then
+    set -- "$@" \
+      --output "type=registry,name=${MULTIARCH_IMAGE_REPOSITORY}:${VERSION}-${image_arch}"
+  fi
   if [ -n "${BUILD_STEP_HTTP_PROXY:-}" ]; then
     set -- "$@" --build-arg "http_proxy=${BUILD_STEP_HTTP_PROXY}"
   fi

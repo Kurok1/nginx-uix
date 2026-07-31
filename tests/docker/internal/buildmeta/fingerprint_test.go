@@ -288,6 +288,7 @@ func TestV1MultiarchBuildsBothPlatformsWithoutRuntimeSuites(t *testing.T) {
 		"build_binary_pair arm64",
 		"--target binary-export",
 		`--output "type=local,dest=${binary_output}"`,
+		`--output "type=registry,name=${MULTIARCH_IMAGE_REPOSITORY}:${VERSION}-${image_arch}"`,
 		`build_image_archive amd64 "${AMD64_BUILD_IDENTITY}"`,
 		`build_image_archive arm64 "${ARM64_BUILD_IDENTITY}"`,
 		"linux_amd64_binary=%s agent=%s build_identity=%s image_archive_sha256=%s",
@@ -446,9 +447,8 @@ func TestV1ReleaseWorkflowPublishesGitHubReleaseAndGHCR(t *testing.T) {
 		"npm run build",
 		"SMOKE_PROFILE=basic",
 		`"${REPOSITORY_ROOT}/tests/docker/multiarch.sh"`,
+		`MULTIARCH_IMAGE_REPOSITORY="${IMAGE_REPOSITORY}"`,
 		`docker login ghcr.io`,
-		`docker load --input`,
-		`docker push "${platform_image}"`,
 		"docker buildx imagetools create",
 		`"${IMAGE_REPOSITORY}:${VERSION}"`,
 		`"${IMAGE_REPOSITORY}:latest"`,
@@ -468,10 +468,16 @@ func TestV1ReleaseWorkflowPublishesGitHubReleaseAndGHCR(t *testing.T) {
 		"security.sh",
 		"grype",
 		"sbom",
+		"docker load --input",
 	} {
 		if strings.Contains(strings.ToLower(workflow), strings.ToLower(unwanted)) {
 			t.Errorf("release.yml must not include extended validation marker %q", unwanted)
 		}
+	}
+	loginStep := strings.Index(workflow, "- name: Log in to GHCR")
+	buildStep := strings.Index(workflow, "- name: Build release binaries and OCI images")
+	if loginStep < 0 || buildStep < 0 || loginStep > buildStep {
+		t.Error("release.yml must log in to GHCR before the multi-platform build pushes images")
 	}
 
 	pinnedAction := regexp.MustCompile(`^[0-9a-f]{40}(?:\s+#.*)?$`)
