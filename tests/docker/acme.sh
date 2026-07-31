@@ -578,7 +578,9 @@ pebble_identity=$(docker image inspect --format \
 
 ADMIN_PASSWORD="Acme-${RUN_RANDOM}-$(openssl rand -hex 12)"
 printf '%s\n' "${ADMIN_PASSWORD}" >"${WORK_DIR}/admin-password"
-chmod 0600 "${WORK_DIR}/admin-password"
+# The 0700 WORK_DIR protects this host-only fixture; the bind-mounted file
+# must remain readable by the container's non-root UI identity.
+chmod 0444 "${WORK_DIR}/admin-password"
 
 prepare_pebble_assets
 docker network inspect "${NETWORK}" >/dev/null 2>&1 && fail 'owned network name already exists'

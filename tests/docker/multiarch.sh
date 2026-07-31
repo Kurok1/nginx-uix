@@ -677,7 +677,9 @@ run_minimal_boot() {
   boot_password="multiarch-${boot_arch}-${RUN_ID}"
 
   printf '%s\n' "${boot_password}" >"${boot_secret}"
-  chmod 0600 "${boot_secret}"
+  # The 0700 TEMP_DIR protects this host-only fixture; the bind-mounted file
+  # must remain readable by the container's non-root UI identity.
+  chmod 0444 "${boot_secret}"
   printf '{"username":"%s","password":"%s"}\n' \
     "${boot_username}" "${boot_password}" >"${boot_login_payload}"
   chmod 0600 "${boot_login_payload}"

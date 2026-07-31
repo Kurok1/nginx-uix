@@ -266,6 +266,7 @@ func TestV1NativeCandidateMatrixIncludesDurabilityHarnesses(t *testing.T) {
 		`require_executable "${SCRIPT_DIR}/upgrade_compatibility.sh"`,
 		`require_executable "${SCRIPT_DIR}/repeated_recovery.sh"`,
 		`require_executable "${SCRIPT_DIR}/stability.sh"`,
+		`chmod 0444 "${boot_secret}"`,
 		`"${SCRIPT_DIR}/upgrade_compatibility.sh"`,
 		`run_repeated_recovery_suite "${NATIVE_IMAGE}"`,
 		`run_stability_suite "${NATIVE_IMAGE}"`,
@@ -275,6 +276,21 @@ func TestV1NativeCandidateMatrixIncludesDurabilityHarnesses(t *testing.T) {
 		if !strings.Contains(matrix, marker) {
 			t.Errorf("multiarch.sh does not preserve durability matrix marker %q", marker)
 		}
+	}
+	if strings.Contains(matrix, `chmod 0600 "${boot_secret}"`) {
+		t.Error("multiarch.sh must keep its 0700-parent test secret readable by the non-root UI")
+	}
+
+	acmePayload, err := os.ReadFile(filepath.Join(root, "tests/docker/acme.sh"))
+	if err != nil {
+		t.Fatalf("ReadFile(acme.sh) error = %v", err)
+	}
+	acme := string(acmePayload)
+	if !strings.Contains(acme, `chmod 0444 "${WORK_DIR}/admin-password"`) {
+		t.Error("acme.sh must keep its 0700-parent test secret readable by the non-root UI")
+	}
+	if strings.Contains(acme, `chmod 0600 "${WORK_DIR}/admin-password"`) {
+		t.Error("acme.sh test secret must not remain owned-only by the host runner")
 	}
 }
 
