@@ -479,6 +479,7 @@ v0.2.1 验收记录中已经执行的 Docker、缓存和多架构步骤继续作
 - [x] Go 与前端单元测试通过。
 - [x] Docker basic smoke 通过。
 - [x] 生成 linux/amd64 与 linux/arm64 二进制和 OCI 镜像包。
+- [x] 建立 tag 驱动的 GitHub Release 与 GHCR 发布工作流。
 - [ ] 发布 v1.0.0 源码、镜像与简明使用文档。
 
 **验收条件：**
@@ -585,4 +586,5 @@ v0.2.1 验收记录中已经执行的 Docker、缓存和多架构步骤继续作
 - [x] 通过 Go 与前端单元测试。
 - [x] 通过 Docker basic smoke。
 - [x] 构建 linux/amd64 与 linux/arm64 二进制和 OCI 镜像包。
+- [ ] 验证 tag 驱动的 GitHub Release 与 GHCR 发布工作流。
 - [ ] 发布 v1.0.0。

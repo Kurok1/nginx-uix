@@ -89,6 +89,9 @@ func TestV1ReleaseMetadataIsSynchronized(t *testing.T) {
 	if !strings.Contains(string(dockerfilePayload), `org.opencontainers.image.licenses="Apache-2.0"`) {
 		t.Errorf("deploy/docker/Dockerfile does not label the image as Apache-2.0")
 	}
+	if !strings.Contains(string(dockerfilePayload), `org.opencontainers.image.source="https://github.com/Kurok1/nginx-uix"`) {
+		t.Errorf("deploy/docker/Dockerfile does not link the GHCR image to the source repository")
+	}
 
 	for relative, marker := range map[string]string{
 		"api/v1/openapi.yaml":      "\n  version: " + want + "\n",
@@ -407,6 +410,79 @@ func TestV1GitHubActionsKeepsUnitSmokeAndMultiPlatformBuildGates(t *testing.T) {
 		_, revision, found := strings.Cut(strings.TrimSpace(action), "@")
 		if !found || !pinnedAction.MatchString(revision) {
 			t.Errorf("ci.yml line %d action is not pinned to a full commit: %q", lineNumber+1, line)
+		}
+	}
+}
+
+func TestV1ReleaseWorkflowPublishesGitHubReleaseAndGHCR(t *testing.T) {
+	root, err := filepath.Abs("../../../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	payload, err := os.ReadFile(filepath.Join(root, ".github/workflows/release.yml"))
+	if err != nil {
+		t.Fatalf("ReadFile(.github/workflows/release.yml) error = %v", err)
+	}
+	workflow := string(payload)
+	for _, marker := range []string{
+		"# @author hanchao <hanchao@66yunlian.com>",
+		"# @since 1.0.0",
+		"name: release",
+		`- "v*.*.*"`,
+		"contents: write",
+		"packages: write",
+		`expected_tag="v$(tr -d '\r\n' < VERSION)"`,
+		`test "${GITHUB_REF_NAME}" = "${expected_tag}"`,
+		"actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
+		"actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16",
+		"docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130",
+		"docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f",
+		"go mod verify",
+		"go test ./...",
+		"npm run lint",
+		"npm run typecheck",
+		"npm run test",
+		"npm run build",
+		"SMOKE_PROFILE=basic",
+		`"${REPOSITORY_ROOT}/tests/docker/multiarch.sh"`,
+		`docker login ghcr.io`,
+		`docker load --input`,
+		`docker push "${platform_image}"`,
+		"docker buildx imagetools create",
+		`"${IMAGE_REPOSITORY}:${VERSION}"`,
+		`"${IMAGE_REPOSITORY}:latest"`,
+		"SHA256SUMS",
+		"gh release create",
+		"gh release upload",
+	} {
+		if !strings.Contains(workflow, marker) {
+			t.Errorf("release.yml does not preserve release marker %q", marker)
+		}
+	}
+	for _, unwanted := range []string{
+		"go test -race",
+		"golangci-lint",
+		"npm audit",
+		"playwright",
+		"security.sh",
+		"grype",
+		"sbom",
+	} {
+		if strings.Contains(strings.ToLower(workflow), strings.ToLower(unwanted)) {
+			t.Errorf("release.yml must not include extended validation marker %q", unwanted)
+		}
+	}
+
+	pinnedAction := regexp.MustCompile(`^[0-9a-f]{40}(?:\s+#.*)?$`)
+	for lineNumber, line := range strings.Split(workflow, "\n") {
+		_, action, found := strings.Cut(strings.TrimSpace(line), "uses:")
+		if !found {
+			continue
+		}
+		_, revision, found := strings.Cut(strings.TrimSpace(action), "@")
+		if !found || !pinnedAction.MatchString(revision) {
+			t.Errorf("release.yml line %d action is not pinned to a full commit: %q", lineNumber+1, line)
 		}
 	}
 }

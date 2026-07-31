@@ -64,6 +64,22 @@ tests/docker/multiarch.sh
 
 GitHub Actions 会把这六个文件保存为可下载的构建 artifact。
 
+## 正式发布
+
+正式发布由 [release.yml](.github/workflows/release.yml) 处理，只在推送与 `VERSION` 完全一致的 `vX.Y.Z` tag 时触发。例如：
+
+```sh
+git tag -a v1.0.0 -m "Nginx UIX v1.0.0"
+git push origin v1.0.0
+```
+
+发布工作流会重复最小门禁，然后：
+
+- 创建 GitHub Release，附带 amd64/arm64 二进制压缩包、OCI 镜像包和 `SHA256SUMS`。
+- 推送 `ghcr.io/kurok1/nginx-uix:1.0.0`、`:v1.0.0` 和 `:latest` 多架构镜像。
+
+普通 `main` 分支 push 不会创建 Release；只有显式 tag 才会发布。
+
 ## 运行边界
 
 目标镜像暴露 Nginx `80/443` 和 UI `9000`，并持久化：

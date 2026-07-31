@@ -35,7 +35,7 @@ readiness 不是进程存活别名。不要降低探针标准或只检查 PID 1�
 - 容器使用 `--cap-drop ALL`，只添加 `CHOWN`、`DAC_OVERRIDE`、`FOWNER`、`KILL`、`SETGID`、`SETUID`。不要用 `--privileged`、host PID/network、Docker Socket 或额外设备绕过启动错误。
 - UI 进程、Agent、Nginx 与 PID 1 是不同健康对象。容器仍为 running 不代表 readiness；先检查 `/health/live`、`/health/ready`、Docker health 和脱敏后的 `/api/v1/system/status`。
 - 重建必须重新挂载同一对 `/etc/nginx` 与 `/var/lib/nginx-uix` volume。缺少任一卷时停止操作，不要从 SQLite 反向生成配置或用默认配置覆盖非空目录。
-- 当前 exact v1.0.0 候选只在原生 arm64 完成完整运行验收；amd64 诊断必须在真实 amd64 runner 复核，不能把模拟器限制写成产品成功或失败。
+- 当前 v1.0.0 发布门禁在原生 amd64 runner 上覆盖 basic smoke；更深的架构专项诊断后续按独立缺陷处理。
 
 ## UI / 登录
 

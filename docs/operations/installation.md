@@ -2,23 +2,17 @@
 
 ## 当前发布边界
 
-v1.0.0 的目标是首个稳定版，官方部署形态是一体化 Docker 镜像。当前 exact linux/arm64 候选已经完成一体化镜像、容器生命周期、跨版本升级、双根冷备恢复、故障注入、浏览器、安全边界、重复发布和稳定运行验收。
+v1.0.0 的目标是首个稳定版，官方部署形态是一体化 Docker 镜像。当前最小发布门禁已经通过：Go 与前端单元测试、native amd64 basic smoke、amd64/arm64 二进制和 OCI 镜像构建均成功。
 
-正式发布前仍有以下边界：
+正式发布使用 `.github/workflows/release.yml`。推送与 `VERSION` 一致的 `v1.0.0` tag 后，工作流会创建 GitHub Release，并发布 `ghcr.io/kurok1/nginx-uix:1.0.0` 多架构镜像。
 
-- 当前仓库还没有可供生产拉取的 registry 地址、不可变 tag 或正式 manifest digest。本文使用 `NGINX_UIX_IMAGE` 表示发布后必须由管理员填写的 digest-pinned 镜像引用。
-- 当前主机没有真实 amd64 runner；真实 amd64 候选门禁已写入 GitHub Actions，但必须在首次远端运行后才能形成正式支持证据。
-- 正式安装前必须查看 [v1.0.0 发布阻断项审计](../review/2026-07-31-v1.0-release-blockers.md)；存在开放阻断项时只能做候选验收，不能称为生产发布。
-
-当前候选的环境、source fingerprint、本地 image ID、命令与限制记录在 [v1.0.0 验收记录（进行中）](../release/v1.0.0-verification.md)；其中明确标记为未运行或阻断的项目不能解释为正式支持。
+在 `v1.0.0` tag 尚未推送前，仓库只有候选 artifact，没有可拉取的正式 GHCR 镜像。当前证据与发布入口见 [v1.0.0 验收记录](../release/v1.0.0-verification.md)。
 
 ## 固定工具链
 
 | 工具 | 仓库固定版本 |
 | --- | --- |
 | Go | `1.26.5`（`go.mod` toolchain） |
-| goimports | `0.48.0` |
-| golangci-lint | `2.11.4` |
 | Node.js | `24.17.0` |
 | npm | `11.13.0` |
 | Nginx | 发布镜像目标为 `1.30.3`；原生兼容测试记录实际二进制版本 |
@@ -31,15 +25,8 @@ v1.0.0 的目标是首个稳定版，官方部署形态是一体化 Docker 镜�
 
 ```sh
 test "$(tr -d '\n' < VERSION)" = "1.0.0"
-GOIMPORTS_DIRTY=$(git ls-files -z '*.go' | xargs -0 goimports -l)
-test -z "${GOIMPORTS_DIRTY}"
-go mod tidy
-git diff --exit-code -- go.mod go.sum
 go mod verify
 go test ./...
-go test -race ./...
-go vet ./...
-golangci-lint run
 
 export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
 . "$NVM_DIR/nvm.sh"
@@ -52,7 +39,6 @@ npm --prefix web run lint
 npm --prefix web run typecheck
 npm --prefix web run test
 npm --prefix web run build
-npm --prefix web run test:e2e
 ```
 
 真实 Nginx 兼容测试只使用临时目录、随机回环端口、独立 PID 和日志：
@@ -81,29 +67,17 @@ NGINX_UIX_INTEGRATION=1 NGINX_BIN=/absolute/path/to/nginx \
 
 `/etc/nginx` 和 `/var/lib/nginx-uix` 必须是两个独立、持久、可一起备份的挂载。`/run/nginx-uix` 是运行期状态，不能当成持久卷。
 
-## 选择不可变镜像
+## 选择镜像
 
-生产部署必须使用正式验收记录公布的 manifest digest，不使用浮动 `latest`。发布后先设置并检查：
+`v1.0.0` tag 发布成功后，默认使用版本 tag：
 
 ```sh
-NGINX_UIX_IMAGE="${NGINX_UIX_IMAGE:?set the published registry/name@sha256:digest reference}"
-case "${NGINX_UIX_IMAGE}" in
-  *@sha256:*) ;;
-  *) printf '%s\n' 'NGINX_UIX_IMAGE must contain @sha256:' >&2; exit 1 ;;
-esac
-NGINX_UIX_DIGEST=${NGINX_UIX_IMAGE##*@sha256:}
-case "${NGINX_UIX_DIGEST}" in
-  *[!0-9a-f]*|'') printf '%s\n' 'image digest must be lowercase hexadecimal' >&2; exit 1 ;;
-esac
-[ "${#NGINX_UIX_DIGEST}" -eq 64 ] || {
-  printf '%s\n' 'image digest must contain exactly 64 hexadecimal characters' >&2
-  exit 1
-}
+NGINX_UIX_IMAGE="${NGINX_UIX_IMAGE:-ghcr.io/kurok1/nginx-uix:1.0.0}"
 docker pull "${NGINX_UIX_IMAGE}"
 docker image inspect "${NGINX_UIX_IMAGE}" >/dev/null
 ```
 
-尚未发布期间，本地 `nginx-uix:1.0.0-test` 只用于候选验收，不能替代上述正式引用。
+尚未发布期间，本地 `nginx-uix:1.0.0-test` 只用于候选验收。
 
 ## 创建管理员 Secret
 

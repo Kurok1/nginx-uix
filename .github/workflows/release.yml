@@ -1,0 +1,206 @@
+# @author hanchao <hanchao@66yunlian.com>
+# @since 1.0.0
+
+name: release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  GO_VERSION: 1.26.5
+  NODE_VERSION: 24.17.0
+  NPM_VERSION: 11.13.0
+  NVM_COMMIT: 977563e97ddc66facf3a8e31c6cff01d236f09bd
+
+jobs:
+  release:
+    name: Publish GitHub Release and GHCR image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      REPOSITORY_ROOT: ${{ github.workspace }}
+      CANDIDATE_IMAGE: nginx-uix:release-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - name: Check out the release tag
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Validate the release tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(tr -d '\r\n' < VERSION)"
+          expected_tag="v$(tr -d '\r\n' < VERSION)"
+          test "${GITHUB_REF_NAME}" = "${expected_tag}"
+          test "${GITHUB_SHA}" = "$(git rev-parse HEAD)"
+          [[ "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+
+          image_repository="ghcr.io/${GITHUB_REPOSITORY,,}"
+          printf 'VERSION=%s\n' "${version}" >>"${GITHUB_ENV}"
+          printf 'IMAGE_REPOSITORY=%s\n' "${image_repository}" >>"${GITHUB_ENV}"
+          printf 'RELEASE_OUTPUT_DIR=%s\n' \
+            "${RUNNER_TEMP}/nginx-uix-release" >>"${GITHUB_ENV}"
+
+      - name: Install the fixed Go toolchain
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Run Go unit tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(go env GOVERSION)" = "go${GO_VERSION}"
+          go mod verify
+          go test ./...
+
+      - name: Run frontend unit tests and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          export NVM_DIR="${RUNNER_TEMP}/nvm"
+          git clone --filter=blob:none https://github.com/nvm-sh/nvm.git "${NVM_DIR}"
+          git -C "${NVM_DIR}" checkout --detach "${NVM_COMMIT}"
+          test "$(git -C "${NVM_DIR}" rev-parse HEAD)" = "${NVM_COMMIT}"
+          . "${NVM_DIR}/nvm.sh"
+          nvm install "${NODE_VERSION}"
+          nvm use "${NODE_VERSION}"
+          npm install --global "npm@${NPM_VERSION}"
+          hash -r
+          test "$(node --version)" = "v${NODE_VERSION}"
+          test "$(npm --version)" = "${NPM_VERSION}"
+
+          cd web
+          npm ci
+          npm run lint
+          npm run typecheck
+          npm run test
+          npm run build
+
+      - name: Run repository guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          find tests/docker -type f -name '*.sh' -print0 | sort -z | xargs -0 sh -n
+          tests/docker/image_test.sh
+          git diff --check
+
+      - name: Enable arm64 image builds
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+        with:
+          platforms: arm64
+
+      - name: Install the fixed Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+        with:
+          version: v0.36.0
+          install: true
+
+      - name: Build the native image and run basic smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          IMAGE="${CANDIDATE_IMAGE}" PLATFORM=linux/amd64 BUILD_IMAGE=1 SMOKE_PROFILE=basic \
+            "${REPOSITORY_ROOT}/tests/docker/smoke.sh"
+
+      - name: Build release binaries and OCI images
+        shell: bash
+        run: |
+          set -euo pipefail
+          MULTIARCH_OUTPUT_DIR="${RELEASE_OUTPUT_DIR}" \
+            "${REPOSITORY_ROOT}/tests/docker/multiarch.sh"
+
+      - name: Package release files
+        shell: bash
+        run: |
+          set -euo pipefail
+          for arch in amd64 arm64; do
+            package_dir="${RUNNER_TEMP}/nginx-uix-${arch}"
+            mkdir -p "${package_dir}"
+            install -m 0755 "${RELEASE_OUTPUT_DIR}/nginx-uix-linux-${arch}" \
+              "${package_dir}/nginx-uix"
+            install -m 0755 "${RELEASE_OUTPUT_DIR}/nginx-uix-agent-linux-${arch}" \
+              "${package_dir}/nginx-uix-agent"
+            install -m 0644 LICENSE "${package_dir}/LICENSE"
+            tar -C "${package_dir}" -czf \
+              "${RELEASE_OUTPUT_DIR}/nginx-uix-${VERSION}-linux-${arch}.tar.gz" \
+              nginx-uix nginx-uix-agent LICENSE
+          done
+
+          rm \
+            "${RELEASE_OUTPUT_DIR}/nginx-uix-linux-amd64" \
+            "${RELEASE_OUTPUT_DIR}/nginx-uix-agent-linux-amd64" \
+            "${RELEASE_OUTPUT_DIR}/nginx-uix-linux-arm64" \
+            "${RELEASE_OUTPUT_DIR}/nginx-uix-agent-linux-arm64"
+
+          cd "${RELEASE_OUTPUT_DIR}"
+          sha256sum \
+            "nginx-uix-${VERSION}-linux-amd64.tar.gz" \
+            "nginx-uix-${VERSION}-linux-arm64.tar.gz" \
+            "nginx-uix-${VERSION}-linux-amd64.oci.tar" \
+            "nginx-uix-${VERSION}-linux-arm64.oci.tar" \
+            >SHA256SUMS
+
+      - name: Log in to GHCR
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          printf '%s' "${GHCR_TOKEN}" |
+            docker login ghcr.io --username "${GITHUB_ACTOR}" --password-stdin
+
+      - name: Publish the multi-platform GHCR image
+        shell: bash
+        run: |
+          set -euo pipefail
+          for arch in amd64 arm64; do
+            docker load --input \
+              "${RELEASE_OUTPUT_DIR}/nginx-uix-${VERSION}-linux-${arch}.oci.tar"
+            source_image="nginx-uix:${VERSION}-${arch}"
+            platform_image="${IMAGE_REPOSITORY}:${VERSION}-${arch}"
+            docker image tag "${source_image}" "${platform_image}"
+            docker push "${platform_image}"
+          done
+
+          docker buildx imagetools create \
+            --tag "${IMAGE_REPOSITORY}:${VERSION}" \
+            --tag "${IMAGE_REPOSITORY}:${GITHUB_REF_NAME}" \
+            --tag "${IMAGE_REPOSITORY}:latest" \
+            "${IMAGE_REPOSITORY}:${VERSION}-amd64" \
+            "${IMAGE_REPOSITORY}:${VERSION}-arm64"
+          docker buildx imagetools inspect "${IMAGE_REPOSITORY}:${VERSION}"
+
+      - name: Publish the GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mapfile -t release_assets < <(
+            find "${RELEASE_OUTPUT_DIR}" -maxdepth 1 -type f -print | sort
+          )
+          test "${#release_assets[@]}" -eq 5
+
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            gh release upload "${GITHUB_REF_NAME}" "${release_assets[@]}" --clobber
+          else
+            gh release create "${GITHUB_REF_NAME}" "${release_assets[@]}" \
+              --verify-tag \
+              --title "Nginx UIX ${VERSION}" \
+              --generate-notes
+          fi

@@ -116,6 +116,7 @@ RUN test -n "${VERSION}" \
 
 LABEL org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.revision="${COMMIT}" \
+      org.opencontainers.image.source="https://github.com/Kurok1/nginx-uix" \
       org.opencontainers.image.licenses="Apache-2.0" \
       io.nginx-uix.source-fingerprint="${SOURCE_FINGERPRINT}" \
       io.nginx-uix.build-identity="${BUILD_IDENTITY}" \
