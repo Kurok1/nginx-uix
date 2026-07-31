@@ -324,6 +324,40 @@ func TestV1NativeCandidateMatrixIncludesDurabilityHarnesses(t *testing.T) {
 	}
 }
 
+func TestV1CandidateMatrixScansBothArchitecturesWithFreshPinnedGrype(t *testing.T) {
+	root, err := filepath.Abs("../../../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := os.ReadFile(filepath.Join(root, "tests/docker/multiarch.sh"))
+	if err != nil {
+		t.Fatalf("ReadFile(multiarch.sh) error = %v", err)
+	}
+	matrix := string(payload)
+	for _, marker := range []string{
+		"VULNERABILITY_SCANNER='anchore/grype@sha256:391bfda62888fb4e98ff5c4c81598f7431a3c1eac3f8519d69d1ff00df247c1d'",
+		"VULNERABILITY_SCANNER_VERSION='0.112.0'",
+		"GRYPE_DB_REQUIRE_UPDATE_CHECK=true",
+		"GRYPE_DB_AUTO_UPDATE=false",
+		"run_bounded 900",
+		`db status --output json`,
+		`scan_oci_archive amd64 "${AMD64_OCI_ARCHIVE}" 1`,
+		`scan_oci_archive arm64 "${ARM64_OCI_ARCHIVE}" 0`,
+		"--fail-on high",
+		`(.valid == true)`,
+		"vulnerability_scanner=%s version=%s db_schema=%s db_built=%s",
+		"linux_amd64_vulnerabilities=critical:%s high:%s medium:%s low:%s negligible:%s unknown:%s",
+		"linux_arm64_vulnerabilities=critical:%s high:%s medium:%s low:%s negligible:%s unknown:%s",
+	} {
+		if !strings.Contains(matrix, marker) {
+			t.Errorf("multiarch.sh does not preserve vulnerability gate marker %q", marker)
+		}
+	}
+	if strings.Contains(matrix, "/var/run/docker.sock") {
+		t.Error("multiarch.sh vulnerability scanning must not mount the Docker Socket")
+	}
+}
+
 func TestV1GitHubActionsPinsQualityAndNativeAMD64Gates(t *testing.T) {
 	root, err := filepath.Abs("../../../..")
 	if err != nil {

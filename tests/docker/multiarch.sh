@@ -24,6 +24,7 @@ OWN_BUILDERS=""
 OWN_IMAGES=""
 OWN_VOLUMES=""
 OWN_CACHE_PATHS=""
+ACTIVE_COMMAND_PID=""
 AMD64_CACHE_KIND=none
 ARM64_CACHE_KIND=none
 
@@ -40,6 +41,8 @@ NATIVE_IMAGE=${NATIVE_IMAGE:-}
 NGINX_BASE='nginx:1.30.3-alpine-slim@sha256:d5b51cfc7d55fc7a7bcf4d1d577b9c3738331df56d68f0b1d8ac9795b9470a5a'
 PLAYWRIGHT_BASE='mcr.microsoft.com/playwright:v1.61.0-noble@sha256:57b65fdc9ceabe0ef613124c7bbe2babcf9362c4d85e382fe3b03604e84b428a'
 SBOM_GENERATOR='docker/buildkit-syft-scanner@sha256:79e7b013cbec16bbb436f312819a49a4a57752b2270c1a9332ae1a10fcc82a68'
+VULNERABILITY_SCANNER='anchore/grype@sha256:391bfda62888fb4e98ff5c4c81598f7431a3c1eac3f8519d69d1ff00df247c1d'
+VULNERABILITY_SCANNER_VERSION='0.112.0'
 
 log() {
   printf '[multiarch] %s\n' "$*"
@@ -94,6 +97,10 @@ cleanup() {
   cleanup_rc=$?
   trap - EXIT HUP INT TERM
 
+  if [ -n "${ACTIVE_COMMAND_PID}" ]; then
+    kill -TERM "${ACTIVE_COMMAND_PID}" >/dev/null 2>&1 || true
+    wait "${ACTIVE_COMMAND_PID}" >/dev/null 2>&1 || true
+  fi
   for cleanup_builder in ${OWN_BUILDERS}; do
     docker buildx rm --force "${cleanup_builder}" >/dev/null 2>&1 || true
   done
@@ -180,6 +187,36 @@ retry() {
     sleep $((retry_attempt * 2))
     retry_attempt=$((retry_attempt + 1))
   done
+}
+
+run_bounded() {
+  bounded_limit=$1
+  bounded_stdout=$2
+  bounded_stderr=$3
+  shift 3
+  : >"${bounded_stdout}"
+  : >"${bounded_stderr}"
+  "$@" >"${bounded_stdout}" 2>"${bounded_stderr}" &
+  ACTIVE_COMMAND_PID=$!
+  bounded_deadline=$(( $(date +%s) + bounded_limit ))
+  while kill -0 "${ACTIVE_COMMAND_PID}" 2>/dev/null; do
+    if [ "$(date +%s)" -ge "${bounded_deadline}" ]; then
+      kill -TERM "${ACTIVE_COMMAND_PID}" >/dev/null 2>&1 || true
+      sleep 1
+      kill -KILL "${ACTIVE_COMMAND_PID}" >/dev/null 2>&1 || true
+      wait "${ACTIVE_COMMAND_PID}" >/dev/null 2>&1 || true
+      ACTIVE_COMMAND_PID=""
+      return 124
+    fi
+    sleep 1
+  done
+  if wait "${ACTIVE_COMMAND_PID}"; then
+    bounded_status=0
+  else
+    bounded_status=$?
+  fi
+  ACTIVE_COMMAND_PID=""
+  return "${bounded_status}"
 }
 
 digest_file() (
@@ -586,6 +623,146 @@ merge_platform_layouts() {
   OCI_LAYOUT_INDEX_DIGEST="sha256:$(digest_file "${OCI_ROOT}/index.json")"
 }
 
+verify_vulnerability_scanner() {
+  scanner_container="${RESOURCE_PREFIX}-grype-version"
+  scanner_stdout="${TEMP_DIR}/grype-version.txt"
+  scanner_stderr="${TEMP_DIR}/grype-version.log"
+  register_container "${scanner_container}"
+  if ! run_bounded 120 "${scanner_stdout}" "${scanner_stderr}" \
+    docker run --rm --name "${scanner_container}" "${VULNERABILITY_SCANNER}" version; then
+    docker rm --force "${scanner_container}" >/dev/null 2>&1 || true
+    sed -n '1,160p' "${scanner_stderr}" >&2 || true
+    fail 'could not run the pinned vulnerability scanner'
+  fi
+  scanner_reported_version=$(sed -n 's/^Version:[[:space:]]*//p' "${scanner_stdout}")
+  [ "${scanner_reported_version}" = "${VULNERABILITY_SCANNER_VERSION}" ] ||
+    fail 'the pinned vulnerability scanner reported an unexpected version'
+}
+
+scan_oci_archive() {
+  scan_arch=$1
+  scan_archive=$2
+  scan_require_update=$3
+  case "${scan_arch}" in
+    amd64 | arm64) ;;
+    *) fail "unsupported vulnerability scan architecture: ${scan_arch}" ;;
+  esac
+  case "${scan_require_update}" in
+    0 | 1) ;;
+    *) fail 'vulnerability scan update policy must be 0 or 1' ;;
+  esac
+  [ -f "${scan_archive}" ] && [ ! -L "${scan_archive}" ] ||
+    fail "linux/${scan_arch} OCI archive is unavailable for vulnerability scanning"
+
+  scan_container="${RESOURCE_PREFIX}-grype-${scan_arch}"
+  scan_result="${TEMP_DIR}/grype-${scan_arch}.json"
+  scan_log="${TEMP_DIR}/grype-${scan_arch}.log"
+  register_container "${scan_container}"
+  set -- docker run --rm --name "${scan_container}" \
+    --env GRYPE_DB_CACHE_DIR=/grype-cache \
+    --env GRYPE_DB_VALIDATE_AGE=true \
+    --volume "${GRYPE_CACHE_VOLUME}:/grype-cache" \
+    --volume "${scan_archive}:/scan/image.oci.tar:ro"
+  if [ "${scan_require_update}" = 1 ]; then
+    set -- "$@" --env GRYPE_DB_REQUIRE_UPDATE_CHECK=true
+  else
+    set -- "$@" --env GRYPE_DB_AUTO_UPDATE=false
+  fi
+  set -- "$@" "${VULNERABILITY_SCANNER}" \
+    oci-archive:/scan/image.oci.tar \
+    --platform "linux/${scan_arch}" \
+    --fail-on high \
+    --output json
+
+  if run_bounded 900 "${scan_result}" "${scan_log}" "$@"; then
+    scan_status=0
+  else
+    scan_status=$?
+  fi
+  if [ "${scan_status}" -eq 124 ]; then
+    docker rm --force "${scan_container}" >/dev/null 2>&1 || true
+    sed -n '1,160p' "${scan_log}" >&2 || true
+    fail "linux/${scan_arch} vulnerability scan timed out"
+  fi
+  if ! jq -e '(.matches | type == "array")' "${scan_result}" >/dev/null 2>&1; then
+    sed -n '1,160p' "${scan_log}" >&2 || true
+    fail "linux/${scan_arch} vulnerability scanner did not return valid JSON"
+  fi
+
+  scan_critical=$(jq -er '[.matches[] | select(.vulnerability.severity == "Critical")] | length' "${scan_result}")
+  scan_high=$(jq -er '[.matches[] | select(.vulnerability.severity == "High")] | length' "${scan_result}")
+  scan_medium=$(jq -er '[.matches[] | select(.vulnerability.severity == "Medium")] | length' "${scan_result}")
+  scan_low=$(jq -er '[.matches[] | select(.vulnerability.severity == "Low")] | length' "${scan_result}")
+  scan_negligible=$(jq -er '[.matches[] | select(.vulnerability.severity == "Negligible")] | length' "${scan_result}")
+  scan_unknown=$(jq -er '[.matches[] | select(.vulnerability.severity == "Unknown")] | length' "${scan_result}")
+
+  case "${scan_arch}" in
+    amd64)
+      AMD64_VULN_CRITICAL=${scan_critical}
+      AMD64_VULN_HIGH=${scan_high}
+      AMD64_VULN_MEDIUM=${scan_medium}
+      AMD64_VULN_LOW=${scan_low}
+      AMD64_VULN_NEGLIGIBLE=${scan_negligible}
+      AMD64_VULN_UNKNOWN=${scan_unknown}
+      ;;
+    arm64)
+      ARM64_VULN_CRITICAL=${scan_critical}
+      ARM64_VULN_HIGH=${scan_high}
+      ARM64_VULN_MEDIUM=${scan_medium}
+      ARM64_VULN_LOW=${scan_low}
+      ARM64_VULN_NEGLIGIBLE=${scan_negligible}
+      ARM64_VULN_UNKNOWN=${scan_unknown}
+      ;;
+  esac
+
+  if [ "${scan_critical}" -ne 0 ] || [ "${scan_high}" -ne 0 ]; then
+    fail "linux/${scan_arch} has ${scan_critical} Critical and ${scan_high} High vulnerabilities"
+  fi
+  if [ "${scan_status}" -ne 0 ]; then
+    sed -n '1,160p' "${scan_log}" >&2 || true
+    fail "linux/${scan_arch} vulnerability scan failed"
+  fi
+  log "Grype linux/${scan_arch}: Critical=${scan_critical} High=${scan_high} Medium=${scan_medium} Low=${scan_low} Negligible=${scan_negligible} Unknown=${scan_unknown}"
+}
+
+read_grype_database_status() {
+  database_container="${RESOURCE_PREFIX}-grype-db-status"
+  database_status="${TEMP_DIR}/grype-db-status.json"
+  database_log="${TEMP_DIR}/grype-db-status.log"
+  register_container "${database_container}"
+  if ! run_bounded 120 "${database_status}" "${database_log}" \
+    docker run --rm --name "${database_container}" \
+      --env GRYPE_DB_CACHE_DIR=/grype-cache \
+      --env GRYPE_DB_AUTO_UPDATE=false \
+      --volume "${GRYPE_CACHE_VOLUME}:/grype-cache" \
+      "${VULNERABILITY_SCANNER}" db status --output json; then
+    docker rm --force "${database_container}" >/dev/null 2>&1 || true
+    sed -n '1,160p' "${database_log}" >&2 || true
+    fail 'could not read the vulnerability database status'
+  fi
+  jq -e '
+    (.valid == true) and
+    (.schemaVersion | strings | test("^v6\\.")) and
+    (.built | strings | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T.*Z$"))
+  ' "${database_status}" >/dev/null ||
+    fail 'the vulnerability database is invalid, stale, or malformed'
+  GRYPE_DB_SCHEMA=$(jq -er '.schemaVersion' "${database_status}")
+  GRYPE_DB_BUILT=$(jq -er '.built' "${database_status}")
+  log "Grype database: schema=${GRYPE_DB_SCHEMA} built=${GRYPE_DB_BUILT} valid=true"
+}
+
+run_vulnerability_gate() {
+  GRYPE_CACHE_VOLUME="${RESOURCE_PREFIX}-grype-cache"
+  register_volume "${GRYPE_CACHE_VOLUME}"
+  docker volume create \
+    --label "io.nginx-uix.test-run=${RUN_ID}" \
+    "${GRYPE_CACHE_VOLUME}" >/dev/null
+  verify_vulnerability_scanner
+  scan_oci_archive amd64 "${AMD64_OCI_ARCHIVE}" 1
+  read_grype_database_status
+  scan_oci_archive arm64 "${ARM64_OCI_ARCHIVE}" 0
+}
+
 extract_platform_layout() {
   extract_archive=$1
   extract_root=$2
@@ -944,6 +1121,15 @@ case "${SBOM_GENERATOR}" in
   *) fail 'SBOM generator must use an immutable sha256 digest' ;;
 esac
 is_lower_hex "${SBOM_GENERATOR_DIGEST}" 64 || fail 'SBOM generator digest is malformed'
+case "${VULNERABILITY_SCANNER}" in
+  *@sha256:*) VULNERABILITY_SCANNER_DIGEST=${VULNERABILITY_SCANNER##*@sha256:} ;;
+  *) fail 'vulnerability scanner must use an immutable sha256 digest' ;;
+esac
+is_lower_hex "${VULNERABILITY_SCANNER_DIGEST}" 64 ||
+  fail 'vulnerability scanner digest is malformed'
+case "${VULNERABILITY_SCANNER_VERSION}" in
+  ''|*[!0-9.]*) fail 'vulnerability scanner version is malformed' ;;
+esac
 docker info >/dev/null
 docker buildx version >/dev/null
 
@@ -1017,6 +1203,7 @@ log "OCI linux/amd64 manifest: ${AMD64_MANIFEST_DIGEST}"
 log "OCI linux/arm64 manifest: ${ARM64_MANIFEST_DIGEST}"
 log "SPDX linux/amd64 attestation: ${AMD64_SBOM_DIGEST} (${AMD64_SBOM_PACKAGES} packages)"
 log "SPDX linux/arm64 attestation: ${ARM64_SBOM_DIGEST} (${ARM64_SBOM_PACKAGES} packages)"
+run_vulnerability_gate
 
 AMD64_RUNNABLE=0
 ARM64_RUNNABLE=0
@@ -1087,6 +1274,9 @@ printf 'source_fingerprint=%s\n' "${FINAL_SOURCE_FINGERPRINT}"
 printf 'native_image_digest=%s native_platform=linux/%s\n' "${NATIVE_IMAGE_DIGEST}" "${HOST_ARCH}"
 printf 'oci_layout_index_digest=%s\n' "${OCI_LAYOUT_INDEX_DIGEST}"
 printf 'sbom_generator=%s\n' "${SBOM_GENERATOR}"
+printf 'vulnerability_scanner=%s version=%s db_schema=%s db_built=%s\n' \
+  "${VULNERABILITY_SCANNER}" "${VULNERABILITY_SCANNER_VERSION}" \
+  "${GRYPE_DB_SCHEMA}" "${GRYPE_DB_BUILT}"
 printf 'linux_amd64_manifest=%s build_identity=%s runnable=%s runtime=%s workspace_runtime=%s static_verification=passed limitation=%s cache=%s\n' \
   "${AMD64_MANIFEST_DIGEST}" "${AMD64_BUILD_IDENTITY}" \
   "${AMD64_RUNNABLE}" "${AMD64_RUNTIME_RESULT}" "${AMD64_WORKSPACE_RESULT}" \
@@ -1099,6 +1289,12 @@ printf 'linux_amd64_sbom=%s packages=%s predicate=https://spdx.dev/Document\n' \
   "${AMD64_SBOM_DIGEST}" "${AMD64_SBOM_PACKAGES}"
 printf 'linux_arm64_sbom=%s packages=%s predicate=https://spdx.dev/Document\n' \
   "${ARM64_SBOM_DIGEST}" "${ARM64_SBOM_PACKAGES}"
+printf 'linux_amd64_vulnerabilities=critical:%s high:%s medium:%s low:%s negligible:%s unknown:%s\n' \
+  "${AMD64_VULN_CRITICAL}" "${AMD64_VULN_HIGH}" "${AMD64_VULN_MEDIUM}" \
+  "${AMD64_VULN_LOW}" "${AMD64_VULN_NEGLIGIBLE}" "${AMD64_VULN_UNKNOWN}"
+printf 'linux_arm64_vulnerabilities=critical:%s high:%s medium:%s low:%s negligible:%s unknown:%s\n' \
+  "${ARM64_VULN_CRITICAL}" "${ARM64_VULN_HIGH}" "${ARM64_VULN_MEDIUM}" \
+  "${ARM64_VULN_LOW}" "${ARM64_VULN_NEGLIGIBLE}" "${ARM64_VULN_UNKNOWN}"
 printf 'playwright=82/82 conditional_skip=1_docker_workspace\n'
 printf 'native_upgrade=passed native_security=passed native_acme=passed\n'
 printf 'native_repeated_recovery=passed native_stability=passed\n'
