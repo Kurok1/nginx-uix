@@ -1,12 +1,13 @@
 # @author hanchao <hanchao@66yunlian.com>
 # @since 0.1.0
 
-ARG VERSION=0.7.0
+ARG VERSION=1.0.0
 ARG COMMIT
 ARG BUILD_TIME
 ARG SOURCE_FINGERPRINT
 ARG BUILD_IDENTITY
 ARG SOURCE_DATE_EPOCH
+ARG GOPROXY=https://proxy.golang.org,direct
 
 FROM node:24.17.0-trixie-slim@sha256:9022946fb57e6fb6a2503931470deba4b49db02bfc8f587f93007fd33ef54415 AS frontend
 
@@ -33,6 +34,7 @@ ARG TARGETARCH
 ARG VERSION
 ARG COMMIT
 ARG BUILD_TIME
+ARG GOPROXY
 
 WORKDIR /workspace
 
@@ -44,7 +46,7 @@ RUN --mount=type=cache,target=/go/pkg/mod,sharing=locked \
     && test -n "${COMMIT}" \
     && test -n "${BUILD_TIME}" \
     && test "$(tr -d '\n' < VERSION)" = "${VERSION}" \
-    && go mod download
+    && GOPROXY="${GOPROXY}" go mod download
 
 COPY cmd ./cmd
 COPY internal ./internal
@@ -109,6 +111,7 @@ RUN test -n "${VERSION}" \
 
 LABEL org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.revision="${COMMIT}" \
+      org.opencontainers.image.licenses="Apache-2.0" \
       io.nginx-uix.source-fingerprint="${SOURCE_FINGERPRINT}" \
       io.nginx-uix.build-identity="${BUILD_IDENTITY}" \
       io.nginx-uix.reproducible-epoch="${SOURCE_DATE_EPOCH}"
@@ -127,6 +130,7 @@ RUN set -eu; \
 
 COPY --from=s6-overlay /s6-rootfs /
 COPY --from=go-builder --chown=0:0 --chmod=0755 /out/nginx-uix /out/nginx-uix-agent /usr/local/bin/
+COPY --chown=0:0 --chmod=0644 LICENSE /usr/share/licenses/nginx-uix/LICENSE
 COPY --chown=0:0 deploy/docker/defaults/ /usr/share/nginx-uix/default-nginx/
 COPY --chown=0:0 deploy/docker/rootfs/ /
 

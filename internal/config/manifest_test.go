@@ -10,11 +10,88 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"math"
 	"reflect"
 	"testing"
 	"time"
 )
+
+func TestV1DurableConfigModelFingerprint(t *testing.T) {
+	manifest := Manifest{
+		SchemaVersion: ManifestSchemaVersion,
+		PolicyVersion: NewPolicy().Version(),
+		Entries: []Entry{
+			{
+				Path: "nginx.conf", Type: EntryRegular, Class: EntryManagedText,
+				Mode: 0o640, Size: 5, ContentDigest: digestOf("nginx"),
+			},
+			{
+				Path: "conf.d", Type: EntryDirectory, Class: EntryDirectoryReadOnly,
+			},
+			{
+				Path: "sites-enabled/default.conf", Type: EntrySymlink, Class: EntrySymlinkInternal,
+				SafeLinkTarget: "sites-available/default.conf",
+			},
+			{
+				Path: "private/server.key", Type: EntryRegular, Class: EntrySensitiveMaterial,
+				Mode: 0o600, Size: 37,
+			},
+		},
+		Dependencies: []Dependency{
+			{
+				Source: "nginx.conf", Line: 7, Column: 1, DisplayValue: "conf.d",
+				Target: "conf.d", Status: DependencyResolved,
+			},
+			{
+				Source: "nginx.conf", Line: 8, Column: 1, DisplayValue: "missing.conf",
+				Target: "missing.conf", Status: DependencyMissing,
+			},
+		},
+		EntryCount:   4,
+		ManagedBytes: 5,
+	}
+	manifestPayload, err := manifest.MarshalBinary()
+	if err != nil {
+		t.Fatalf("Manifest.MarshalBinary() error = %v", err)
+	}
+	controlPayload, err := marshalControlState(ControlState{
+		SchemaVersion: ControlSchemaVersion,
+		WorkspaceID:   "11111111111111111111111111111111",
+		State:         StateReady,
+		Revision:      7,
+		UpdatedAt:     time.Date(2026, time.July, 31, 1, 2, 3, 4, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("marshalControlState() error = %v", err)
+	}
+	journalPayload, err := marshalJournal(testJournal(t))
+	if err != nil {
+		t.Fatalf("marshalJournal() error = %v", err)
+	}
+
+	fingerprint := sha256.New()
+	for _, artifact := range []struct {
+		name    string
+		payload []byte
+	}{
+		{name: "manifest", payload: manifestPayload},
+		{name: "control", payload: controlPayload},
+		{name: "journal", payload: journalPayload},
+	} {
+		if _, err := fmt.Fprintf(fingerprint, "%s:%d:", artifact.name, len(artifact.payload)); err != nil {
+			t.Fatalf("write %s fingerprint prefix: %v", artifact.name, err)
+		}
+		if _, err := fingerprint.Write(artifact.payload); err != nil {
+			t.Fatalf("write %s fingerprint payload: %v", artifact.name, err)
+		}
+	}
+	got := fmt.Sprintf("%x", fingerprint.Sum(nil))
+	const want = "44f5c4a3b75b3f1944f78041ab31a1cc0abf33003b4077ec07ddde705455346a"
+	if got != want {
+		t.Fatalf("v1 durable config model fingerprint = %q, want %q; format changes require a versioned compatibility design", got, want)
+	}
+}
 
 func TestManifestCanonicalEncodingIgnoresInsertionOrderAndMetadataNoise(t *testing.T) {
 	a := testManifest([]Entry{

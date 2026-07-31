@@ -1,6 +1,6 @@
 # Nginx UIX
 
-Nginx UIX 是面向单节点 HTTP/HTTPS Nginx 的安全管理界面。当前已完成 **v0.7.0 Docker 一体化统一验证版**：产品功能在 v0.6.0 冻结，本版本完成最终镜像、容器生命周期、持久化升级、故障恢复、安全边界、浏览器、供应链和多架构验收。
+Nginx UIX 是面向单节点 HTTP/HTTPS Nginx 的安全管理界面。当前正在实施 **v1.0.0 稳定版**：v0.7.0 已完成最终镜像、容器生命周期、持久化升级、故障恢复、安全边界、浏览器、供应链和多架构统一验证；v1.0.0 已冻结 REST API v1、持久化配置模型和历史 migration，并完成当前 arm64 候选的重复恢复、稳定运行和候选版手册主体，正在补齐真实 amd64、最终扫描与不可变发布证据。
 
 ## 当前能力
 
@@ -25,7 +25,7 @@ v1.0 范围固定为单节点 Nginx。项目不提供集群、Kubernetes、WAF�
 
 ## 发布与 Docker 边界
 
-v0.7.0 已在原生 arm64 Docker daemon 上通过完整容器验收，并完成 amd64/arm64 OCI、SBOM 和静态一致性验证。由于当前没有真实 amd64 runner，amd64 原生运行明确记录为未运行。该版本只形成经过验证的本地候选，没有推送远端镜像或创建不可变发布 tag；正式发布属于 v1.0.0。
+v0.7.0 已在原生 arm64 Docker daemon 上通过完整容器验收，并完成 amd64/arm64 OCI、SBOM 和静态一致性验证。当前源码版本已同步为 `1.0.0`；当前 exact arm64 候选的 smoke、workspace、fault、security、ACME、精确 v0.7.0 直升、v0.6.0 长链、双持久根冷备、固定 10 轮发布/恢复和固定 600 秒/60 样本稳定运行均已通过。固定工具链 GitHub Actions 已就绪但尚未在空远端运行；真实 amd64、最终多架构 SBOM/漏洞扫描和不可变远端 tag/digest 仍是阻断门禁。
 
 目标镜像固定暴露 Nginx `80/443` 和 UI `9000`，并持久化：
 
@@ -46,6 +46,12 @@ go test ./...
 go test -race ./...
 go vet ./...
 golangci-lint run
+
+export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+. "$NVM_DIR/nvm.sh"
+nvm use 24.17.0
+test "$(node --version)" = "v24.17.0"
+test "$(npm --version)" = "11.13.0"
 npm --prefix web ci
 npm --prefix web run lint
 npm --prefix web run typecheck
@@ -74,9 +80,17 @@ readiness 失败返回 503。只要 liveness 仍可用，管理员可登录查�
 
 ## 文档入口
 
+- [Apache License 2.0](LICENSE)
+- [安全策略与私密漏洞报告](SECURITY.md)
 - [v0.6.0 发布候选设计](docs/superpowers/specs/2026-07-22-v0.6-release-candidate-design.md)
 - [v0.7.0 Docker 一体化统一验证设计](docs/superpowers/specs/2026-07-22-v0.7-docker-validation-design.md)
 - [v0.7.0 验收证据](docs/release/v0.7.0-verification.md)
+- [v1.0.0 稳定版设计与发布规格](docs/superpowers/specs/2026-07-31-v1.0-stable-release-design.md)
+- [v1.0.0 发布阻断项审计](docs/review/2026-07-31-v1.0-release-blockers.md)
+- [v1.0.0 验收记录（进行中）](docs/release/v1.0.0-verification.md)
+- [用户手册](docs/operations/user-guide.md)
+- [管理员手册](docs/operations/administrator-guide.md)
+- [故障恢复手册](docs/operations/failure-recovery-guide.md)
 - [安装与验收](docs/operations/installation.md)
 - [升级与回滚](docs/operations/upgrade-and-rollback.md)
 - [冷备与灾难恢复](docs/operations/backup-and-disaster-recovery.md)
@@ -86,4 +100,4 @@ readiness 失败返回 503。只要 liveness 仍可用，管理员可登录查�
 - [视觉与交互规范](DESIGN.md)
 - [REST API 契约](api/v1/openapi.yaml)
 
-历史版本的设计与验收记录继续保留在 `docs/superpowers/specs/` 和 `docs/release/`，但不能替代 v0.7.0 当前工作树的最终 Docker 证据。
+历史版本的设计与验收记录继续保留在 `docs/superpowers/specs/` 和 `docs/release/`，但不能替代 v1.0.0 当前候选的正式发布证据。

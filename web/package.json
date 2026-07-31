@@ -1,7 +1,8 @@
 {
   "name": "nginx-uix-web",
   "private": true,
-  "version": "0.7.0",
+  "version": "1.0.0",
+  "license": "Apache-2.0",
   "type": "module",
   "packageManager": "npm@11.13.0",
   "engines": {
@@ -44,5 +45,10 @@
     "vite": "8.1.4",
     "vitest": "4.1.10",
     "vue-tsc": "3.3.7"
+  },
+  "overrides": {
+    "@vue/test-utils": {
+      "js-beautify": "2.0.3"
+    }
   }
 }

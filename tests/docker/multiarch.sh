@@ -235,6 +235,9 @@ build_platform_oci_once() {
   if [ -n "${BUILD_STEP_NO_PROXY:-}" ]; then
     set -- "$@" --build-arg "no_proxy=${BUILD_STEP_NO_PROXY}"
   fi
+  if [ -n "${BUILD_STEP_GOPROXY:-}" ]; then
+    set -- "$@" --build-arg "GOPROXY=${BUILD_STEP_GOPROXY}"
+  fi
   set -- "$@" --file deploy/docker/Dockerfile .
 
   if ! "$@"; then
@@ -472,6 +475,7 @@ verify_platform_layout() (
     '.os == "linux" and .architecture == $arch and
      .config.Labels["org.opencontainers.image.version"] == $version and
      .config.Labels["org.opencontainers.image.revision"] == $revision and
+     .config.Labels["org.opencontainers.image.licenses"] == "Apache-2.0" and
      .config.Labels["io.nginx-uix.source-fingerprint"] == $source and
      .config.Labels["io.nginx-uix.build-identity"] == $identity and
      .config.Labels["io.nginx-uix.reproducible-epoch"] == $epoch and
@@ -772,9 +776,25 @@ run_workspace_suite() {
 run_upgrade_suite() {
   suite_image=$1
   suite_arch=$2
-  log "running v0.6 upgrade and cold-backup recovery suite for native linux/${suite_arch}"
+  log "running v0.6 long-chain and v0.7 direct upgrade/recovery suites for native linux/${suite_arch}"
   IMAGE="${suite_image}" PLATFORM="linux/${suite_arch}" BUILD_IMAGE=0 \
-    "${SCRIPT_DIR}/upgrade.sh"
+    "${SCRIPT_DIR}/upgrade_compatibility.sh"
+}
+
+run_repeated_recovery_suite() {
+  suite_image=$1
+  suite_arch=$2
+  log "running fixed ten-round publication/recovery suite for native linux/${suite_arch}"
+  IMAGE="${suite_image}" PLATFORM="linux/${suite_arch}" BUILD_IMAGE=0 \
+    "${SCRIPT_DIR}/repeated_recovery.sh"
+}
+
+run_stability_suite() {
+  suite_image=$1
+  suite_arch=$2
+  log "running fixed 600-second stability suite for native linux/${suite_arch}"
+  IMAGE="${suite_image}" PLATFORM="linux/${suite_arch}" BUILD_IMAGE=0 \
+    "${SCRIPT_DIR}/stability.sh"
 }
 
 run_security_suite() {
@@ -909,9 +929,12 @@ require_executable "${SCRIPT_DIR}/smoke.sh"
 require_executable "${SCRIPT_DIR}/faults.sh"
 require_executable "${SCRIPT_DIR}/workspace.sh"
 require_executable "${SCRIPT_DIR}/upgrade.sh"
+require_executable "${SCRIPT_DIR}/upgrade_compatibility.sh"
+require_executable "${SCRIPT_DIR}/repeated_recovery.sh"
+require_executable "${SCRIPT_DIR}/stability.sh"
 require_executable "${SCRIPT_DIR}/security.sh"
 require_executable "${SCRIPT_DIR}/acme.sh"
-[ "${VERSION}" = '0.7.0' ] || fail "unexpected release version: ${VERSION}"
+[ "${VERSION}" = '1.0.0' ] || fail "unexpected release version: ${VERSION}"
 [ -n "${NATIVE_IMAGE}" ] || fail 'NATIVE_IMAGE is required and is never rebuilt by multiarch.sh'
 case "${SBOM_GENERATOR}" in
   *@sha256:*) SBOM_GENERATOR_DIGEST=${SBOM_GENERATOR##*@sha256:} ;;
@@ -1022,6 +1045,8 @@ if [ "${HOST_ARCH}" = amd64 ]; then
   run_fault_suite "${NATIVE_IMAGE}" amd64
   run_workspace_suite "${NATIVE_IMAGE}" amd64
   run_upgrade_suite "${NATIVE_IMAGE}" amd64
+  run_repeated_recovery_suite "${NATIVE_IMAGE}" amd64
+  run_stability_suite "${NATIVE_IMAGE}" amd64
   run_security_suite "${NATIVE_IMAGE}" amd64
   run_acme_suite "${NATIVE_IMAGE}" amd64
   AMD64_WORKSPACE_RESULT='passed'
@@ -1030,6 +1055,8 @@ else
   run_fault_suite "${NATIVE_IMAGE}" arm64
   run_workspace_suite "${NATIVE_IMAGE}" arm64
   run_upgrade_suite "${NATIVE_IMAGE}" arm64
+  run_repeated_recovery_suite "${NATIVE_IMAGE}" arm64
+  run_stability_suite "${NATIVE_IMAGE}" arm64
   run_security_suite "${NATIVE_IMAGE}" arm64
   run_acme_suite "${NATIVE_IMAGE}" arm64
   ARM64_WORKSPACE_RESULT='passed'
@@ -1071,4 +1098,5 @@ printf 'linux_arm64_sbom=%s packages=%s predicate=https://spdx.dev/Document\n' \
   "${ARM64_SBOM_DIGEST}" "${ARM64_SBOM_PACKAGES}"
 printf 'playwright=82/82 conditional_skip=1_docker_workspace\n'
 printf 'native_upgrade=passed native_security=passed native_acme=passed\n'
+printf 'native_repeated_recovery=passed native_stability=passed\n'
 printf 'browser_isolation=release-added-layers+final-filesystem\n'

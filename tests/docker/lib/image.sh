@@ -328,6 +328,9 @@ ensure_test_image() {
         if [ -n "${BUILD_STEP_NO_PROXY:-}" ]; then
             set -- "$@" --build-arg "no_proxy=${BUILD_STEP_NO_PROXY}"
         fi
+        if [ -n "${BUILD_STEP_GOPROXY:-}" ]; then
+            set -- "$@" --build-arg "GOPROXY=${BUILD_STEP_GOPROXY}"
+        fi
         if [ "${ensure_driver}" = docker-container ]; then
             set -- "$@" --cache-to "type=local,dest=${ensure_staging_cache},mode=max"
             if [ -n "${BUILDX_CACHE_FROM_CURRENT}" ]; then

@@ -14,9 +14,20 @@ cd "${REPOSITORY_ROOT}"
 # shellcheck source=lib/image.sh
 . "${SCRIPT_DIR}/lib/image.sh"
 
-IMAGE=${IMAGE:-nginx-uix:0.7.0-test}
+PROJECT_VERSION=$(tr -d '\r\n' <"${REPOSITORY_ROOT}/VERSION")
+IMAGE=${IMAGE:-nginx-uix:${PROJECT_VERSION}-test}
 BUILD_IMAGE=${BUILD_IMAGE:-0}
 WORKSPACE_PROFILE=${WORKSPACE_PROFILE:-full}
+REPEAT_TOTAL_ROUNDS=${REPEAT_TOTAL_ROUNDS:-}
+REPEAT_BATCH=${REPEAT_BATCH:-}
+REPEAT_BATCH_ROUNDS=5
+SOAK_DURATION_SECONDS=600
+SOAK_INTERVAL_SECONDS=10
+SOAK_EXPECTED_SAMPLES=60
+SOAK_MAX_MEMORY_BYTES=268435456
+SOAK_MAX_MEMORY_GROWTH_BYTES=67108864
+SOAK_MAX_PIDS=64
+SOAK_MAX_PID_GROWTH=4
 V01_SOURCE_REF=${V01_SOURCE_REF:-d1446e8}
 V01_IMAGE=${V01_IMAGE:-nginx-uix:0.1.0-upgrade-seed}
 PLAYWRIGHT_IMAGE='mcr.microsoft.com/playwright:v1.61.0-noble@sha256:57b65fdc9ceabe0ef613124c7bbe2babcf9362c4d85e382fe3b03604e84b428a'
@@ -518,9 +529,10 @@ stop_main_container() {
 copy_database() {
   database_directory=$1
   mkdir "${database_directory}"
-  run_bounded 30 docker cp "${MAIN_CONTAINER}:/var/lib/nginx-uix/." "${database_directory}" >/dev/null ||
-    fail 'could not copy the stopped SQLite data volume'
   database_file="${database_directory}/nginx-uix.db"
+  run_bounded 30 docker cp \
+    "${MAIN_CONTAINER}:/var/lib/nginx-uix/nginx-uix.db" "${database_file}" >/dev/null ||
+    fail 'could not copy the stopped SQLite database'
   [ -f "${database_file}" ] || fail 'SQLite database was absent from the data volume'
   [ "$(sqlite3 "${database_file}" 'PRAGMA integrity_check;')" = ok ] ||
     fail 'SQLite integrity_check failed'
@@ -555,17 +567,17 @@ verify_upgrade() {
   [ "$(fixture_digest)" = "${FIXTURE_DIGEST}" ] || fail 'v0.1 startup overwrote preexisting configuration bytes'
   stop_main_container 'v0.1 upgrade fixture'
 
-  log 'starting v0.7.0 on the same configuration and data volumes'
+  log "starting v${PROJECT_VERSION} on the same configuration and data volumes"
   start_main_container "${IMAGE}"
   api_get "${BASE_URL}/api/v1/auth/session" "${WORK_DIR}/upgraded-session.json"
   jq -e --arg username "${ADMIN_USERNAME}" '.user.username == $username and (.csrf_token | type == "string" and length > 20)' \
-    "${WORK_DIR}/upgraded-session.json" >/dev/null || fail 'v0.1 user/session did not survive the v0.7 upgrade'
+    "${WORK_DIR}/upgraded-session.json" >/dev/null || fail 'v0.1 user/session did not survive the v1.0 upgrade'
   api_get "${BASE_URL}/api/v1/system/status" "${WORK_DIR}/upgraded-status.json"
   api_get "${BASE_URL}/api/v1/nginx/effective-config" "${WORK_DIR}/upgraded-effective.json"
   assert_workspace_root_permissions
-  [ "$(fixture_digest)" = "${FIXTURE_DIGEST}" ] || fail 'v0.7 upgrade overwrote preexisting configuration bytes'
+  [ "$(fixture_digest)" = "${FIXTURE_DIGEST}" ] || fail 'v1.0 upgrade overwrote preexisting configuration bytes'
 
-  stop_main_container 'v0.7 migration inspection'
+  stop_main_container 'v1.0 migration inspection'
   copy_database "${WORK_DIR}/upgraded-database"
   assert_upgrade_database "${WORK_DIR}/upgraded-database/nginx-uix.db"
   start_main_container "${IMAGE}"
@@ -756,7 +768,7 @@ assert_workspace_disk_separation() {
 }
 
 verify_workspace_recreation() {
-  log 'recreating v0.7.0 with the same configuration and data volumes'
+  log "recreating v${PROJECT_VERSION} with the same configuration and data volumes"
   stop_main_container 'workspace persistence recreation'
   start_main_container "${IMAGE}"
   login recreate-login
@@ -1175,6 +1187,517 @@ queue_workspace_release() {
     "${WORK_DIR}/${release_prefix}.response.json")
 }
 
+verify_repeated_recovery_resources() {
+  repeat_backup_count=$((REPEAT_BATCH_ROUNDS * 2))
+  repeat_audit_minimum=$((REPEAT_BATCH_ROUNDS * 2))
+
+  api_get "${BASE_URL}/api/v1/config/workspaces" "${WORK_DIR}/repeat-workspaces.json"
+  jq -e --argjson rounds "${REPEAT_BATCH_ROUNDS}" --arg prefix "repeat-${RUN_RANDOM}-" '
+    (.workspaces | length) == $rounds and
+    all(.workspaces[]; .state == "published" and (.name | startswith($prefix)))
+  ' "${WORK_DIR}/repeat-workspaces.json" >/dev/null ||
+    fail 'repeated recovery workspace evidence is incomplete'
+
+  api_get "${BASE_URL}/api/v1/config/history/releases?limit=100" \
+    "${WORK_DIR}/repeat-release-history.json"
+  jq -e --argjson rounds "${REPEAT_BATCH_ROUNDS}" '
+    (.items | length) == $rounds and all(.items[]; .state == "succeeded")
+  ' "${WORK_DIR}/repeat-release-history.json" >/dev/null ||
+    fail 'repeated recovery release history is incomplete'
+
+  api_get "${BASE_URL}/api/v1/config/history/restores?limit=100" \
+    "${WORK_DIR}/repeat-restore-history.json"
+  jq -e --argjson rounds "${REPEAT_BATCH_ROUNDS}" '
+    (.items | length) == $rounds and all(.items[]; .state == "succeeded")
+  ' "${WORK_DIR}/repeat-restore-history.json" >/dev/null ||
+    fail 'repeated recovery restore history is incomplete'
+
+  api_get "${BASE_URL}/api/v1/config/backups?limit=100" "${WORK_DIR}/repeat-backups.json"
+  jq -e --argjson expected "${repeat_backup_count}" '
+    (.items | length) == $expected and
+    all(.items[]; .state == "complete" and .body_present == true)
+  ' "${WORK_DIR}/repeat-backups.json" >/dev/null ||
+    fail 'repeated recovery backup inventory is incomplete'
+
+  api_get "${BASE_URL}/api/v1/config/audit-events?limit=100" "${WORK_DIR}/repeat-audit.json"
+  jq -e --argjson minimum "${repeat_audit_minimum}" '
+    (.items | length) >= $minimum and all(.items[]; (.details | type) == "object")
+  ' "${WORK_DIR}/repeat-audit.json" >/dev/null ||
+    fail 'repeated recovery audit evidence is incomplete or not redacted'
+
+  docker exec "${MAIN_CONTAINER}" /bin/sh -eu -c '
+    test -z "$(find /var/lib/nginx-uix/releases -maxdepth 1 -type d -name ".candidate-*" -print -quit)"
+    test -z "$(find /var/lib/nginx-uix/restores -mindepth 2 -maxdepth 2 -type d -name validation -print -quit)"
+    test -z "$(find /var/lib/nginx-uix/workspaces -mindepth 2 -maxdepth 2 -type d -name "base.stage-*" -print -quit)"
+  ' || fail 'repeated recovery left a candidate, validation, or workspace stage behind'
+}
+
+verify_repeated_recovery_database() {
+  stop_main_container 'repeated recovery database inspection'
+  copy_database "${WORK_DIR}/repeat-database"
+  repeat_database="${WORK_DIR}/repeat-database/nginx-uix.db"
+  [ -z "$(sqlite3 "${repeat_database}" 'PRAGMA foreign_key_check;')" ] ||
+    fail 'repeated recovery SQLite foreign_key_check failed'
+  repeat_migrations=$(sqlite3 "${repeat_database}" \
+    "SELECT COALESCE(group_concat(version, ','), '') FROM (SELECT version FROM schema_migrations ORDER BY version);")
+  [ "${repeat_migrations}" = '1,2,3,4,5,6,7' ] ||
+    fail 'repeated recovery database migrations are not exactly [1..7]'
+  [ "$(sqlite3 "${repeat_database}" 'SELECT COUNT(*) FROM config_workspaces;')" = "${REPEAT_BATCH_ROUNDS}" ] ||
+    fail 'repeated recovery database lost a published workspace'
+  [ "$(sqlite3 "${repeat_database}" "SELECT COUNT(*) FROM config_workspaces WHERE state = 'published';")" = "${REPEAT_BATCH_ROUNDS}" ] ||
+    fail 'repeated recovery database contains a non-published workspace'
+  [ "$(sqlite3 "${repeat_database}" "SELECT COUNT(*) FROM config_releases WHERE state = 'succeeded';")" = "${REPEAT_BATCH_ROUNDS}" ] ||
+    fail 'repeated recovery database lost a successful release'
+  [ "$(sqlite3 "${repeat_database}" "SELECT COUNT(*) FROM config_restores WHERE state = 'succeeded';")" = "${REPEAT_BATCH_ROUNDS}" ] ||
+    fail 'repeated recovery database lost a successful restore'
+  repeat_backup_count=$((REPEAT_BATCH_ROUNDS * 2))
+  [ "$(sqlite3 "${repeat_database}" "SELECT COUNT(*) FROM config_backups WHERE state = 'complete' AND body_present = 1;")" = "${repeat_backup_count}" ] ||
+    fail 'repeated recovery database lost a complete backup'
+  [ "$(sqlite3 "${repeat_database}" "SELECT COUNT(*) FROM config_release_stages WHERE stage = 'committed' AND result = 'success';")" = "${REPEAT_BATCH_ROUNDS}" ] ||
+    fail 'repeated recovery database lost a committed release stage'
+  [ "$(sqlite3 "${repeat_database}" "SELECT COUNT(*) FROM config_restore_stages WHERE stage = 'succeeded' AND result = 'success';")" = "${REPEAT_BATCH_ROUNDS}" ] ||
+    fail 'repeated recovery database lost a successful restore stage'
+  [ "$(sqlite3 "${repeat_database}" "SELECT COUNT(*) FROM config_releases WHERE state IN ('queued', 'running', 'rolling_back');")" = 0 ] ||
+    fail 'repeated recovery database retained an active release'
+  [ "$(sqlite3 "${repeat_database}" "SELECT COUNT(*) FROM config_restores WHERE state IN ('queued', 'running', 'rolling_back');")" = 0 ] ||
+    fail 'repeated recovery database retained an active restore'
+  [ "$(sqlite3 "${repeat_database}" \
+    'SELECT COUNT(*) FROM config_production_lease WHERE owner_type IS NULL AND owner_id IS NULL AND acquired_at IS NULL;')" = 1 ] ||
+    fail 'repeated recovery database retained the production lease'
+  repeat_audit_minimum=$((REPEAT_BATCH_ROUNDS * 2))
+  [ "$(sqlite3 "${repeat_database}" 'SELECT COUNT(*) FROM audit_events;')" -ge "${repeat_audit_minimum}" ] ||
+    fail 'repeated recovery database lost audit history'
+
+  start_main_container "${IMAGE}"
+  login repeat-recreate-login
+  while IFS= read -r repeat_release_id; do
+    api_get "${BASE_URL}/api/v1/config/releases/${repeat_release_id}" \
+      "${WORK_DIR}/repeat-release-${repeat_release_id}.json"
+    jq -e '.state == "succeeded" and .stage == "committed"' \
+      "${WORK_DIR}/repeat-release-${repeat_release_id}.json" >/dev/null ||
+      fail 'recreated container lost a successful release'
+  done <"${WORK_DIR}/repeat-release.ids"
+  while IFS= read -r repeat_restore_id; do
+    api_get "${BASE_URL}/api/v1/config/restores/${repeat_restore_id}" \
+      "${WORK_DIR}/repeat-restore-${repeat_restore_id}.json"
+    jq -e '.state == "succeeded" and .stage == "succeeded"' \
+      "${WORK_DIR}/repeat-restore-${repeat_restore_id}.json" >/dev/null ||
+      fail 'recreated container lost a successful restore'
+  done <"${WORK_DIR}/repeat-restore.ids"
+  while IFS= read -r repeat_backup_id; do
+    api_get "${BASE_URL}/api/v1/config/backups/${repeat_backup_id}" \
+      "${WORK_DIR}/repeat-backup-${repeat_backup_id}.json"
+    jq -e '.state == "complete" and .body_present == true' \
+      "${WORK_DIR}/repeat-backup-${repeat_backup_id}.json" >/dev/null ||
+      fail 'recreated container lost a complete backup'
+  done <"${WORK_DIR}/repeat-backup.ids"
+  while IFS= read -r repeat_workspace_id; do
+    api_get "${BASE_URL}/api/v1/config/workspaces/${repeat_workspace_id}" \
+      "${WORK_DIR}/repeat-workspace-${repeat_workspace_id}.json"
+    jq -e '.state == "published"' "${WORK_DIR}/repeat-workspace-${repeat_workspace_id}.json" >/dev/null ||
+      fail 'recreated container lost a published workspace'
+  done <"${WORK_DIR}/repeat-workspace.ids"
+  api_get "${BASE_URL}/api/v1/nginx/effective-config" "${WORK_DIR}/repeat-recreated-effective.json"
+  while IFS= read -r repeat_marker; do
+    jq -e --arg marker "${repeat_marker}" \
+      'all(.occurrences[]; ((.content | contains($marker)) | not))' \
+      "${WORK_DIR}/repeat-recreated-effective.json" >/dev/null ||
+      fail 'recreated container exposed a marker that should have been restored'
+  done <"${WORK_DIR}/repeat-markers"
+  [ "$(fixture_digest)" = "${FIXTURE_DIGEST}" ] ||
+    fail 'recreated container changed the restored production bytes'
+  wait_ready "${MAIN_CONTAINER}" "${BASE_URL}" 30 ||
+    fail 'recreated repeated recovery container was not ready'
+  verify_repeated_recovery_resources
+}
+
+exercise_repeated_release_restore() {
+  log "exercising repeated recovery batch ${REPEAT_BATCH}: ${REPEAT_BATCH_ROUNDS} fixed publish, reload, backup and manual-restore rounds"
+  : >"${WORK_DIR}/repeat-release.ids"
+  : >"${WORK_DIR}/repeat-restore.ids"
+  : >"${WORK_DIR}/repeat-backup.ids"
+  : >"${WORK_DIR}/repeat-workspace.ids"
+  : >"${WORK_DIR}/repeat-markers"
+
+  repeat_batch_round=1
+  REPEAT_MASTER_PID=
+  REPEAT_BASELINE_PRODUCTION_DIGEST=
+  while [ "${repeat_batch_round}" -le "${REPEAT_BATCH_ROUNDS}" ]; do
+    repeat_round=$(((REPEAT_BATCH - 1) * REPEAT_BATCH_ROUNDS + repeat_batch_round))
+    repeat_prefix="repeat-${REPEAT_BATCH}-${repeat_batch_round}"
+    repeat_workspace_name="repeat-${RUN_RANDOM}-${repeat_round}"
+    repeat_marker="repeat-release-round-${repeat_round}-${RUN_RANDOM}"
+    create_workspace "${repeat_workspace_name}" "${repeat_prefix}-create"
+    repeat_workspace_id=${CREATE_WORKSPACE_ID}
+    repeat_workspace_etag=${CREATE_WORKSPACE_ETAG}
+    if [ -z "${REPEAT_BASELINE_PRODUCTION_DIGEST}" ]; then
+      REPEAT_BASELINE_PRODUCTION_DIGEST=${CREATE_PRODUCTION_DIGEST}
+    fi
+    [ "${CREATE_PRODUCTION_DIGEST}" = "${REPEAT_BASELINE_PRODUCTION_DIGEST}" ] ||
+      fail "repeat round ${repeat_round} did not start from the restored production digest"
+
+    api_get "${BASE_URL}/api/v1/config/workspaces/${repeat_workspace_id}/files?path=conf.d%2Fsite.conf" \
+      "${WORK_DIR}/${repeat_prefix}-site.json"
+    jq --arg marker "${repeat_marker}" '{content:(.content + "\n# " + $marker + "\n")}' \
+      "${WORK_DIR}/${repeat_prefix}-site.json" >"${WORK_DIR}/${repeat_prefix}-site.request.json"
+    api_mutation PUT \
+      "${BASE_URL}/api/v1/config/workspaces/${repeat_workspace_id}/files?path=conf.d%2Fsite.conf" \
+      "${WORK_DIR}/${repeat_prefix}-site.request.json" "${repeat_workspace_etag}" 200 \
+      "${repeat_prefix}-site"
+    repeat_workspace_etag=$(workspace_etag_from_body "${WORK_DIR}/${repeat_prefix}-site.response.json")
+
+    repeat_before_status=$(status_signature "${WORK_DIR}/${repeat_prefix}-before.status.json")
+    repeat_before_master=$(printf '%s\n' "${repeat_before_status}" | jq -er '.master')
+    repeat_before_workers=$(printf '%s\n' "${repeat_before_status}" | jq -ecS '.workers')
+    if [ -z "${REPEAT_MASTER_PID}" ]; then
+      REPEAT_MASTER_PID=${repeat_before_master}
+    fi
+    [ "${repeat_before_master}" = "${REPEAT_MASTER_PID}" ] ||
+      fail "repeat round ${repeat_round} changed the Nginx master before publication"
+
+    queue_workspace_release "${repeat_prefix}-release" "${repeat_workspace_id}" \
+      "${repeat_workspace_name}" "${repeat_workspace_etag}"
+    repeat_release_id=${QUEUED_RELEASE_ID}
+    wait_terminal_resource "${BASE_URL}/api/v1/config/releases/${repeat_release_id}" \
+      "${repeat_prefix}-release" 150
+    if ! jq -e '
+      .state == "succeeded" and .stage == "committed" and
+      (.backup_id | test("^[0-9a-f]{32}$")) and
+      any(.stages[]; .stage == "backup_verified" and .result == "success") and
+      any(.stages[]; .stage == "reload_requested" and .result == "success") and
+      any(.stages[]; .stage == "runtime_confirmed" and .result == "success")
+    ' "${TASK_FILE}" >/dev/null; then
+      jq -c '{state,stage,last_error_code,stages:[.stages[] | {stage,result,code}]}' "${TASK_FILE}" >&2
+      fail "repeat round ${repeat_round} release did not commit"
+    fi
+    repeat_backup_id=$(jq -er '.backup_id' "${TASK_FILE}")
+    printf '%s\n' "${repeat_release_id}" >>"${WORK_DIR}/repeat-release.ids"
+    printf '%s\n' "${repeat_backup_id}" >>"${WORK_DIR}/repeat-backup.ids"
+    printf '%s\n' "${repeat_workspace_id}" >>"${WORK_DIR}/repeat-workspace.ids"
+    printf '%s\n' "${repeat_marker}" >>"${WORK_DIR}/repeat-markers"
+
+    api_get "${BASE_URL}/api/v1/config/backups/${repeat_backup_id}" \
+      "${WORK_DIR}/${repeat_prefix}-release-backup.json"
+    jq -e '.state == "complete" and .body_present == true' \
+      "${WORK_DIR}/${repeat_prefix}-release-backup.json" >/dev/null ||
+      fail "repeat round ${repeat_round} release backup is incomplete"
+    repeat_release_status=$(status_signature "${WORK_DIR}/${repeat_prefix}-release.status.json")
+    repeat_release_master=$(printf '%s\n' "${repeat_release_status}" | jq -er '.master')
+    repeat_release_workers=$(printf '%s\n' "${repeat_release_status}" | jq -ecS '.workers')
+    [ "${repeat_release_master}" = "${REPEAT_MASTER_PID}" ] ||
+      fail "repeat round ${repeat_round} publication replaced the Nginx master"
+    [ "${repeat_release_workers}" != "${repeat_before_workers}" ] ||
+      fail "repeat round ${repeat_round} publication did not replace Nginx workers"
+    [ "$(fixture_digest)" != "${FIXTURE_DIGEST}" ] ||
+      fail "repeat round ${repeat_round} publication did not change production bytes"
+    api_get "${BASE_URL}/api/v1/nginx/effective-config" \
+      "${WORK_DIR}/${repeat_prefix}-published-effective.json"
+    jq -e --arg marker "${repeat_marker}" \
+      'any(.occurrences[]; (.content | contains($marker)))' \
+      "${WORK_DIR}/${repeat_prefix}-published-effective.json" >/dev/null ||
+      fail "repeat round ${repeat_round} marker was absent after publication"
+
+    jq -n --arg backup_id "${repeat_backup_id}" \
+      --arg reason "v1.0 repeated recovery round ${repeat_round}" \
+      '{attention_case_id:"",reason:$reason,confirm_backup_id:$backup_id}' \
+      >"${WORK_DIR}/${repeat_prefix}-restore.request.json"
+    api_mutation POST "${BASE_URL}/api/v1/config/backups/${repeat_backup_id}/restores" \
+      "${WORK_DIR}/${repeat_prefix}-restore.request.json" '' 202 "${repeat_prefix}-restore"
+    repeat_restore_id=$(jq -er '.id | select(test("^[0-9a-f]{32}$"))' \
+      "${WORK_DIR}/${repeat_prefix}-restore.response.json")
+    wait_terminal_resource "${BASE_URL}/api/v1/config/restores/${repeat_restore_id}" \
+      "${repeat_prefix}-restore" 150
+    if ! jq -e --arg backup_id "${repeat_backup_id}" '
+      .state == "succeeded" and .stage == "succeeded" and .target_backup_id == $backup_id and
+      (.safety_backup_id | test("^[0-9a-f]{32}$")) and
+      any(.stages[]; .stage == "target_validated" and .result == "success") and
+      any(.stages[]; .stage == "safety_backup_verified" and .result == "success") and
+      any(.stages[]; .stage == "reload_requested" and .result == "success") and
+      any(.stages[]; .stage == "runtime_confirmed" and .result == "success")
+    ' "${TASK_FILE}" >/dev/null; then
+      jq -c '{state,stage,last_error_code,stages:[.stages[] | {stage,result,code}]}' "${TASK_FILE}" >&2
+      fail "repeat round ${repeat_round} restore did not succeed"
+    fi
+    repeat_safety_backup_id=$(jq -er '.safety_backup_id' "${TASK_FILE}")
+    printf '%s\n' "${repeat_restore_id}" >>"${WORK_DIR}/repeat-restore.ids"
+    printf '%s\n' "${repeat_safety_backup_id}" >>"${WORK_DIR}/repeat-backup.ids"
+    api_get "${BASE_URL}/api/v1/config/backups/${repeat_safety_backup_id}" \
+      "${WORK_DIR}/${repeat_prefix}-safety-backup.json"
+    jq -e '.state == "complete" and .body_present == true' \
+      "${WORK_DIR}/${repeat_prefix}-safety-backup.json" >/dev/null ||
+      fail "repeat round ${repeat_round} safety backup is incomplete"
+
+    repeat_restore_status=$(status_signature "${WORK_DIR}/${repeat_prefix}-restore.status.json")
+    repeat_restore_master=$(printf '%s\n' "${repeat_restore_status}" | jq -er '.master')
+    repeat_restore_workers=$(printf '%s\n' "${repeat_restore_status}" | jq -ecS '.workers')
+    [ "${repeat_restore_master}" = "${REPEAT_MASTER_PID}" ] ||
+      fail "repeat round ${repeat_round} restore replaced the Nginx master"
+    [ "${repeat_restore_workers}" != "${repeat_release_workers}" ] ||
+      fail "repeat round ${repeat_round} restore did not replace Nginx workers"
+    [ "$(fixture_digest)" = "${FIXTURE_DIGEST}" ] ||
+      fail "repeat round ${repeat_round} restore did not recover exact production bytes"
+    wait_ready "${MAIN_CONTAINER}" "${BASE_URL}" 30 ||
+      fail "repeat round ${repeat_round} lost readiness after restore"
+    api_get "${BASE_URL}/api/v1/nginx/effective-config" \
+      "${WORK_DIR}/${repeat_prefix}-restored-effective.json"
+    jq -e --arg marker "${repeat_marker}" \
+      'all(.occurrences[]; ((.content | contains($marker)) | not))' \
+      "${WORK_DIR}/${repeat_prefix}-restored-effective.json" >/dev/null ||
+      fail "repeat round ${repeat_round} marker survived restore"
+    api_get "${BASE_URL}/api/v1/config/workspaces/${repeat_workspace_id}" \
+      "${WORK_DIR}/${repeat_prefix}-workspace.json"
+    jq -e '.state == "published"' "${WORK_DIR}/${repeat_prefix}-workspace.json" >/dev/null ||
+      fail "repeat round ${repeat_round} lost published workspace evidence"
+
+    pass "repeat round ${repeat_round}/${REPEAT_TOTAL_ROUNDS} published and restored exact production state"
+    repeat_batch_round=$((repeat_batch_round + 1))
+  done
+
+  verify_repeated_recovery_resources
+  verify_repeated_recovery_database
+  pass "repeat batch ${REPEAT_BATCH} preserved runtime, data and evidence across ${REPEAT_BATCH_ROUNDS} rounds"
+}
+
+stability_service_pid() {
+  soak_service_name=$1
+  soak_service_output=$2
+  run_bounded 5 docker exec "${MAIN_CONTAINER}" \
+    /command/s6-svstat -o pid "/run/service/${soak_service_name}" >"${soak_service_output}" ||
+    fail "could not read ${soak_service_name} service PID during stability sampling"
+  SOAK_SERVICE_PID=$(tr -d '\r\n' <"${soak_service_output}")
+  case "${SOAK_SERVICE_PID}" in
+    ''|*[!0-9]*) fail "${soak_service_name} service PID was invalid during stability sampling" ;;
+  esac
+}
+
+read_stability_metrics() {
+  soak_metrics_output=$1
+  run_bounded 5 docker exec "${MAIN_CONTAINER}" /bin/sh -eu -c '
+    memory_file=/sys/fs/cgroup/memory.current
+    pids_file=/sys/fs/cgroup/pids.current
+    test -r "${memory_file}"
+    test -r "${pids_file}"
+    oom_kills=$(awk '\''$1 == "oom_kill" { print $2 }'\'' /sys/fs/cgroup/memory.events)
+    case "${oom_kills}" in ""|*[!0-9]*) exit 1 ;; esac
+    printf "%s %s %s\n" "$(cat "${memory_file}")" "$(cat "${pids_file}")" "${oom_kills}"
+  ' >"${soak_metrics_output}" ||
+    fail 'could not read bounded cgroup v2 stability metrics'
+  IFS=' ' read -r SOAK_MEMORY SOAK_PIDS SOAK_OOM_KILLS <"${soak_metrics_output}"
+  for soak_metric in "${SOAK_MEMORY}" "${SOAK_PIDS}" "${SOAK_OOM_KILLS}"; do
+    case "${soak_metric}" in
+      ''|*[!0-9]*) fail 'container stability metric was not a non-negative integer' ;;
+    esac
+  done
+}
+
+wait_docker_healthy() {
+  soak_health_count=0
+  while [ "${soak_health_count}" -lt 30 ]; do
+    [ "$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{end}}' \
+      "${MAIN_CONTAINER}" 2>/dev/null || true)" = healthy ] && return 0
+    soak_health_count=$((soak_health_count + 1))
+    sleep 1
+  done
+  return 1
+}
+
+assert_stability_logs() {
+  soak_log_path=$1
+  capture_logs "${MAIN_CONTAINER}" "${soak_log_path}"
+  if grep -Eiq \
+    'panic:|fatal error:|level=error|"level":"error"|authentication state cleanup failed|finished with failure' \
+    "${soak_log_path}"; then
+    fail 'stability window contained a fatal, error, cleanup, or task-owner failure log'
+  fi
+}
+
+assert_stability_sample() {
+  soak_sample=$1
+  soak_live_code=$(curl --silent --connect-timeout 1 --max-time 3 \
+    --output /dev/null --write-out '%{http_code}' "${BASE_URL}/health/live" || true)
+  [ "${soak_live_code}" = 200 ] || fail "stability sample ${soak_sample} lost liveness"
+  soak_ready_code=$(curl --silent --connect-timeout 1 --max-time 3 \
+    --output /dev/null --write-out '%{http_code}' "${BASE_URL}/health/ready" || true)
+  [ "${soak_ready_code}" = 200 ] || fail "stability sample ${soak_sample} lost readiness"
+
+  soak_status=$(status_signature "${WORK_DIR}/stability-status.json")
+  [ "${soak_status}" = "${SOAK_BASELINE_STATUS}" ] ||
+    fail "stability sample ${soak_sample} changed Nginx process identity"
+  jq -e '.issues == [] and (.recovery == null or .recovery.permanent == false)' \
+    "${WORK_DIR}/stability-status.json" >/dev/null ||
+    fail "stability sample ${soak_sample} reported an issue or permanent recovery state"
+
+  stability_service_pid nginx-uix "${WORK_DIR}/stability-ui.pid"
+  [ "${SOAK_SERVICE_PID}" = "${SOAK_UI_PID}" ] ||
+    fail "stability sample ${soak_sample} replaced the UI process"
+  stability_service_pid nginx-uix-agent "${WORK_DIR}/stability-agent.pid"
+  [ "${SOAK_SERVICE_PID}" = "${SOAK_AGENT_PID}" ] ||
+    fail "stability sample ${soak_sample} replaced the Agent process"
+
+  soak_container_state=$(docker inspect --format \
+    '{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{end}}|{{.RestartCount}}|{{.State.OOMKilled}}' \
+    "${MAIN_CONTAINER}")
+  [ "${soak_container_state}" = 'running|healthy|0|false' ] ||
+    fail "stability sample ${soak_sample} found an unhealthy, restarted, or OOM-killed container"
+
+  read_stability_metrics "${WORK_DIR}/stability-metrics.current"
+  [ "${SOAK_MEMORY}" -le "${SOAK_MAX_MEMORY_BYTES}" ] ||
+    fail "stability sample ${soak_sample} exceeded the fixed memory ceiling"
+  [ "${SOAK_PIDS}" -le "${SOAK_MAX_PIDS}" ] ||
+    fail "stability sample ${soak_sample} exceeded the fixed PID ceiling"
+  [ "${SOAK_OOM_KILLS}" = 0 ] ||
+    fail "stability sample ${soak_sample} observed an OOM kill"
+
+  api_get "${BASE_URL}/api/v1/route-tests/${CLOSURE_ROUTE_RUN_ID}" \
+    "${WORK_DIR}/stability-route.json"
+  jq -e '
+    .state == "succeeded" and .stage == "completed" and
+    .terminal_result.agent_result.cleanup.master_reaped == true and
+    .terminal_result.agent_result.cleanup.port_closed == true and
+    .terminal_result.agent_result.cleanup.stage_removed == true
+  ' "${WORK_DIR}/stability-route.json" >/dev/null ||
+    fail "stability sample ${soak_sample} lost terminal Route Lab cleanup evidence"
+  api_get "${BASE_URL}/api/v1/certificate-tasks?limit=100" \
+    "${WORK_DIR}/stability-certificate-tasks.json"
+  jq -e '.tasks == []' "${WORK_DIR}/stability-certificate-tasks.json" >/dev/null ||
+    fail "stability sample ${soak_sample} found an unexpected certificate task"
+  api_get "${BASE_URL}/api/v1/certificates?limit=100" \
+    "${WORK_DIR}/stability-certificates.json"
+  jq -e '.certificates == []' "${WORK_DIR}/stability-certificates.json" >/dev/null ||
+    fail "stability sample ${soak_sample} found unexpected certificate inventory"
+  for soak_history in releases restores restarts; do
+    api_get "${BASE_URL}/api/v1/config/history/${soak_history}?limit=100" \
+      "${WORK_DIR}/stability-${soak_history}.json"
+    jq -e '.items == []' "${WORK_DIR}/stability-${soak_history}.json" >/dev/null ||
+      fail "stability sample ${soak_sample} found unexpected ${soak_history} history"
+  done
+
+  run_bounded 5 docker exec "${MAIN_CONTAINER}" /bin/sh -eu -c '
+    test -z "$(find /var/lib/nginx-uix/route-lab -mindepth 1 -print -quit)"
+    test -z "$(find /var/lib/nginx-uix/releases -maxdepth 1 -type d -name ".candidate-*" -print -quit)"
+    test -z "$(find /var/lib/nginx-uix/restores -mindepth 2 -maxdepth 2 -type d -name validation -print -quit)"
+    test -z "$(find /var/lib/nginx-uix/workspaces -mindepth 2 -maxdepth 2 -type d -name "base.stage-*" -print -quit)"
+  ' || fail "stability sample ${soak_sample} found a residual sandbox or transaction stage"
+
+  printf '%s\t%s\t%s\t%s\n' \
+    "${soak_sample}" "${SOAK_MEMORY}" "${SOAK_PIDS}" "${SOAK_OOM_KILLS}" \
+    >>"${WORK_DIR}/stability-samples.tsv"
+}
+
+verify_stability_database() {
+  stop_main_container 'stability database inspection'
+  copy_database "${WORK_DIR}/stability-database"
+  soak_database="${WORK_DIR}/stability-database/nginx-uix.db"
+  [ "$(sqlite3 "${soak_database}" 'PRAGMA integrity_check;')" = ok ] ||
+    fail 'stability SQLite integrity_check failed'
+  [ -z "$(sqlite3 "${soak_database}" 'PRAGMA foreign_key_check;')" ] ||
+    fail 'stability SQLite foreign_key_check failed'
+  soak_migrations=$(sqlite3 "${soak_database}" \
+    "SELECT COALESCE(group_concat(version, ','), '') FROM (SELECT version FROM schema_migrations ORDER BY version);")
+  [ "${soak_migrations}" = '1,2,3,4,5,6,7' ] ||
+    fail 'stability database migrations are not exactly [1..7]'
+  [ "$(sqlite3 "${soak_database}" 'SELECT COUNT(*) FROM config_workspaces;')" = 1 ] ||
+    fail 'stability database lost its durable workspace'
+  [ "$(sqlite3 "${soak_database}" "SELECT COUNT(*) FROM config_workspaces WHERE state = 'ready';")" = 1 ] ||
+    fail 'stability database workspace did not remain ready'
+  [ "$(sqlite3 "${soak_database}" 'SELECT COUNT(*) FROM route_lab_runs;')" = 1 ] ||
+    fail 'stability database lost its Route Lab evidence'
+  [ "$(sqlite3 "${soak_database}" "SELECT COUNT(*) FROM route_lab_runs WHERE state = 'succeeded' AND stage = 'completed';")" = 1 ] ||
+    fail 'stability database Route Lab task was not terminal'
+  [ "$(sqlite3 "${soak_database}" "SELECT COUNT(*) FROM route_lab_runs WHERE state IN ('queued', 'running');")" = 0 ] ||
+    fail 'stability database retained an active Route Lab task'
+  [ "$(sqlite3 "${soak_database}" "SELECT COUNT(*) FROM certificate_tasks WHERE state IN ('queued', 'running', 'cancelling');")" = 0 ] ||
+    fail 'stability database retained an active certificate task'
+  [ "$(sqlite3 "${soak_database}" "SELECT COUNT(*) FROM config_releases WHERE state IN ('queued', 'running', 'rolling_back');")" = 0 ] ||
+    fail 'stability database retained an active release'
+  [ "$(sqlite3 "${soak_database}" "SELECT COUNT(*) FROM config_restores WHERE state IN ('queued', 'running', 'rolling_back');")" = 0 ] ||
+    fail 'stability database retained an active restore'
+  [ "$(sqlite3 "${soak_database}" "SELECT COUNT(*) FROM config_restarts WHERE state IN ('queued', 'running');")" = 0 ] ||
+    fail 'stability database retained an active restart'
+  [ "$(sqlite3 "${soak_database}" "SELECT COUNT(*) FROM config_retention_runs WHERE state = 'executing';")" = 0 ] ||
+    fail 'stability database retained an active retention run'
+  [ "$(sqlite3 "${soak_database}" 'SELECT COUNT(*) FROM config_production_lease;')" = 1 ] ||
+    fail 'stability database lost its singleton production lease'
+  [ "$(sqlite3 "${soak_database}" \
+    'SELECT COUNT(*) FROM config_production_lease WHERE owner_type IS NULL AND owner_id IS NULL AND acquired_at IS NULL;')" = 1 ] ||
+    fail 'stability database retained a production-operation owner'
+
+  start_main_container "${IMAGE}"
+  login stability-recreate-login
+  wait_docker_healthy || fail 'recreated stability container did not become Docker-healthy'
+  [ -n "$(status_signature "${WORK_DIR}/stability-recreated-status.json")" ] ||
+    fail 'recreated stability container did not expose healthy process evidence'
+  api_get "${BASE_URL}/api/v1/route-tests/${CLOSURE_ROUTE_RUN_ID}" \
+    "${WORK_DIR}/stability-recreated-route.json"
+  jq -e '.state == "succeeded" and .stage == "completed"' \
+    "${WORK_DIR}/stability-recreated-route.json" >/dev/null ||
+    fail 'recreated stability container lost terminal Route Lab evidence'
+  api_get "${BASE_URL}/api/v1/certificate-tasks?limit=100" \
+    "${WORK_DIR}/stability-recreated-certificate-tasks.json"
+  jq -e '.tasks == []' "${WORK_DIR}/stability-recreated-certificate-tasks.json" >/dev/null ||
+    fail 'recreated stability container found an unexpected certificate task'
+  [ "$(fixture_digest)" = "${FIXTURE_DIGEST}" ] ||
+    fail 'stability recreation changed production fixture bytes'
+  run_bounded 5 docker exec "${MAIN_CONTAINER}" /bin/sh -eu -c \
+    'test -z "$(find /var/lib/nginx-uix/route-lab -mindepth 1 -print -quit)"' ||
+    fail 'recreated stability container retained a Route Lab sandbox'
+  assert_stability_logs "${WORK_DIR}/stability-recreated.log"
+}
+
+exercise_stability_soak() {
+  log "exercising fixed ${SOAK_DURATION_SECONDS}-second stability window with ${SOAK_EXPECTED_SAMPLES} samples"
+  wait_docker_healthy || fail 'stability container did not become Docker-healthy'
+  SOAK_BASELINE_STATUS=$(status_signature "${WORK_DIR}/stability-baseline-status.json")
+  jq -e '.issues == [] and (.recovery == null or .recovery.permanent == false)' \
+    "${WORK_DIR}/stability-baseline-status.json" >/dev/null ||
+    fail 'stability baseline reported an issue or permanent recovery state'
+  stability_service_pid nginx-uix "${WORK_DIR}/stability-ui-baseline.pid"
+  SOAK_UI_PID=${SOAK_SERVICE_PID}
+  stability_service_pid nginx-uix-agent "${WORK_DIR}/stability-agent-baseline.pid"
+  SOAK_AGENT_PID=${SOAK_SERVICE_PID}
+  read_stability_metrics "${WORK_DIR}/stability-metrics.baseline"
+  SOAK_BASELINE_MEMORY=${SOAK_MEMORY}
+  SOAK_BASELINE_PIDS=${SOAK_PIDS}
+  [ "${SOAK_BASELINE_MEMORY}" -le "${SOAK_MAX_MEMORY_BYTES}" ] ||
+    fail 'stability baseline exceeded the fixed memory ceiling'
+  [ "${SOAK_BASELINE_PIDS}" -le "${SOAK_MAX_PIDS}" ] ||
+    fail 'stability baseline exceeded the fixed PID ceiling'
+  [ "${SOAK_OOM_KILLS}" = 0 ] || fail 'stability baseline already contained an OOM kill'
+
+  printf 'sample\tmemory_bytes\tpids\toom_kills\n' >"${WORK_DIR}/stability-samples.tsv"
+  soak_started=$(date +%s)
+  soak_sample=1
+  while [ "${soak_sample}" -le "${SOAK_EXPECTED_SAMPLES}" ]; do
+    sleep "${SOAK_INTERVAL_SECONDS}"
+    assert_stability_sample "${soak_sample}"
+    if [ "$((soak_sample % 6))" = 0 ]; then
+      pass "stability samples ${soak_sample}/${SOAK_EXPECTED_SAMPLES} remain healthy"
+    fi
+    soak_sample=$((soak_sample + 1))
+  done
+  soak_elapsed=$(($(date +%s) - soak_started))
+  [ "${soak_elapsed}" -ge "${SOAK_DURATION_SECONDS}" ] ||
+    fail 'stability observation window completed below its fixed duration'
+  [ "$(($(wc -l <"${WORK_DIR}/stability-samples.tsv") - 1))" = "${SOAK_EXPECTED_SAMPLES}" ] ||
+    fail 'stability evidence did not contain the fixed sample count'
+
+  soak_memory_growth=0
+  [ "${SOAK_MEMORY}" -le "${SOAK_BASELINE_MEMORY}" ] ||
+    soak_memory_growth=$((SOAK_MEMORY - SOAK_BASELINE_MEMORY))
+  [ "${soak_memory_growth}" -le "${SOAK_MAX_MEMORY_GROWTH_BYTES}" ] ||
+    fail 'stability final memory growth exceeded the fixed allowance'
+  soak_pid_growth=0
+  [ "${SOAK_PIDS}" -le "${SOAK_BASELINE_PIDS}" ] ||
+    soak_pid_growth=$((SOAK_PIDS - SOAK_BASELINE_PIDS))
+  [ "${soak_pid_growth}" -le "${SOAK_MAX_PID_GROWTH}" ] ||
+    fail 'stability final PID growth exceeded the fixed allowance'
+  [ "$(fixture_digest)" = "${FIXTURE_DIGEST}" ] ||
+    fail 'stability window changed production fixture bytes'
+  assert_stability_logs "${WORK_DIR}/stability-window.log"
+  verify_stability_database
+  pass "fixed ${SOAK_DURATION_SECONDS}-second stability window preserved health, processes, tasks, data, and cleanup"
+}
+
 exercise_release_recovery_closure() {
   log 'exercising release, fixed restart, manual restore, automatic rollback, and durable history'
   queue_workspace_release closure-release "${CLOSURE_WORKSPACE_ID}" \
@@ -1196,7 +1719,7 @@ exercise_release_recovery_closure() {
   BEFORE_RESTART_STATUS=$(status_signature "${WORK_DIR}/closure-before-restart-status.json")
   BEFORE_RESTART_MASTER=$(printf '%s\n' "${BEFORE_RESTART_STATUS}" | jq -er '.master')
 
-  jq -n '{attention_case_id:"",reason:"v0.7 final-image restart verification",confirmation:"RESTART NGINX"}' \
+  jq -n '{attention_case_id:"",reason:"v1.0 final-image restart verification",confirmation:"RESTART NGINX"}' \
     >"${WORK_DIR}/closure-restart.request.json"
   api_mutation POST "${BASE_URL}/api/v1/nginx/restarts" \
     "${WORK_DIR}/closure-restart.request.json" '' 202 closure-restart
@@ -1219,7 +1742,7 @@ exercise_release_recovery_closure() {
     fail 'fixed restart API evidence did not match the live Nginx master'
 
   jq -n --arg backup_id "${CLOSURE_BACKUP_ID}" \
-    '{attention_case_id:"",reason:"v0.7 final-image restore verification",confirm_backup_id:$backup_id}' \
+    '{attention_case_id:"",reason:"v1.0 final-image restore verification",confirm_backup_id:$backup_id}' \
     >"${WORK_DIR}/closure-restore.request.json"
   api_mutation POST "${BASE_URL}/api/v1/config/backups/${CLOSURE_BACKUP_ID}/restores" \
     "${WORK_DIR}/closure-restore.request.json" '' 202 closure-restore
@@ -1327,12 +1850,24 @@ verify_closure_recreation() {
 
 validate_inputs() {
   case "${BUILD_IMAGE}" in auto|0|1) ;; *) fail 'BUILD_IMAGE must be auto, 0, or 1' ;; esac
-  case "${WORKSPACE_PROFILE}" in full|closure) ;; *) fail 'WORKSPACE_PROFILE must be full or closure' ;; esac
+  case "${WORKSPACE_PROFILE}" in
+    full|closure|repeat|stability) ;;
+    *) fail 'WORKSPACE_PROFILE must be full, closure, repeat, or stability' ;;
+  esac
+  if [ "${WORKSPACE_PROFILE}" = repeat ]; then
+    [ "${REPEAT_TOTAL_ROUNDS}" = 10 ] ||
+      fail 'repeat profile requires REPEAT_TOTAL_ROUNDS=10'
+    case "${REPEAT_BATCH}" in 1|2) ;; *) fail 'repeat profile requires REPEAT_BATCH=1 or REPEAT_BATCH=2' ;; esac
+    [ "$((REPEAT_BATCH_ROUNDS * 2))" = "${REPEAT_TOTAL_ROUNDS}" ] ||
+      fail 'repeat batch definition must total ten rounds'
+  fi
+  [ "$((SOAK_INTERVAL_SECONDS * SOAK_EXPECTED_SAMPLES))" = "${SOAK_DURATION_SECONDS}" ] ||
+    fail 'stability sample definition must total the fixed duration'
   case "${PLATFORM:-}" in ''|linux/amd64|linux/arm64) ;; *) fail 'PLATFORM must be linux/amd64 or linux/arm64' ;; esac
   for required_command in docker curl openssl git go jq sqlite3 tar awk sed grep cmp date uname stat chmod; do
     require_command "${required_command}"
   done
-  [ "$(tr -d '\r\n' <VERSION)" = 0.7.0 ] || fail 'workspace acceptance requires project VERSION 0.7.0'
+  [ "${PROJECT_VERSION}" = 1.0.0 ] || fail 'workspace acceptance requires project VERSION 1.0.0'
   for required_fixture in \
     "${FIXTURE_ROOT}/nginx.conf" \
     "${FIXTURE_ROOT}/conf.d/site.conf" \
@@ -1373,11 +1908,31 @@ main() {
   validate_inputs
   create_owned_resources
   ensure_test_image "${IMAGE}" "${BUILD_IMAGE}" "${PLATFORM:-}" ||
-    fail 'v0.7 release image identity could not be ensured'
-  pass 'v0.7 image has the exact deterministic source/platform identity'
+    fail 'v1.0 release image identity could not be ensured'
+  pass 'v1.0 image has the exact deterministic source/platform identity'
   seed_fixture_volume
   FIXTURE_DIGEST=$(fixture_digest)
   [ -n "${FIXTURE_DIGEST}" ] || fail 'fixed production fixture digest is empty'
+
+  if [ "${WORKSPACE_PROFILE}" = repeat ]; then
+    start_main_container "${IMAGE}"
+    login repeat-profile-login
+    sanitize_release_fixture
+    exercise_repeated_release_restore
+    capture_logs "${MAIN_CONTAINER}" "${WORK_DIR}/repeat-final.log"
+    pass 'focused repeated publication and recovery acceptance completed'
+    return
+  fi
+
+  if [ "${WORKSPACE_PROFILE}" = stability ]; then
+    start_main_container "${IMAGE}"
+    login stability-profile-login
+    sanitize_release_fixture
+    exercise_structured_and_route_lab
+    exercise_stability_soak
+    pass 'focused continuous stability acceptance completed'
+    return
+  fi
 
   if [ "${WORKSPACE_PROFILE}" = closure ]; then
     start_main_container "${IMAGE}"

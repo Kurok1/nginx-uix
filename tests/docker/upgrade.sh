@@ -14,11 +14,25 @@ cd "${REPOSITORY_ROOT}"
 # shellcheck source=lib/image.sh
 . "${SCRIPT_DIR}/lib/image.sh"
 
-IMAGE=${IMAGE:-nginx-uix:0.7.0-test}
+PROJECT_VERSION=$(tr -d '\r\n' <"${REPOSITORY_ROOT}/VERSION")
+IMAGE=${IMAGE:-nginx-uix:${PROJECT_VERSION}-test}
 BUILD_IMAGE=${BUILD_IMAGE:-0}
 PLATFORM=${PLATFORM:-}
-V06_SOURCE_REF=${V06_SOURCE_REF:-97036da}
-V06_IMAGE=${V06_IMAGE:-nginx-uix:0.6.0-upgrade-seed}
+SOURCE_VERSION=${SOURCE_VERSION:-0.7.0}
+case "${SOURCE_VERSION}" in
+  0.6.0) DEFAULT_SOURCE_REF=97036da
+    EXPECTED_SOURCE_COMMIT=97036da9efbb3a614080565ef64785e75a7584fd
+    ;;
+  0.7.0) DEFAULT_SOURCE_REF=e46d34d
+    EXPECTED_SOURCE_COMMIT=e46d34d6b12e8e0fdf31b606d73cd224fcc0d61e
+    ;;
+  *) DEFAULT_SOURCE_REF=
+    EXPECTED_SOURCE_COMMIT=
+    ;;
+esac
+SOURCE_REF=${SOURCE_REF:-${DEFAULT_SOURCE_REF}}
+SOURCE_IMAGE=${SOURCE_IMAGE:-}
+[ -n "${SOURCE_IMAGE}" ] || SOURCE_IMAGE="nginx-uix:${SOURCE_VERSION}-upgrade-seed"
 
 RUN_RANDOM=$(openssl rand -hex 4)
 RUN_ID="upgrade-$$-${RUN_RANDOM}"
@@ -216,75 +230,78 @@ stop_application() {
     fail "${stop_label} did not exit cleanly"
 }
 
-ensure_v06_image() {
-  case "${V06_SOURCE_REF}" in
-    ''|-*|*'..'*|*[!A-Za-z0-9._/-]*) fail 'V06_SOURCE_REF is unsafe' ;;
+ensure_source_image() {
+  case "${SOURCE_REF}" in
+    ''|-*|*'..'*|*[!A-Za-z0-9._/-]*) fail 'SOURCE_REF is unsafe' ;;
   esac
-  v06_version=$(git show "${V06_SOURCE_REF}:VERSION" 2>/dev/null | tr -d '\r\n') ||
-    fail 'could not read the v0.6 source VERSION'
-  [ "${v06_version}" = 0.6.0 ] || fail 'upgrade source is not exactly v0.6.0'
-  v06_commit=$(git rev-parse --verify "${V06_SOURCE_REF}^{commit}")
-  v06_identity=$(docker image inspect --format \
+  source_version=$(git show "${SOURCE_REF}:VERSION" 2>/dev/null | tr -d '\r\n') ||
+    fail "could not read the v${SOURCE_VERSION} source VERSION"
+  [ "${source_version}" = "${SOURCE_VERSION}" ] ||
+    fail "upgrade source VERSION is ${source_version}, want ${SOURCE_VERSION}"
+  source_commit=$(git rev-parse --verify "${SOURCE_REF}^{commit}")
+  [ "${source_commit}" = "${EXPECTED_SOURCE_COMMIT}" ] ||
+    fail "upgrade source commit is ${source_commit}, want ${EXPECTED_SOURCE_COMMIT}"
+  source_identity=$(docker image inspect --format \
     '{{index .Config.Labels "org.opencontainers.image.version"}}|{{index .Config.Labels "org.opencontainers.image.revision"}}|{{.Os}}/{{.Architecture}}' \
-    "${V06_IMAGE}" 2>/dev/null || true)
-  if [ -n "${v06_identity}" ]; then
-    [ "${v06_identity}" = "0.6.0|${v06_commit}|${PLATFORM}" ] ||
-      fail 'existing v0.6 fixture image has the wrong version, revision, or platform'
-    pass 'reused the exact v0.6.0 release-commit image'
+    "${SOURCE_IMAGE}" 2>/dev/null || true)
+  if [ -n "${source_identity}" ]; then
+    [ "${source_identity}" = "${SOURCE_VERSION}|${source_commit}|${PLATFORM}" ] ||
+      fail "existing v${SOURCE_VERSION} fixture image has the wrong version, revision, or platform"
+    pass "reused the exact v${SOURCE_VERSION} release-commit image"
     return
   fi
 
-  v06_context="${WORK_DIR}/v0.6-context"
-  mkdir "${v06_context}"
-  git archive --format=tar --output="${WORK_DIR}/v0.6-source.tar" "${v06_commit}"
-  tar -xf "${WORK_DIR}/v0.6-source.tar" -C "${v06_context}"
-  v06_source_fingerprint=$(digest_file "${WORK_DIR}/v0.6-source.tar")
-  v06_build_identity=$(printf '%s\n' \
-    "source=${v06_source_fingerprint}" "platform=${PLATFORM}" "version=0.6.0" | digest_text)
-  v06_build_time=$(git show -s --format=%cI "${v06_commit}")
-  v06_source_epoch=$(git show -s --format=%ct "${v06_commit}")
+  source_context="${WORK_DIR}/source-context"
+  mkdir "${source_context}"
+  git archive --format=tar --output="${WORK_DIR}/source.tar" "${source_commit}"
+  tar -xf "${WORK_DIR}/source.tar" -C "${source_context}"
+  source_fingerprint=$(digest_file "${WORK_DIR}/source.tar")
+  source_build_identity=$(printf '%s\n' \
+    "source=${source_fingerprint}" "platform=${PLATFORM}" "version=${SOURCE_VERSION}" | digest_text)
+  source_build_time=$(git show -s --format=%cI "${source_commit}")
+  source_epoch=$(git show -s --format=%ct "${source_commit}")
 
   set -- docker buildx build --progress=plain --platform "${PLATFORM}" \
-    --file "${v06_context}/deploy/docker/Dockerfile" \
-    --tag "${V06_IMAGE}" --load \
-    --build-arg 'VERSION=0.6.0' \
-    --build-arg "COMMIT=${v06_commit}" \
-    --build-arg "BUILD_TIME=${v06_build_time}" \
-    --build-arg "SOURCE_FINGERPRINT=${v06_source_fingerprint}" \
-    --build-arg "BUILD_IDENTITY=${v06_build_identity}" \
-    --build-arg "SOURCE_DATE_EPOCH=${v06_source_epoch}"
+    --file "${source_context}/deploy/docker/Dockerfile" \
+    --tag "${SOURCE_IMAGE}" --load \
+    --build-arg "VERSION=${SOURCE_VERSION}" \
+    --build-arg "COMMIT=${source_commit}" \
+    --build-arg "BUILD_TIME=${source_build_time}" \
+    --build-arg "SOURCE_FINGERPRINT=${source_fingerprint}" \
+    --build-arg "BUILD_IDENTITY=${source_build_identity}" \
+    --build-arg "SOURCE_DATE_EPOCH=${source_epoch}"
   [ -z "${BUILD_STEP_HTTP_PROXY:-}" ] || set -- "$@" --build-arg "http_proxy=${BUILD_STEP_HTTP_PROXY}"
   [ -z "${BUILD_STEP_HTTPS_PROXY:-}" ] || set -- "$@" --build-arg "https_proxy=${BUILD_STEP_HTTPS_PROXY}"
   [ -z "${BUILD_STEP_NO_PROXY:-}" ] || set -- "$@" --build-arg "no_proxy=${BUILD_STEP_NO_PROXY}"
-  set -- "$@" "${v06_context}"
-  if ! run_bounded 1200 "${WORK_DIR}/v0.6-build.log" "$@"; then
-    tail -n 160 "${WORK_DIR}/v0.6-build.log" >&2 || true
-    fail 'v0.6 release-commit image build failed'
+  set -- "$@" "${source_context}"
+  if ! run_bounded 1200 "${WORK_DIR}/source-build.log" "$@"; then
+    tail -n 160 "${WORK_DIR}/source-build.log" >&2 || true
+    fail "v${SOURCE_VERSION} release-commit image build failed"
   fi
-  v06_identity=$(docker image inspect --format \
+  source_identity=$(docker image inspect --format \
     '{{index .Config.Labels "org.opencontainers.image.version"}}|{{index .Config.Labels "org.opencontainers.image.revision"}}|{{.Os}}/{{.Architecture}}' \
-    "${V06_IMAGE}")
-  [ "${v06_identity}" = "0.6.0|${v06_commit}|${PLATFORM}" ] ||
-    fail 'built v0.6 fixture image has the wrong version, revision, or platform'
-  pass 'built the exact v0.6.0 release commit for the native architecture'
+    "${SOURCE_IMAGE}")
+  [ "${source_identity}" = "${SOURCE_VERSION}|${source_commit}|${PLATFORM}" ] ||
+    fail "built v${SOURCE_VERSION} fixture image has the wrong version, revision, or platform"
+  pass "built the exact v${SOURCE_VERSION} release commit for the native architecture"
 }
 
-prepare_v06_config_compatibility() {
+prepare_source_config_compatibility() {
   new_helper
   set -- docker run --rm --name "${HELPER_CONTAINER}" --label "${LABEL}" --entrypoint /bin/sh
   [ -z "${PLATFORM}" ] || set -- "$@" --platform "${PLATFORM}"
-  set -- "$@" "${V06_IMAGE}" -eu -c 'stat -c "%a:%u:%g" /etc /etc/nginx'
-  run_bounded 30 "${WORK_DIR}/v06-image-nginx-root.log" "$@" ||
-    fail 'could not inspect the v0.6 image Nginx root'
-  v06_image_root_modes=$(tr '\n' '|' <"${WORK_DIR}/v06-image-nginx-root.log")
-  [ "${v06_image_root_modes}" = '700:0:0|755:0:0|' ] ||
-    fail 'the v0.6 release image no longer exposes the documented /etc and Nginx-root modes'
+  set -- "$@" "${SOURCE_IMAGE}" -eu -c 'stat -c "%a:%u:%g" /etc /etc/nginx'
+  run_bounded 30 "${WORK_DIR}/source-image-nginx-root.log" "$@" ||
+    fail "could not inspect the v${SOURCE_VERSION} image Nginx root"
+  source_image_root_modes=$(tr '\n' '|' <"${WORK_DIR}/source-image-nginx-root.log")
+  [ "${source_image_root_modes}" = '700:0:0|755:0:0|' ] ||
+    fail "the v${SOURCE_VERSION} release image no longer exposes the documented /etc and Nginx-root modes"
 
   new_helper
   set -- docker run --rm --name "${HELPER_CONTAINER}" --label "${LABEL}" --entrypoint /bin/sh \
     --mount "type=volume,src=${SOURCE_CONFIG_VOLUME},dst=/etc/nginx"
   [ -z "${PLATFORM}" ] || set -- "$@" --platform "${PLATFORM}"
-  set -- "$@" "${V06_IMAGE}" -eu -c '
+  set -- "$@" "${SOURCE_IMAGE}" -eu -c '
     test -z "$(find /etc/nginx -mindepth 1 -print -quit)"
     test "$(stat -c "%a:%u:%g" /etc/nginx)" = 755:0:0
     cp -a /usr/share/nginx-uix/default-nginx/. /etc/nginx/
@@ -292,35 +309,36 @@ prepare_v06_config_compatibility() {
     chmod 0700 /etc/nginx
     test "$(stat -c "%a:%u:%g" /etc/nginx)" = 700:0:0
   '
-  run_bounded 30 "${WORK_DIR}/v06-config-compatibility.log" "$@" ||
-    fail 'could not prepare the empty v0.6 configuration volume compatibility mode'
+  run_bounded 30 "${WORK_DIR}/source-config-compatibility.log" "$@" ||
+    fail "could not prepare the empty v${SOURCE_VERSION} configuration volume compatibility mode"
 
   new_helper
   set -- docker run --rm --name "${HELPER_CONTAINER}" --label "${LABEL}" --entrypoint /bin/sh \
     --mount "type=volume,src=${SOURCE_CONFIG_VOLUME},dst=/etc/nginx,readonly"
   [ -z "${PLATFORM}" ] || set -- "$@" --platform "${PLATFORM}"
-  set -- "$@" "${V06_IMAGE}" -eu -c '
+  set -- "$@" "${SOURCE_IMAGE}" -eu -c '
     test "$(stat -c "%a:%u:%g" /etc/nginx)" = 700:0:0
     test -f /etc/nginx/nginx.conf
   '
-  run_bounded 30 "${WORK_DIR}/v06-config-compatibility-remount.log" "$@" ||
-    fail 'v0.6 configuration compatibility did not survive a fresh mount'
-  log 'v0.6 compatibility: retained the exact release image, pre-copied its immutable defaults and changed only the volume root from 0755 to 0700'
-  log 'v0.6 compatibility reason: its Route Lab startup validation incorrectly rejects the image-owned 0755 /etc/nginx root'
+  run_bounded 30 "${WORK_DIR}/source-config-compatibility-remount.log" "$@" ||
+    fail "v${SOURCE_VERSION} configuration compatibility did not survive a fresh mount"
+  log "v${SOURCE_VERSION} compatibility: retained the exact release image, pre-copied its immutable defaults and changed only the volume root from 0755 to 0700"
+  log "v${SOURCE_VERSION} compatibility reason: startup validation rejects the image-owned 0755 /etc/nginx root"
 }
 
-restore_v06_runtime_config_mode() {
-  run_bounded 30 "${WORK_DIR}/v06-config-runtime-mode.log" docker exec "${MAIN_CONTAINER}" /bin/sh -eu -c '
+restore_source_runtime_config_mode() {
+  run_bounded 30 "${WORK_DIR}/source-config-runtime-mode.log" docker exec "${MAIN_CONTAINER}" /bin/sh -eu -c '
     test "$(stat -c "%a:%u:%g" /etc)" = 700:0:0
     test "$(stat -c "%a:%u:%g" /etc/nginx)" = 700:0:0
     chmod 0755 /etc /etc/nginx
     test "$(stat -c "%a:%u:%g" /etc)" = 755:0:0
     test "$(stat -c "%a:%u:%g" /etc/nginx)" = 755:0:0
-  ' || fail 'could not restore the v0.6 runtime Nginx-root mode'
+  ' || fail "could not restore the v${SOURCE_VERSION} runtime Nginx-root mode"
   ready_code=$(curl --silent --connect-timeout 1 --max-time 3 --output /dev/null \
     --write-out '%{http_code}' "${BASE_URL}/health/ready" || true)
-  [ "${ready_code}" = 200 ] || fail 'v0.6 lost readiness after restoring the runtime Nginx-root mode'
-  log 'v0.6 compatibility: restored /etc and the Nginx volume root to 0755 after Agent startup so the Nginx worker can traverse its document root'
+  [ "${ready_code}" = 200 ] ||
+    fail "v${SOURCE_VERSION} lost readiness after restoring the runtime Nginx-root mode"
+  log "v${SOURCE_VERSION} compatibility: restored /etc and the Nginx volume root to 0755 after Agent startup so the Nginx worker can traverse its document root"
 }
 
 login() {
@@ -432,7 +450,8 @@ publish_workspace() {
   check_id=$(jq -er '.id | select(test("^[0-9a-f]{32}$"))' \
     "${WORK_DIR}/publish-check.response.json")
   jq -e '.state == "valid" and .diagnostic_count == 0' \
-    "${WORK_DIR}/publish-check.response.json" >/dev/null || fail 'v0.6 publish check is not valid'
+    "${WORK_DIR}/publish-check.response.json" >/dev/null ||
+    fail "v${SOURCE_VERSION} publish check is not valid"
   jq -n --arg check_id "${check_id}" --arg name "${publish_workspace_name}" \
     '{check_id:$check_id,confirm_name:$name}' >"${WORK_DIR}/release.request.json"
   api_mutation POST "${BASE_URL}/api/v1/config/workspaces/${publish_workspace_id}/releases" \
@@ -451,7 +470,7 @@ publish_workspace() {
     "${WORK_DIR}/release-terminal.json" >/dev/null; then
     jq . "${WORK_DIR}/release-terminal.json" >&2 || true
     docker logs --tail 200 "${MAIN_CONTAINER}" >&2 || true
-    fail 'v0.6 release did not commit'
+    fail "v${SOURCE_VERSION} release did not commit"
   fi
   BACKUP_ID=$(jq -er '.backup_id' "${WORK_DIR}/release-terminal.json")
 }
@@ -659,13 +678,18 @@ assert_domain_api() {
 validate_inputs() {
   case "${BUILD_IMAGE}" in auto|0|1) ;; *) fail 'BUILD_IMAGE must be auto, 0, or 1' ;; esac
   case "${PLATFORM}" in ''|linux/amd64|linux/arm64) ;; *) fail 'PLATFORM must be empty, linux/amd64, or linux/arm64' ;; esac
+  case "${SOURCE_VERSION}" in
+    0.6.0|0.7.0) ;;
+    *) fail 'SOURCE_VERSION must be 0.6.0 or 0.7.0' ;;
+  esac
+  [ -n "${EXPECTED_SOURCE_COMMIT}" ] || fail 'upgrade source commit is not pinned'
   for required_command in docker curl openssl git go jq sqlite3 tar awk sed grep cmp diff date chmod; do
     require_command "${required_command}"
   done
   if ! command -v sha256sum >/dev/null 2>&1 && ! command -v shasum >/dev/null 2>&1; then
     fail 'sha256sum or shasum is required'
   fi
-  [ "$(tr -d '\r\n' <VERSION)" = 0.7.0 ] || fail 'upgrade acceptance requires VERSION 0.7.0'
+  [ "${PROJECT_VERSION}" = 1.0.0 ] || fail 'upgrade acceptance requires VERSION 1.0.0'
   docker info >/dev/null 2>&1 || fail 'Docker daemon is unavailable'
   docker buildx version >/dev/null 2>&1 || fail 'Docker Buildx is unavailable'
 }
@@ -687,17 +711,18 @@ main() {
   create_volume "${RESTORED_DATA_VOLUME}"
 
   ensure_test_image "${IMAGE}" "${BUILD_IMAGE}" "${PLATFORM}" ||
-    fail 'v0.7 release image identity could not be ensured'
-  pass 'v0.7 image has the exact deterministic source and native platform identity'
-  ensure_v06_image
-  prepare_v06_config_compatibility
+    fail 'v1.0 release image identity could not be ensured'
+  pass 'v1.0 image has the exact deterministic source and native platform identity'
+  ensure_source_image
+  prepare_source_config_compatibility
 
-  log 'creating real v0.6.0 users, session, throttle, workspaces, group, release, backup and audit state'
-  start_application "${V06_IMAGE}" "${SOURCE_CONFIG_VOLUME}" "${SOURCE_DATA_VOLUME}"
-  restore_v06_runtime_config_mode
-  login v06-login
-  RELEASE_MARKER="released-by-v06-${RUN_RANDOM}"
-  OPEN_MARKER="open-draft-v06-${RUN_RANDOM}"
+  log "creating real v${SOURCE_VERSION} users, session, throttle, workspaces, group, release, backup and audit state"
+  start_application "${SOURCE_IMAGE}" "${SOURCE_CONFIG_VOLUME}" "${SOURCE_DATA_VOLUME}"
+  restore_source_runtime_config_mode
+  login source-login
+  source_marker_version=$(printf '%s' "${SOURCE_VERSION}" | tr '.' '-')
+  RELEASE_MARKER="released-by-v${source_marker_version}-${RUN_RANDOM}"
+  OPEN_MARKER="open-draft-v${source_marker_version}-${RUN_RANDOM}"
   create_workspace "${RELEASE_WORKSPACE_NAME}" release-workspace
   RELEASE_WORKSPACE_ID=${CREATED_WORKSPACE_ID}
   mutate_default_file "${RELEASE_WORKSPACE_ID}" "${CREATED_WORKSPACE_ETAG}" \
@@ -715,27 +740,27 @@ main() {
   exercise_login_throttle
   install_certificate_fixture
   assert_certificate_fixture "${SOURCE_DATA_VOLUME}"
-  stop_application v06-seed
-  volume_manifest "${SOURCE_CONFIG_VOLUME}" "${WORK_DIR}/v06-config.manifest"
-  copy_container_data v06-data
-  V06_DATABASE=${COPIED_DATABASE}
-  assert_database_state "${V06_DATABASE}"
-  pass 'v0.6.0 fixture contains durable domain data and exact certificate-vault bytes'
+  stop_application source-seed
+  volume_manifest "${SOURCE_CONFIG_VOLUME}" "${WORK_DIR}/source-config.manifest"
+  copy_container_data source-data
+  SOURCE_DATABASE=${COPIED_DATABASE}
+  assert_database_state "${SOURCE_DATABASE}"
+  pass "v${SOURCE_VERSION} fixture contains durable domain data and exact certificate-vault bytes"
 
-  log 'opening the two v0.6.0 persistent roots directly with v0.7.0'
+  log "opening the two v${SOURCE_VERSION} persistent roots directly with v1.0.0"
   start_application "${IMAGE}" "${SOURCE_CONFIG_VOLUME}" "${SOURCE_DATA_VOLUME}"
   assert_domain_api direct-upgrade
   assert_certificate_fixture "${SOURCE_DATA_VOLUME}"
   stop_application direct-upgrade
-  volume_manifest "${SOURCE_CONFIG_VOLUME}" "${WORK_DIR}/v07-upgraded-config.manifest"
-  cmp -s "${WORK_DIR}/v06-config.manifest" "${WORK_DIR}/v07-upgraded-config.manifest" ||
-    fail 'direct v0.6 to v0.7 upgrade changed Nginx configuration bytes or metadata'
-  copy_container_data v07-upgraded-data
-  V07_DATABASE=${COPIED_DATABASE}
-  assert_database_state "${V07_DATABASE}"
-  pass 'direct v0.6.0 to v0.7.0 upgrade preserved both roots and all seeded open/terminal state'
+  volume_manifest "${SOURCE_CONFIG_VOLUME}" "${WORK_DIR}/v1-upgraded-config.manifest"
+  cmp -s "${WORK_DIR}/source-config.manifest" "${WORK_DIR}/v1-upgraded-config.manifest" ||
+    fail "direct v${SOURCE_VERSION} to v1.0 upgrade changed Nginx configuration bytes or metadata"
+  copy_container_data v1-upgraded-data
+  V1_DATABASE=${COPIED_DATABASE}
+  assert_database_state "${V1_DATABASE}"
+  pass "direct v${SOURCE_VERSION} to v1.0.0 upgrade preserved both roots and all seeded open/terminal state"
 
-  log 'copying a stopped v0.7.0 cold backup of both roots into two new empty volumes'
+  log 'copying a stopped v1.0.0 cold backup of both roots into two new empty volumes'
   volume_manifest "${SOURCE_CONFIG_VOLUME}" "${WORK_DIR}/cold-source-config.manifest"
   volume_manifest "${SOURCE_DATA_VOLUME}" "${WORK_DIR}/cold-source-data.manifest"
   copy_volume "${SOURCE_CONFIG_VOLUME}" "${RESTORED_CONFIG_VOLUME}"
@@ -761,22 +786,23 @@ main() {
   assert_certificate_fixture "${RESTORED_DATA_VOLUME}"
   pass 'stopped cold copy preserved every file digest, owner/mode, entry type and symlink in both roots'
 
-  log 'starting v0.7.0 only from the new cold-restored volumes'
+  log 'starting v1.0.0 only from the new cold-restored volumes'
   start_application "${IMAGE}" "${RESTORED_CONFIG_VOLUME}" "${RESTORED_DATA_VOLUME}"
   assert_domain_api cold-restore
   assert_certificate_fixture "${RESTORED_DATA_VOLUME}"
   stop_application cold-restore
   volume_manifest "${RESTORED_CONFIG_VOLUME}" "${WORK_DIR}/cold-restored-config-after-start.manifest"
   cmp -s "${WORK_DIR}/cold-source-config.manifest" "${WORK_DIR}/cold-restored-config-after-start.manifest" ||
-    fail 'restored v0.7 runtime changed the Nginx configuration truth'
+    fail 'restored v1.0 runtime changed the Nginx configuration truth'
   copy_container_data cold-restored-data
   COLD_DATABASE=${COPIED_DATABASE}
   assert_database_state "${COLD_DATABASE}"
   pass 'new cold-restored volumes preserve SQLite, config, certs, backups, histories, session and open workspace'
 
-  printf '\nDocker v0.6 upgrade and v0.7 cold-backup recovery acceptance: PASS\n'
-  printf 'v06_commit=%s release_id=%s backup_id=%s open_workspace_id=%s group_id=%s\n' \
-    "${v06_commit}" "${RELEASE_ID}" "${BACKUP_ID}" "${OPEN_WORKSPACE_ID}" "${GROUP_ID}"
+  printf '\nDocker v%s upgrade and v1.0 cold-backup recovery acceptance: PASS\n' "${SOURCE_VERSION}"
+  printf 'source_version=%s source_commit=%s release_id=%s backup_id=%s open_workspace_id=%s group_id=%s\n' \
+    "${SOURCE_VERSION}" "${source_commit}" "${RELEASE_ID}" "${BACKUP_ID}" \
+    "${OPEN_WORKSPACE_ID}" "${GROUP_ID}"
 }
 
 main "$@"

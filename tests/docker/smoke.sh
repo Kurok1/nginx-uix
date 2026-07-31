@@ -7,7 +7,8 @@ set -eu
 REPOSITORY_ROOT=${REPOSITORY_ROOT:-$(pwd)}
 . "${REPOSITORY_ROOT}/tests/docker/lib/image.sh"
 
-IMAGE=${IMAGE:-nginx-uix:0.7.0-test}
+PROJECT_VERSION=$(tr -d '\r\n' <"${REPOSITORY_ROOT}/VERSION")
+IMAGE=${IMAGE:-nginx-uix:${PROJECT_VERSION}-test}
 PLATFORM=${PLATFORM:-}
 BUILD_IMAGE=${BUILD_IMAGE:-auto}
 SMOKE_PROFILE=${SMOKE_PROFILE:-full}
@@ -744,6 +745,8 @@ assert_final_image_hygiene() {
         [ -z "$(find / -xdev -type d \( -name node_modules -o -name playwright-report -o -name test-results \) -print -quit 2>/dev/null)" ]
         [ -z "$(find / -xdev -path "*/tests/fixtures*" -print -quit 2>/dev/null)" ]
         [ -z "$(find /tmp -maxdepth 1 -name "s6-overlay*.tar.xz" -print -quit 2>/dev/null)" ]
+        [ "$(stat -c "%a:%u:%g" /usr/share/licenses/nginx-uix/LICENSE)" = "644:0:0" ]
+        [ "$(sha256sum /usr/share/licenses/nginx-uix/LICENSE | cut -d " " -f 1)" = "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4" ]
     '
     "$@" >/dev/null || fail 'release filesystem contains build, source, browser, fixture, archive, or package-cache material'
     HELPER_CONTAINER_CREATED=0

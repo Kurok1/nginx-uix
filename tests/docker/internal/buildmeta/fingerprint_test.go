@@ -8,13 +8,329 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestV1ReleaseMetadataIsSynchronized(t *testing.T) {
+	root, err := filepath.Abs("../../../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const want = "1.0.0"
+	const wantLicense = "Apache-2.0"
+	const wantLicenseDigest = "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+
+	versionPayload, err := os.ReadFile(filepath.Join(root, "VERSION"))
+	if err != nil {
+		t.Fatalf("ReadFile(VERSION) error = %v", err)
+	}
+	if got := strings.TrimSpace(string(versionPayload)); got != want {
+		t.Errorf("VERSION = %q, want %q", got, want)
+	}
+
+	for _, relative := range []string{"web/package.json", "web/package-lock.json"} {
+		payload, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(relative)))
+		if err != nil {
+			t.Errorf("ReadFile(%s) error = %v", relative, err)
+			continue
+		}
+		var metadata struct {
+			Version  string `json:"version"`
+			License  string `json:"license"`
+			Packages map[string]struct {
+				Version string `json:"version"`
+				License string `json:"license"`
+			} `json:"packages"`
+		}
+		if err := json.Unmarshal(payload, &metadata); err != nil {
+			t.Errorf("json.Unmarshal(%s) error = %v", relative, err)
+			continue
+		}
+		if metadata.Version != want {
+			t.Errorf("%s version = %q, want %q", relative, metadata.Version, want)
+		}
+		if len(metadata.Packages) == 0 && metadata.License != wantLicense {
+			t.Errorf("%s license = %q, want %q", relative, metadata.License, wantLicense)
+		}
+		if rootPackage, ok := metadata.Packages[""]; ok {
+			if rootPackage.Version != want {
+				t.Errorf("%s root package version = %q, want %q", relative, rootPackage.Version, want)
+			}
+			if rootPackage.License != wantLicense {
+				t.Errorf("%s root package license = %q, want %q", relative, rootPackage.License, wantLicense)
+			}
+		}
+	}
+
+	licensePayload, err := os.ReadFile(filepath.Join(root, "LICENSE"))
+	if err != nil {
+		t.Fatalf("ReadFile(LICENSE) error = %v", err)
+	}
+	licenseDigest := sha256.Sum256(licensePayload)
+	if got := hex.EncodeToString(licenseDigest[:]); got != wantLicenseDigest {
+		t.Errorf("LICENSE digest = %q, want Apache-2.0 digest %q", got, wantLicenseDigest)
+	}
+	dockerfilePayload, err := os.ReadFile(filepath.Join(root, "deploy/docker/Dockerfile"))
+	if err != nil {
+		t.Fatalf("ReadFile(deploy/docker/Dockerfile) error = %v", err)
+	}
+	const licenseCopy = "COPY --chown=0:0 --chmod=0644 LICENSE /usr/share/licenses/nginx-uix/LICENSE"
+	if !strings.Contains(string(dockerfilePayload), licenseCopy) {
+		t.Errorf("deploy/docker/Dockerfile does not install the Apache-2.0 license")
+	}
+	if !strings.Contains(string(dockerfilePayload), `org.opencontainers.image.licenses="Apache-2.0"`) {
+		t.Errorf("deploy/docker/Dockerfile does not label the image as Apache-2.0")
+	}
+
+	for relative, marker := range map[string]string{
+		"api/v1/openapi.yaml":      "\n  version: " + want + "\n",
+		"deploy/docker/Dockerfile": "\nARG VERSION=" + want + "\n",
+	} {
+		payload, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(relative)))
+		if err != nil {
+			t.Errorf("ReadFile(%s) error = %v", relative, err)
+			continue
+		}
+		if !strings.Contains(string(payload), marker) {
+			t.Errorf("%s does not contain synchronized release marker %q", relative, strings.TrimSpace(marker))
+		}
+	}
+}
+
+func TestV1UpgradeHarnessPinsDirectAndLongChainBaselines(t *testing.T) {
+	root, err := filepath.Abs("../../../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	upgradePayload, err := os.ReadFile(filepath.Join(root, "tests/docker/upgrade.sh"))
+	if err != nil {
+		t.Fatalf("ReadFile(upgrade.sh) error = %v", err)
+	}
+	upgrade := string(upgradePayload)
+	for _, marker := range []string{
+		"SOURCE_VERSION=${SOURCE_VERSION:-0.7.0}",
+		"0.6.0) DEFAULT_SOURCE_REF=97036da",
+		"0.7.0) DEFAULT_SOURCE_REF=e46d34d",
+		"EXPECTED_SOURCE_COMMIT=97036da9efbb3a614080565ef64785e75a7584fd",
+		"EXPECTED_SOURCE_COMMIT=e46d34d6b12e8e0fdf31b606d73cd224fcc0d61e",
+		`git show "${SOURCE_REF}:VERSION"`,
+		`[ "${source_version}" = "${SOURCE_VERSION}" ]`,
+		`[ "${source_commit}" = "${EXPECTED_SOURCE_COMMIT}" ]`,
+	} {
+		if !strings.Contains(upgrade, marker) {
+			t.Errorf("upgrade.sh does not pin source baseline marker %q", marker)
+		}
+	}
+
+	matrixPayload, err := os.ReadFile(filepath.Join(root, "tests/docker/upgrade_compatibility.sh"))
+	if err != nil {
+		t.Fatalf("ReadFile(upgrade_compatibility.sh) error = %v", err)
+		return
+	}
+	matrix := string(matrixPayload)
+	for _, marker := range []string{
+		"SOURCE_VERSION=0.6.0",
+		"SOURCE_VERSION=0.7.0",
+		`"${SCRIPT_DIR}/upgrade.sh"`,
+	} {
+		if !strings.Contains(matrix, marker) {
+			t.Errorf("upgrade_compatibility.sh does not exercise marker %q", marker)
+		}
+	}
+}
+
+func TestV1RepeatedRecoveryHarnessPinsTenPublicAPIRounds(t *testing.T) {
+	root, err := filepath.Abs("../../../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	workspacePayload, err := os.ReadFile(filepath.Join(root, "tests/docker/workspace.sh"))
+	if err != nil {
+		t.Fatalf("ReadFile(workspace.sh) error = %v", err)
+	}
+	workspace := string(workspacePayload)
+	for _, marker := range []string{
+		"REPEAT_BATCH_ROUNDS=5",
+		`REPEAT_BATCH=${REPEAT_BATCH:-}`,
+		"full|closure|repeat",
+		"exercise_repeated_release_restore()",
+		`queue_workspace_release "${repeat_prefix}-release"`,
+		`"${BASE_URL}/api/v1/config/backups/${repeat_backup_id}/restores"`,
+		`"${BASE_URL}/api/v1/config/releases/${repeat_release_id}"`,
+		`"${BASE_URL}/api/v1/config/restores/${repeat_restore_id}"`,
+		"verify_repeated_recovery_resources()",
+		"verify_repeated_recovery_database()",
+		"SELECT COUNT(*) FROM config_workspaces;",
+		"PRAGMA integrity_check;",
+		"PRAGMA foreign_key_check;",
+	} {
+		if !strings.Contains(workspace, marker) {
+			t.Errorf("workspace.sh does not preserve repeated recovery marker %q", marker)
+		}
+	}
+
+	entryPayload, err := os.ReadFile(filepath.Join(root, "tests/docker/repeated_recovery.sh"))
+	if err != nil {
+		t.Fatalf("ReadFile(repeated_recovery.sh) error = %v", err)
+		return
+	}
+	entry := string(entryPayload)
+	for _, marker := range []string{
+		"REPEAT_TOTAL_ROUNDS=10",
+		"REPEAT_BATCH=1",
+		"REPEAT_BATCH=2",
+		"WORKSPACE_PROFILE=repeat",
+		`"${SCRIPT_DIR}/workspace.sh"`,
+	} {
+		if !strings.Contains(entry, marker) {
+			t.Errorf("repeated_recovery.sh does not preserve entrypoint marker %q", marker)
+		}
+	}
+}
+
+func TestV1StabilityHarnessPinsTenMinuteWindow(t *testing.T) {
+	root, err := filepath.Abs("../../../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	workspacePayload, err := os.ReadFile(filepath.Join(root, "tests/docker/workspace.sh"))
+	if err != nil {
+		t.Fatalf("ReadFile(workspace.sh) error = %v", err)
+	}
+	workspace := string(workspacePayload)
+	for _, marker := range []string{
+		"SOAK_DURATION_SECONDS=600",
+		"SOAK_INTERVAL_SECONDS=10",
+		"SOAK_EXPECTED_SAMPLES=60",
+		"SOAK_MAX_MEMORY_BYTES=268435456",
+		"SOAK_MAX_PIDS=64",
+		"full|closure|repeat|stability",
+		"exercise_stability_soak()",
+		`"${BASE_URL}/health/live"`,
+		`"${BASE_URL}/health/ready"`,
+		`"${BASE_URL}/api/v1/system/status"`,
+		`"${BASE_URL}/api/v1/certificate-tasks?limit=100"`,
+		`"${BASE_URL}/api/v1/route-tests/${CLOSURE_ROUTE_RUN_ID}"`,
+		"/sys/fs/cgroup/memory.current",
+		"/sys/fs/cgroup/pids.current",
+		"/var/lib/nginx-uix/route-lab",
+		"SELECT COUNT(*) FROM route_lab_runs",
+		"SELECT COUNT(*) FROM config_production_lease",
+		"PRAGMA integrity_check;",
+		"PRAGMA foreign_key_check;",
+	} {
+		if !strings.Contains(workspace, marker) {
+			t.Errorf("workspace.sh does not preserve stability marker %q", marker)
+		}
+	}
+
+	entryPayload, err := os.ReadFile(filepath.Join(root, "tests/docker/stability.sh"))
+	if err != nil {
+		t.Fatalf("ReadFile(stability.sh) error = %v", err)
+		return
+	}
+	entry := string(entryPayload)
+	for _, marker := range []string{
+		"WORKSPACE_PROFILE=stability",
+		`"${SCRIPT_DIR}/workspace.sh"`,
+	} {
+		if !strings.Contains(entry, marker) {
+			t.Errorf("stability.sh does not preserve entrypoint marker %q", marker)
+		}
+	}
+}
+
+func TestV1NativeCandidateMatrixIncludesDurabilityHarnesses(t *testing.T) {
+	root, err := filepath.Abs("../../../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	payload, err := os.ReadFile(filepath.Join(root, "tests/docker/multiarch.sh"))
+	if err != nil {
+		t.Fatalf("ReadFile(multiarch.sh) error = %v", err)
+	}
+	matrix := string(payload)
+	for _, marker := range []string{
+		`require_executable "${SCRIPT_DIR}/upgrade_compatibility.sh"`,
+		`require_executable "${SCRIPT_DIR}/repeated_recovery.sh"`,
+		`require_executable "${SCRIPT_DIR}/stability.sh"`,
+		`"${SCRIPT_DIR}/upgrade_compatibility.sh"`,
+		`run_repeated_recovery_suite "${NATIVE_IMAGE}"`,
+		`run_stability_suite "${NATIVE_IMAGE}"`,
+		"native_repeated_recovery=passed",
+		"native_stability=passed",
+	} {
+		if !strings.Contains(matrix, marker) {
+			t.Errorf("multiarch.sh does not preserve durability matrix marker %q", marker)
+		}
+	}
+}
+
+func TestV1GitHubActionsPinsQualityAndNativeAMD64Gates(t *testing.T) {
+	root, err := filepath.Abs("../../../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	payload, err := os.ReadFile(filepath.Join(root, ".github/workflows/ci.yml"))
+	if err != nil {
+		t.Fatalf("ReadFile(.github/workflows/ci.yml) error = %v", err)
+		return
+	}
+	workflow := string(payload)
+	for _, marker := range []string{
+		"permissions:\n  contents: read",
+		"pull_request:",
+		"push:",
+		"workflow_dispatch:",
+		"runs-on: ubuntu-24.04",
+		"timeout-minutes: 180",
+		"actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
+		"actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16",
+		"docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f",
+		"version: v0.36.0",
+		"GO_VERSION: 1.26.5",
+		"NODE_VERSION: 24.17.0",
+		"NPM_VERSION: 11.13.0",
+		"NVM_COMMIT: 977563e97ddc66facf3a8e31c6cff01d236f09bd",
+		"go test ./...",
+		"go test -race ./...",
+		"npm audit --audit-level=high",
+		`test "$(uname -m)" = x86_64`,
+		`NATIVE_IMAGE="${CANDIDATE_IMAGE}" "${REPOSITORY_ROOT}/tests/docker/multiarch.sh"`,
+	} {
+		if !strings.Contains(workflow, marker) {
+			t.Errorf("ci.yml does not preserve v1 quality marker %q", marker)
+		}
+	}
+	if strings.Contains(workflow, "pull_request_target:") {
+		t.Error("ci.yml must not execute repository code through pull_request_target")
+	}
+
+	pinnedAction := regexp.MustCompile(`^[0-9a-f]{40}(?:\s+#.*)?$`)
+	for lineNumber, line := range strings.Split(workflow, "\n") {
+		_, action, found := strings.Cut(strings.TrimSpace(line), "uses:")
+		if !found {
+			continue
+		}
+		_, revision, found := strings.Cut(strings.TrimSpace(action), "@")
+		if !found || !pinnedAction.MatchString(revision) {
+			t.Errorf("ci.yml line %d action is not pinned to a full commit: %q", lineNumber+1, line)
+		}
+	}
+}
 
 func TestSourceFingerprintTracksCanonicalFilesystemInputs(t *testing.T) {
 	tests := []struct {

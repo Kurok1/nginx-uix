@@ -5,6 +5,8 @@
 package httpapi
 
 import (
+	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +17,40 @@ import (
 
 	"gopkg.in/yaml.v3"
 )
+
+func TestOpenAPIV1FrozenContractFingerprint(t *testing.T) {
+	contents, err := os.ReadFile("../../api/v1/openapi.yaml")
+	if err != nil {
+		t.Fatalf("ReadFile(openapi) error = %v", err)
+	}
+	got, err := openAPIContractFingerprint(contents)
+	if err != nil {
+		t.Fatalf("openAPIContractFingerprint() error = %v", err)
+	}
+	const want = "7f8eb08b3a602c41ae82efc296688307384a73bba4e74d197ea104ff403029c4"
+	if got != want {
+		t.Fatalf("OpenAPI v1 contract fingerprint = %q, want %q; contract changes require an explicit compatibility review", got, want)
+	}
+}
+
+func openAPIContractFingerprint(contents []byte) (string, error) {
+	var document map[string]any
+	if err := yaml.Unmarshal(contents, &document); err != nil {
+		return "", fmt.Errorf("decode OpenAPI contract: %w", err)
+	}
+	info, ok := document["info"].(map[string]any)
+	if !ok {
+		return "", fmt.Errorf("decode OpenAPI contract: info object is required")
+	}
+	// Application patch versions may change without creating a new REST API major.
+	info["version"] = "v1"
+	normalized, err := json.Marshal(document)
+	if err != nil {
+		return "", fmt.Errorf("normalize OpenAPI contract: %w", err)
+	}
+	checksum := sha256.Sum256(normalized)
+	return fmt.Sprintf("%x", checksum), nil
+}
 
 type openAPIContractDocument struct {
 	OpenAPI    string                                 `yaml:"openapi"`

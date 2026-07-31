@@ -1,21 +1,24 @@
-# Nginx UIX v0.7.0 安装与验收
+# Nginx UIX v1.0.0 安装与验收
 
 ## 当前发布边界
 
-v0.7.0 是功能冻结后的 Docker 统一验证版。它已经在原生 arm64 daemon 上完成一体化镜像、容器生命周期、volume 升级、故障注入、Docker 浏览器、安全边界和供应链验收，同时完成 linux/amd64 与 linux/arm64 OCI/SBOM 静态验证。
+v1.0.0 的目标是首个稳定版，官方部署形态是一体化 Docker 镜像。当前 exact linux/arm64 候选已经完成一体化镜像、容器生命周期、跨版本升级、双根冷备恢复、故障注入、浏览器、安全边界、重复发布和稳定运行验收。
 
-当前仍有两项发布边界：
+正式发布前仍有以下边界：
 
-- 本版本只形成经过验证的本地候选 `nginx-uix:0.7.0-acceptance`，没有远端 pull 地址、不可变 tag 或正式发布承诺。
-- 当前主机没有真实 amd64 runner；amd64 OCI/SBOM/静态内容通过，原生运行留给 v1.0.0 发布环境。
+- 当前仓库还没有可供生产拉取的 registry 地址、不可变 tag 或正式 manifest digest。本文使用 `NGINX_UIX_IMAGE` 表示发布后必须由管理员填写的 digest-pinned 镜像引用。
+- 当前主机没有真实 amd64 runner；真实 amd64 候选门禁已写入 GitHub Actions，但必须在首次远端运行后才能形成正式支持证据。
+- 正式安装前必须查看 [v1.0.0 发布阻断项审计](../review/2026-07-31-v1.0-release-blockers.md)；存在开放阻断项时只能做候选验收，不能称为生产发布。
 
-完整环境、image ID、manifest/SBOM digest、命令与限制见 [v0.7.0 验收证据](../release/v0.7.0-verification.md)。
+当前候选的环境、source fingerprint、本地 image ID、命令与限制记录在 [v1.0.0 验收记录（进行中）](../release/v1.0.0-verification.md)；其中明确标记为未运行或阻断的项目不能解释为正式支持。
 
 ## 固定工具链
 
 | 工具 | 仓库固定版本 |
 | --- | --- |
 | Go | `1.26.5`（`go.mod` toolchain） |
+| goimports | `0.48.0` |
+| golangci-lint | `2.11.4` |
 | Node.js | `24.17.0` |
 | npm | `11.13.0` |
 | Nginx | 发布镜像目标为 `1.30.3`；原生兼容测试记录实际二进制版本 |
@@ -27,13 +30,24 @@ v0.7.0 是功能冻结后的 Docker 统一验证版。它已经在原生 arm64 d
 在仓库根目录执行：
 
 ```sh
-test "$(tr -d '\n' < VERSION)" = "0.7.0"
+test "$(tr -d '\n' < VERSION)" = "1.0.0"
+GOIMPORTS_DIRTY=$(git ls-files -z '*.go' | xargs -0 goimports -l)
+test -z "${GOIMPORTS_DIRTY}"
+go mod tidy
+git diff --exit-code -- go.mod go.sum
 go mod verify
 go test ./...
 go test -race ./...
 go vet ./...
 golangci-lint run
+
+export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+. "$NVM_DIR/nvm.sh"
+nvm use 24.17.0
+test "$(node --version)" = "v24.17.0"
+test "$(npm --version)" = "11.13.0"
 npm --prefix web ci
+npm --prefix web audit --audit-level=high
 npm --prefix web run lint
 npm --prefix web run typecheck
 npm --prefix web run test
@@ -67,17 +81,50 @@ NGINX_UIX_INTEGRATION=1 NGINX_BIN=/absolute/path/to/nginx \
 
 `/etc/nginx` 和 `/var/lib/nginx-uix` 必须是两个独立、持久、可一起备份的挂载。`/run/nginx-uix` 是运行期状态，不能当成持久卷。
 
-## 启动本地候选
+## 选择不可变镜像
 
-以下命令只引用本机已经验收的候选标签，不会从远端下载镜像。先创建权限为 `0600`、内容为初始管理员密码的 Secret 文件：
+生产部署必须使用正式验收记录公布的 manifest digest，不使用浮动 `latest`。发布后先设置并检查：
 
 ```sh
-test -f ./admin-password
-test "$(stat -f '%Lp' ./admin-password 2>/dev/null || stat -c '%a' ./admin-password)" = "600"
-docker image inspect nginx-uix:0.7.0-acceptance >/dev/null
+NGINX_UIX_IMAGE="${NGINX_UIX_IMAGE:?set the published registry/name@sha256:digest reference}"
+case "${NGINX_UIX_IMAGE}" in
+  *@sha256:*) ;;
+  *) printf '%s\n' 'NGINX_UIX_IMAGE must contain @sha256:' >&2; exit 1 ;;
+esac
+NGINX_UIX_DIGEST=${NGINX_UIX_IMAGE##*@sha256:}
+case "${NGINX_UIX_DIGEST}" in
+  *[!0-9a-f]*|'') printf '%s\n' 'image digest must be lowercase hexadecimal' >&2; exit 1 ;;
+esac
+[ "${#NGINX_UIX_DIGEST}" -eq 64 ] || {
+  printf '%s\n' 'image digest must contain exactly 64 hexadecimal characters' >&2
+  exit 1
+}
+docker pull "${NGINX_UIX_IMAGE}"
+docker image inspect "${NGINX_UIX_IMAGE}" >/dev/null
 ```
 
-然后使用两个命名 volume 启动：
+尚未发布期间，本地 `nginx-uix:1.0.0-test` 只用于候选验收，不能替代上述正式引用。
+
+## 创建管理员 Secret
+
+下面的 Linux 示例创建只允许容器 UI 身份读取的密码文件。命令会提示输入，不把密码放进 shell history：
+
+```bash
+sudo install -o 10001 -g 10001 -m 0600 /dev/null /etc/nginx-uix-admin-password
+IFS= read -r -s -p 'Initial administrator password: ' password
+printf '\n'
+printf '%s\n' "${password}" | sudo tee /etc/nginx-uix-admin-password >/dev/null
+unset password
+sudo chown 10001:10001 /etc/nginx-uix-admin-password
+sudo chmod 0600 /etc/nginx-uix-admin-password
+sudo test "$(stat -c '%u:%g:%a' /etc/nginx-uix-admin-password)" = "10001:10001:600"
+```
+
+密码必须为 12–128 个 Unicode 字符，文件不超过 4 KiB。不要把文件放在仓库、备份日志或普通工单中。
+
+## 启动一体化容器
+
+使用两个命名 volume 启动；`${NGINX_UIX_IMAGE}` 必须是上一节已验证的 digest 引用：
 
 ```sh
 docker run --detach \
@@ -94,10 +141,10 @@ docker run --detach \
   --publish 127.0.0.1:9000:9000 \
   --mount type=volume,src=nginx-uix-nginx,dst=/etc/nginx \
   --mount type=volume,src=nginx-uix-data,dst=/var/lib/nginx-uix \
-  --mount type=bind,src="$PWD/admin-password",dst=/run/secrets/nginx-uix-admin,readonly \
+  --mount type=bind,src=/etc/nginx-uix-admin-password,dst=/run/secrets/nginx-uix-admin,readonly \
   --env NGINX_UIX_ADMIN_USERNAME=admin \
   --env NGINX_UIX_ADMIN_PASSWORD_FILE=/run/secrets/nginx-uix-admin \
-  nginx-uix:0.7.0-acceptance
+  "${NGINX_UIX_IMAGE}"
 ```
 
 原生验收使用 `--cap-drop ALL` 逐项证明了上述六项 capability；不要增加 `--privileged`、host PID/network、Docker Socket 或额外设备。本机 daemon 上不需要 `NET_BIND_SERVICE`。UI 只映射到宿主回环地址；若需要远程管理，应通过受控 HTTPS 入口访问并设置精确的 `NGINX_UIX_PUBLIC_URL`。
@@ -134,4 +181,4 @@ curl --fail --show-error http://127.0.0.1:9000/health/ready
 - readiness 同时要求 SQLite、Agent 和真实 Nginx 状态可确认；任一不满足返回 503。
 - readiness 失败不能通过修改探针或扩大超时伪装为健康，应按[故障排查](troubleshooting.md)保留 request ID 与安全诊断。
 
-正式使用前仍必须完成[升级与回滚](upgrade-and-rollback.md)和[冷备与灾难恢复](backup-and-disaster-recovery.md)演练。v0.7.0 已证明本地 arm64 候选的安装接口；远端不可变 multiarch 镜像、真实 amd64 runtime 和正式发布承诺属于 v1.0.0。
+首次登录后的日常流程见[用户手册](user-guide.md)，部署维护见[管理员手册](administrator-guide.md)，故障决策入口见[故障恢复手册](failure-recovery-guide.md)。正式使用前仍必须完成[升级与回滚](upgrade-and-rollback.md)和[冷备与灾难恢复](backup-and-disaster-recovery.md)演练。

@@ -14,7 +14,8 @@ cd "${REPOSITORY_ROOT}"
 # shellcheck source=lib/image.sh
 . "${SCRIPT_DIR}/lib/image.sh"
 
-IMAGE=${IMAGE:-nginx-uix:0.7.0-test}
+PROJECT_VERSION=$(tr -d '\r\n' <"${REPOSITORY_ROOT}/VERSION")
+IMAGE=${IMAGE:-nginx-uix:${PROJECT_VERSION}-test}
 BUILD_IMAGE=${BUILD_IMAGE:-0}
 PLATFORM=${PLATFORM:-}
 RUN_RANDOM=$(openssl rand -hex 4)
@@ -312,7 +313,7 @@ validate_inputs() {
   for required_command in docker curl openssl jq awk sed grep tr date git go; do
     require_command "${required_command}"
   done
-  [ "$(tr -d '\r\n' <VERSION)" = 0.7.0 ] || fail 'security acceptance requires VERSION 0.7.0'
+  [ "${PROJECT_VERSION}" = 1.0.0 ] || fail 'security acceptance requires VERSION 1.0.0'
   docker info >/dev/null 2>&1 || fail 'Docker daemon is unavailable'
 }
 

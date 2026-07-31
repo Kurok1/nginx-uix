@@ -1,8 +1,8 @@
-# Nginx UIX v0.7.0 冷备与灾难恢复
+# Nginx UIX v1.0.0 冷备与灾难恢复
 
 ## 支持的备份类型
 
-v0.7.0 只支持维护窗口内的冷备份。无论部署使用 host bind 还是 Docker named volume，备份单元都必须同时包含：
+v1.0.0 只支持维护窗口内的冷备份。无论部署使用 host bind 还是 Docker named volume，备份单元都必须同时包含：
 
 - `/etc/nginx`：Nginx 配置真源及其相对引用材料；
 - `/var/lib/nginx-uix`：SQLite、WAL（若存在）、工作区、不可变备份、证书密文/私钥和任务证据。
@@ -60,7 +60,7 @@ sqlite3 "file:${RECOVERY_SNAPSHOT}/var-lib-nginx-uix/nginx-uix.db?mode=ro" \
   'PRAGMA integrity_check; PRAGMA foreign_key_check; SELECT version FROM schema_migrations ORDER BY version;'
 ```
 
-期望 `integrity_check` 仅输出 `ok`，`foreign_key_check` 无行，v0.7.0 migration 精确为 `1` 到 `7`。
+期望 `integrity_check` 仅输出 `ok`，`foreign_key_check` 无行，v1.0.0 migration 精确为 `1` 到 `7`。
 
 2. 复核 `/var/lib/nginx-uix`、备份和证书等敏感数据目录不高于 `0700`，数据库和私钥不高于 `0600`；Nginx 配置目录保留部署所需的原 mode（镜像默认根为 `0755`）。确认两个根的 owner/group 与部署身份一致。
 3. 复核 manifest 中没有越界 symlink、Socket、device 或无法恢复的特殊文件。
@@ -109,4 +109,4 @@ cp -a -- "${RECOVERY_SNAPSHOT}/var-lib-nginx-uix/." /var/lib/nginx-uix/
 - UI/Agent/Nginx health；
 - Docker volume 双根是否从停止状态复制到空 volume，并在重建后保持摘要、元数据、SQLite、证书和历史一致。
 
-v0.7.0 已在原生 arm64 daemon 完成上述 Docker volume 冷备恢复；amd64 原生恢复演练仍需在真实 amd64 runner 执行。
+当前 exact v1.0.0 arm64 候选已完成上述 Docker volume 双根冷备恢复，并从 v0.7.0 直升和 v0.6.0 长链分别复验；amd64 原生恢复演练仍需在首次远端 candidate job 执行。

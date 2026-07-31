@@ -7,7 +7,8 @@ set -eu
 REPOSITORY_ROOT=${REPOSITORY_ROOT:-$(pwd)}
 . "${REPOSITORY_ROOT}/tests/docker/lib/image.sh"
 
-IMAGE=${IMAGE:-nginx-uix:0.7.0-test}
+PROJECT_VERSION=$(tr -d '\r\n' <"${REPOSITORY_ROOT}/VERSION")
+IMAGE=${IMAGE:-nginx-uix:${PROJECT_VERSION}-test}
 PLATFORM=${PLATFORM:-}
 BUILD_IMAGE=${BUILD_IMAGE:-0}
 FAULT_CASE=${FAULT_CASE:-all}

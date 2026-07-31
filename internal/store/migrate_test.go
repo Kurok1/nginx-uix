@@ -7,6 +7,7 @@ package store
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -18,6 +19,33 @@ import (
 	"testing"
 	"testing/fstest"
 )
+
+func TestV1PublishedMigrationsAreImmutable(t *testing.T) {
+	paths, err := fs.Glob(embeddedMigrations, "migrations/*.sql")
+	if err != nil {
+		t.Fatalf("Glob(migrations) error = %v", err)
+	}
+	got := make(map[string]string, len(paths))
+	for _, path := range paths {
+		payload, err := fs.ReadFile(embeddedMigrations, path)
+		if err != nil {
+			t.Fatalf("ReadFile(%s) error = %v", path, err)
+		}
+		got[path] = fmt.Sprintf("%x", sha256.Sum256(payload))
+	}
+	want := map[string]string{
+		"migrations/0001_initial.sql":                 "7bc885bc481a546982bded5a5feef6703ee0e8aa45770d5abd185b713a6014d3",
+		"migrations/0002_auth_cleanup_indexes.sql":    "b592f3e1562c941d414900332694d602e39da4c6aa54df08a228332109f4d6bf",
+		"migrations/0003_config_workspaces.sql":       "e67c0198bbc8afaf5d4b96c1eebc0f9c3f2e70e470d0a1bdec011ddfc4daa35a",
+		"migrations/0004_config_releases.sql":         "dc1945c513ca26d9e665a35d12e439ed8f03ad98692c29a0580214ba70f63d6c",
+		"migrations/0005_config_recovery_control.sql": "281d38651384c97a051c3ff7589220cce700c3b0810c5a6fbb60b88168626932",
+		"migrations/0006_route_lab.sql":               "9c7661e1b1d2419b8e7bdfda8a9ade5dd0312e8db589d4cb9b97ec502c08a0b8",
+		"migrations/0007_certificates.sql":            "cd2631d64ee2ba4a61ae6508598ac2adaec857447395db3d3707ca1977673466",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("published migration fingerprints = %#v, want %#v; published migrations are immutable", got, want)
+	}
+}
 
 func TestMigrateAddsConfigSchemaWithoutChangingV1Data(t *testing.T) {
 	database := openV1Fixture(t)

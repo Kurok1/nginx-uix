@@ -131,8 +131,9 @@ BUILDX_BUILDER=fixture-builder
 BUILD_STEP_HTTP_PROXY=http://proxy.example.test:47890
 BUILD_STEP_HTTPS_PROXY=http://proxy.example.test:47890
 BUILD_STEP_NO_PROXY=localhost,127.0.0.1
+BUILD_STEP_GOPROXY=https://proxy.example.test,direct
 export REPOSITORY_ROOT BUILDX_CACHE_SEED_DIR BUILDX_BUILDER
-export BUILD_STEP_HTTP_PROXY BUILD_STEP_HTTPS_PROXY BUILD_STEP_NO_PROXY
+export BUILD_STEP_HTTP_PROXY BUILD_STEP_HTTPS_PROXY BUILD_STEP_NO_PROXY BUILD_STEP_GOPROXY
 printf 'docker\n' >"${FAKE_DRIVER_MODE}"
 : >"${FAKE_DOCKER_CALLS}"
 rm -f "${FAKE_BUILD_ARGS}" "${FAKE_BUILD_MARKER}"
@@ -152,6 +153,8 @@ grep -Fx "https_proxy=${BUILD_STEP_HTTPS_PROXY}" "${FAKE_BUILD_ARGS}" >/dev/null
     fail 'native image build omitted the configured HTTPS proxy'
 grep -Fx "no_proxy=${BUILD_STEP_NO_PROXY}" "${FAKE_BUILD_ARGS}" >/dev/null ||
     fail 'native image build omitted the configured no-proxy list'
+grep -Fx "GOPROXY=${BUILD_STEP_GOPROXY}" "${FAKE_BUILD_ARGS}" >/dev/null ||
+    fail 'native image build omitted the configured Go module proxy'
 assert_equal "$(snapshot_of "${REPOSITORY_ROOT}/.tmp/buildx-cache")" "${docker_cache_before}" \
     'docker driver touched the current local cache'
 [ ! -e "${REPOSITORY_ROOT}/.tmp/buildx-cache.lock" ] ||

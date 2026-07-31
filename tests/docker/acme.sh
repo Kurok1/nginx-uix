@@ -14,7 +14,8 @@ cd "${REPOSITORY_ROOT}"
 # shellcheck source=lib/image.sh
 . "${SCRIPT_DIR}/lib/image.sh"
 
-IMAGE=${IMAGE:-nginx-uix:0.7.0-test}
+PROJECT_VERSION=$(tr -d '\r\n' <"${REPOSITORY_ROOT}/VERSION")
+IMAGE=${IMAGE:-nginx-uix:${PROJECT_VERSION}-test}
 BUILD_IMAGE=${BUILD_IMAGE:-0}
 PLATFORM=${PLATFORM:-}
 PEBBLE_IMAGE='ghcr.io/letsencrypt/pebble@sha256:ddf230642b1a584f519f32e347de1b05a6e4c1f6c35c1863b33effeab5f78199'
