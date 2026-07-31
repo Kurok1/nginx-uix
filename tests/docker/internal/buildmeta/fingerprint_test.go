@@ -288,6 +288,7 @@ func TestV1MultiarchBuildsBothPlatformsWithoutRuntimeSuites(t *testing.T) {
 		"build_binary_pair arm64",
 		"--target binary-export",
 		`--output "type=local,dest=${binary_output}"`,
+		`--output "type=oci,dest=${image_archive},name=nginx-uix:${VERSION}-${image_arch}"`,
 		`--output "type=registry,name=${MULTIARCH_IMAGE_REPOSITORY}:${VERSION}-${image_arch}"`,
 		`build_image_archive amd64 "${AMD64_BUILD_IDENTITY}"`,
 		`build_image_archive arm64 "${ARM64_BUILD_IDENTITY}"`,
@@ -315,6 +316,9 @@ func TestV1MultiarchBuildsBothPlatformsWithoutRuntimeSuites(t *testing.T) {
 		if strings.Contains(matrix, unwanted) {
 			t.Errorf("multiarch.sh must not include runtime or third-party validation marker %q", unwanted)
 		}
+	}
+	if strings.Contains(matrix, `--tag "nginx-uix:${VERSION}-${image_arch}"`) {
+		t.Error("multiarch.sh must name exporters directly instead of falling back to Docker Hub")
 	}
 	if strings.Contains(matrix, "go build") {
 		t.Error("multiarch.sh must export binaries from the image build so they include the compiled web UI")

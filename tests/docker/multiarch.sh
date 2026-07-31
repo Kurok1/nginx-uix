@@ -91,8 +91,7 @@ build_image_archive() {
     --platform "linux/${image_arch}" \
     --provenance=false \
     --file deploy/docker/Dockerfile \
-    --tag "nginx-uix:${VERSION}-${image_arch}" \
-    --output "type=oci,dest=${image_archive}" \
+    --output "type=oci,dest=${image_archive},name=nginx-uix:${VERSION}-${image_arch}" \
     --build-arg "VERSION=${VERSION}" \
     --build-arg "COMMIT=${SOURCE_COMMIT}" \
     --build-arg "BUILD_TIME=${BUILD_TIME}" \
