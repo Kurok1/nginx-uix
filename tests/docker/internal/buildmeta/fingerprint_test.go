@@ -105,6 +105,24 @@ func TestV1ReleaseMetadataIsSynchronized(t *testing.T) {
 	}
 }
 
+func TestV1DockerSourceFingerprintIgnoresLocalWorktrees(t *testing.T) {
+	root, err := filepath.Abs("../../../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := os.ReadFile(filepath.Join(root, ".dockerignore"))
+	if err != nil {
+		t.Fatalf("ReadFile(.dockerignore) error = %v", err)
+	}
+	rules, err := parseIgnoreRules(payload)
+	if err != nil {
+		t.Fatalf("parseIgnoreRules(.dockerignore) error = %v", err)
+	}
+	if !ignoredLiteral(".worktrees/release/VERSION", rules) {
+		t.Error(".dockerignore must exclude local Git worktrees from the release source fingerprint")
+	}
+}
+
 func TestV1UpgradeHarnessPinsDirectAndLongChainBaselines(t *testing.T) {
 	root, err := filepath.Abs("../../../..")
 	if err != nil {

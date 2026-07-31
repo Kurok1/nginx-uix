@@ -1,5 +1,6 @@
 .git
 .tmp
+.worktrees
 .superpowers
 .codex
 .claude
