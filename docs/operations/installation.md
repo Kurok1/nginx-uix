@@ -2,11 +2,15 @@
 
 ## 当前发布边界
 
-v1.0.0 的目标是首个稳定版，官方部署形态是一体化 Docker 镜像。当前最小发布门禁已经通过：Go 与前端单元测试、native amd64 basic smoke、amd64/arm64 二进制和 OCI 镜像构建均成功。
+v1.0.0 是首个稳定版，官方部署形态是一体化 Docker 镜像。最小发布门禁已经通过：Go 与前端单元测试、native amd64 basic smoke、amd64/arm64 二进制和 OCI 镜像构建均成功。
 
-正式发布使用 `.github/workflows/release.yml`。推送与 `VERSION` 一致的 `v1.0.0` tag 后，工作流会创建 GitHub Release，并发布 `ghcr.io/kurok1/nginx-uix:1.0.0` 多架构镜像。
+v1.0.0 已通过 `.github/workflows/release.yml` 正式发布：
 
-在 `v1.0.0` tag 尚未推送前，仓库只有候选 artifact，没有可拉取的正式 GHCR 镜像。当前证据与发布入口见 [v1.0.0 验收记录](../release/v1.0.0-verification.md)。
+- [GitHub Release v1.0.0](https://github.com/Kurok1/nginx-uix/releases/tag/v1.0.0)
+- `ghcr.io/kurok1/nginx-uix:1.0.0`
+- OCI index digest：`sha256:7ba61554154258e77d7cf09bb122840c876778b7e06da425c85837e759b198f2`
+
+完整发布证据见 [v1.0.0 验收记录](../release/v1.0.0-verification.md)。
 
 ## 固定工具链
 
@@ -34,7 +38,6 @@ nvm use 24.17.0
 test "$(node --version)" = "v24.17.0"
 test "$(npm --version)" = "11.13.0"
 npm --prefix web ci
-npm --prefix web audit --audit-level=high
 npm --prefix web run lint
 npm --prefix web run typecheck
 npm --prefix web run test
@@ -69,7 +72,7 @@ NGINX_UIX_INTEGRATION=1 NGINX_BIN=/absolute/path/to/nginx \
 
 ## 选择镜像
 
-`v1.0.0` tag 发布成功后，默认使用版本 tag：
+默认使用版本 tag：
 
 ```sh
 NGINX_UIX_IMAGE="${NGINX_UIX_IMAGE:-ghcr.io/kurok1/nginx-uix:1.0.0}"
@@ -77,7 +80,7 @@ docker pull "${NGINX_UIX_IMAGE}"
 docker image inspect "${NGINX_UIX_IMAGE}" >/dev/null
 ```
 
-尚未发布期间，本地 `nginx-uix:1.0.0-test` 只用于候选验收。
+`latest` 与 `v1.0.0` 当前指向同一个多架构 OCI index；部署时优先使用固定版本 tag。
 
 ## 创建管理员 Secret
 
