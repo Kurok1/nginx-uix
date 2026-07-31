@@ -581,9 +581,18 @@ func TestPrepareDirectoriesSecuresPersistentDataAndRecreatesRuntime(t *testing.T
 	runRoot := filepath.Join(root, "run")
 	mustMkdir(t, runRoot, 0o700)
 	mustWriteFile(t, filepath.Join(runRoot, "stale.sock"), []byte("stale runtime state"), 0o600)
-	oldRunInformation, err := os.Lstat(runRoot)
+	oldRunDirectory, err := os.Open(runRoot)
 	if err != nil {
-		t.Fatalf("Lstat(old run root) error = %v", err)
+		t.Fatalf("Open(old run root) error = %v", err)
+	}
+	t.Cleanup(func() {
+		if closeErr := oldRunDirectory.Close(); closeErr != nil {
+			t.Errorf("Close(old run root) error = %v", closeErr)
+		}
+	})
+	oldRunInformation, err := oldRunDirectory.Stat()
+	if err != nil {
+		t.Fatalf("Stat(old run root) error = %v", err)
 	}
 
 	options := InitializeOptions{
