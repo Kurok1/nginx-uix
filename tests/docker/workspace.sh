@@ -996,7 +996,7 @@ build_browser_test_image() {
   grep -Fx "FROM ${PLAYWRIGHT_IMAGE}" deploy/docker/Playwright.Dockerfile >/dev/null ||
     fail 'Playwright test Dockerfile does not use the required pinned image'
   register_image "${BROWSER_TEST_IMAGE}"
-  if ! run_bounded 600 docker build --platform "${PLATFORM}" \
+  if ! run_bounded 600 docker buildx build --load --platform "${PLATFORM}" \
     --file deploy/docker/Playwright.Dockerfile \
     --label "${LABEL}" \
     --tag "${BROWSER_TEST_IMAGE}" . >"${WORK_DIR}/playwright-build.log" 2>&1; then

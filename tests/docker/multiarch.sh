@@ -905,7 +905,8 @@ run_playwright_acceptance() {
 }
 
 build_playwright_image() {
-  set -- docker build \
+  set -- docker buildx build \
+    --load \
     --file deploy/docker/Playwright.Dockerfile \
     --tag "${PLAYWRIGHT_IMAGE}"
   if [ -n "${BUILD_STEP_HTTP_PROXY:-}" ]; then

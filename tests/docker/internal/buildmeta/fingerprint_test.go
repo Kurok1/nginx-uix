@@ -267,6 +267,7 @@ func TestV1NativeCandidateMatrixIncludesDurabilityHarnesses(t *testing.T) {
 		`require_executable "${SCRIPT_DIR}/repeated_recovery.sh"`,
 		`require_executable "${SCRIPT_DIR}/stability.sh"`,
 		`chmod 0444 "${boot_secret}"`,
+		"set -- docker buildx build \\\n    --load \\\n    --file deploy/docker/Playwright.Dockerfile",
 		`"${SCRIPT_DIR}/upgrade_compatibility.sh"`,
 		`run_repeated_recovery_suite "${NATIVE_IMAGE}"`,
 		`run_stability_suite "${NATIVE_IMAGE}"`,
@@ -291,6 +292,17 @@ func TestV1NativeCandidateMatrixIncludesDurabilityHarnesses(t *testing.T) {
 	}
 	if strings.Contains(acme, `chmod 0600 "${WORK_DIR}/admin-password"`) {
 		t.Error("acme.sh test secret must not remain owned-only by the host runner")
+	}
+
+	workspacePayload, err := os.ReadFile(filepath.Join(root, "tests/docker/workspace.sh"))
+	if err != nil {
+		t.Fatalf("ReadFile(workspace.sh) error = %v", err)
+	}
+	if !strings.Contains(
+		string(workspacePayload),
+		`run_bounded 600 docker buildx build --load --platform "${PLATFORM}"`,
+	) {
+		t.Error("workspace.sh must load its Playwright helper image into the Docker daemon")
 	}
 }
 
