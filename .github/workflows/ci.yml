@@ -52,7 +52,7 @@ jobs:
           GOBIN="${tool_bin}" go install golang.org/x/tools/cmd/goimports@v0.48.0
           GOBIN="${tool_bin}" go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.11.4
           export PATH="${tool_bin}:${PATH}"
-          goimports -version
+          go version -m "${tool_bin}/goimports" | grep -F $'mod\tgolang.org/x/tools\tv0.48.0'
           golangci-lint --version | grep -F 'version 2.11.4'
 
           git ls-files -z '*.go' | xargs -0 goimports -l >"${RUNNER_TEMP}/goimports.out"

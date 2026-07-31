@@ -305,6 +305,7 @@ func TestV1GitHubActionsPinsQualityAndNativeAMD64Gates(t *testing.T) {
 		"NODE_VERSION: 24.17.0",
 		"NPM_VERSION: 11.13.0",
 		"NVM_COMMIT: 977563e97ddc66facf3a8e31c6cff01d236f09bd",
+		`go version -m "${tool_bin}/goimports" | grep -F $'mod\tgolang.org/x/tools\tv0.48.0'`,
 		"go test ./...",
 		"go test -race ./...",
 		"npm audit --audit-level=high",
@@ -317,6 +318,9 @@ func TestV1GitHubActionsPinsQualityAndNativeAMD64Gates(t *testing.T) {
 	}
 	if strings.Contains(workflow, "pull_request_target:") {
 		t.Error("ci.yml must not execute repository code through pull_request_target")
+	}
+	if strings.Contains(workflow, "goimports -version") {
+		t.Error("ci.yml must inspect goimports build metadata because goimports has no -version flag")
 	}
 
 	pinnedAction := regexp.MustCompile(`^[0-9a-f]{40}(?:\s+#.*)?$`)
