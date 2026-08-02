@@ -18,21 +18,31 @@ import (
 
 var requestIDPattern = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
 
+const baseContentSecurityPolicy = "default-src 'self'; style-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+
 type requestIDContextKey struct{}
 
-type requestIDGenerator struct {
+type randomTokenGenerator struct {
 	reader io.Reader
 	mu     sync.Mutex
 }
 
-func newRequestIDGenerator(reader io.Reader) *requestIDGenerator {
+func newRandomTokenGenerator(reader io.Reader) *randomTokenGenerator {
 	if reader == nil {
 		reader = rand.Reader
 	}
-	return &requestIDGenerator{reader: reader}
+	return &randomTokenGenerator{reader: reader}
 }
 
-func (g *requestIDGenerator) Generate() (string, error) {
+func newRequestIDGenerator(reader io.Reader) *randomTokenGenerator {
+	return newRandomTokenGenerator(reader)
+}
+
+func newCSPNonceGenerator(reader io.Reader) *randomTokenGenerator {
+	return newRandomTokenGenerator(reader)
+}
+
+func (g *randomTokenGenerator) Generate() (string, error) {
 	bytes := make([]byte, 16)
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -42,13 +52,13 @@ func (g *requestIDGenerator) Generate() (string, error) {
 	return hex.EncodeToString(bytes), nil
 }
 
-func requestBoundary(next http.Handler, logger *slog.Logger, generator *requestIDGenerator) http.Handler {
+func requestBoundary(next http.Handler, logger *slog.Logger, generator *randomTokenGenerator) http.Handler {
 	if logger == nil {
 		logger = slog.New(slog.DiscardHandler)
 	}
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		startedAt := time.Now()
-		writer.Header().Set("Content-Security-Policy", "default-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'")
+		writer.Header().Set("Content-Security-Policy", baseContentSecurityPolicy)
 		writer.Header().Set("X-Frame-Options", "DENY")
 		writer.Header().Set("X-Content-Type-Options", "nosniff")
 		writer.Header().Set("Referrer-Policy", "no-referrer")

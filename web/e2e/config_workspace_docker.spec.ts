@@ -34,14 +34,22 @@ test('real Docker workspace flow covers persistence, responsive layout and keybo
   const savedMarker = `docker-persistence-${randomUUID()}`
   const localConflictMarker = `docker-local-conflict-${randomUUID()}`
   const serverConflictMarker = `docker-server-conflict-${randomUUID()}`
+  const cspLayoutContent = 'server {\n  listen 8082;\n}\n'
+  const cspConsoleMessages: string[] = []
   let csrfToken = ''
   let workspaceID = ''
+  page.on('console', (message) => {
+    if (/content security policy|violates.*style-src|refused to apply inline style/iu.test(message.text())) {
+      cspConsoleMessages.push(message.text())
+    }
+  })
 
   await context.grantPermissions(['clipboard-read', 'clipboard-write'], {
     origin: environment.baseURL.origin,
   })
 
   try {
+    await assertHTMLNonceBoundary(page.request, environment.baseURL)
     await login(page, environment)
     csrfToken = await sessionCSRFToken(page, environment)
     await expect
@@ -66,8 +74,28 @@ test('real Docker workspace flow covers persistence, responsive layout and keybo
     )
     await expect(page.getByRole('heading', { level: 1, name: workspaceName })).toBeVisible()
 
+    const initialFile = await getConfigFile(
+      context.request,
+      environment.baseURL,
+      workspaceID,
+      'nginx.conf',
+    )
     await openFile(page, 'nginx.conf')
     const editor = page.getByLabel('nginx.conf editor')
+    await assertCodeMirrorCSPLayout(editor, initialFile.content)
+
+    await page.getByRole('button', { name: 'Create file' }).click()
+    const createFile = page.locator('form[aria-label="Create file"]')
+    await createFile.getByLabel('File path').fill('csp-layout.conf')
+    await createFile.getByLabel('Initial content').fill(cspLayoutContent)
+    await createFile.getByRole('button', { name: 'Create file' }).click()
+    await expect(createFile).toHaveCount(0)
+    await openFile(page, 'csp-layout.conf')
+    await assertCodeMirrorCSPLayout(
+      page.getByLabel('csp-layout.conf editor'),
+      cspLayoutContent,
+    )
+    await openFile(page, 'nginx.conf')
     await appendEditorText(page, editor, `\n# ${savedMarker}\n`)
 
     const saveResponsePromise = waitForAPIResponse(
@@ -191,6 +219,7 @@ test('real Docker workspace flow covers persistence, responsive layout and keybo
     await logout.press('Enter')
     expect((await logoutResponsePromise).status()).toBe(204)
     await expect(page).toHaveURL(urlFor(environment.baseURL, '/login'))
+    expect(cspConsoleMessages, 'browser console CSP violations').toEqual([])
   } finally {
     if (workspaceID !== '' && csrfToken !== '') {
       await cleanupWorkspace(
@@ -213,6 +242,64 @@ interface DockerEnvironment {
 interface ConfigFileState {
   content: string
   draftETag: string
+}
+
+async function assertHTMLNonceBoundary(
+  request: APIRequestContext,
+  baseURL: URL,
+): Promise<void> {
+  const nonces: string[] = []
+  for (let index = 0; index < 2; index += 1) {
+    const response = await request.get(baseURL.href)
+    expect(response.status()).toBe(200)
+    const csp = response.headers()['content-security-policy'] ?? ''
+    expect(csp).not.toContain('unsafe-inline')
+    expect(csp).toContain("object-src 'none'")
+    expect(csp).toContain("base-uri 'self'")
+    expect(csp).toContain("frame-ancestors 'none'")
+    const nonce = /'nonce-([0-9a-f]{32})'/u.exec(csp)?.[1]
+    expect(nonce).toBeDefined()
+    if (nonce === undefined) throw new Error('HTML CSP nonce is required')
+    nonces.push(nonce)
+    const html = await response.text()
+    expect(html).toContain('name="nginx-uix-csp-nonce"')
+    expect(html).toContain(`content="${nonce}"`)
+  }
+  expect(nonces[0]).not.toBe(nonces[1])
+}
+
+async function assertCodeMirrorCSPLayout(
+  editor: Locator,
+  expectedContent: string,
+): Promise<void> {
+  await expect(editor).toBeVisible()
+  const layout = await editor.evaluate((content) => {
+    const scroller = content.closest('.cm-scroller')
+    const editorRoot = content.closest('.cm-editor')
+    const gutters = editorRoot?.querySelector<HTMLElement>('.cm-gutters') ?? null
+    const nonce = document
+      .querySelector<HTMLMetaElement>('meta[name="nginx-uix-csp-nonce"]')
+      ?.content ?? ''
+    return {
+      content: [...content.querySelectorAll<HTMLElement>('.cm-line')]
+        .map((line) => line.textContent ?? '')
+        .join('\n'),
+      display: scroller === null ? '' : getComputedStyle(scroller).display,
+      topDelta:
+        gutters === null
+          ? Number.POSITIVE_INFINITY
+          : Math.abs(gutters.getBoundingClientRect().top - content.getBoundingClientRect().top),
+      nonce,
+      hasNonceStyle: [...document.head.querySelectorAll<HTMLStyleElement>('style')].some(
+        (style) => style.nonce === nonce,
+      ),
+    }
+  })
+  expect(layout.display).toBe('flex')
+  expect(layout.topDelta).toBeLessThanOrEqual(1)
+  expect(layout.nonce).toMatch(/^[0-9a-f]{32}$/u)
+  expect(layout.hasNonceStyle).toBe(true)
+  expect(layout.content).toBe(expectedContent.replace(/\n$/u, ''))
 }
 
 async function verifyResponsiveAndKeyboardBehavior(

@@ -5,6 +5,7 @@
 package httpapi
 
 import (
+	"bytes"
 	"errors"
 	"io"
 	"io/fs"
@@ -12,8 +13,11 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"strconv"
 	"strings"
 )
+
+const cspNoncePlaceholder = "__NGINX_UIX_CSP_NONCE__"
 
 // Dependencies contains explicit HTTP boundary dependencies.
 type Dependencies struct {
@@ -44,6 +48,7 @@ type Dependencies struct {
 	PublicURL                 *url.URL
 	Logger                    *slog.Logger
 	RequestIDSource           io.Reader
+	CSPNonceSource            io.Reader
 }
 
 // NewHandler creates the public HTTP surface.
@@ -157,11 +162,11 @@ func NewHandler(dependencies Dependencies) http.Handler {
 	mux.HandleFunc("POST /api/v1/certificates/{certificate_id}/unbindings", certificates.unbindCertificate)
 	mux.HandleFunc("POST /api/v1/certificates/{certificate_id}/exports", certificates.exportCertificate)
 	mux.HandleFunc("DELETE /api/v1/certificates/{certificate_id}", certificates.deleteCertificate)
-	mux.Handle("GET /", spaFallback(dependencies.Assets))
+	mux.Handle("GET /", spaFallback(dependencies.Assets, newCSPNonceGenerator(dependencies.CSPNonceSource)))
 	return requestBoundary(configNoStore(mux), dependencies.Logger, newRequestIDGenerator(dependencies.RequestIDSource))
 }
 
-func spaFallback(assets fs.FS) http.Handler {
+func spaFallback(assets fs.FS, nonceGenerator *randomTokenGenerator) http.Handler {
 	if assets == nil {
 		return http.NotFoundHandler()
 	}
@@ -178,7 +183,8 @@ func spaFallback(assets fs.FS) http.Handler {
 			switch {
 			case err == nil && !info.IsDir():
 				if strings.HasSuffix(strings.ToLower(assetPath), ".html") {
-					writer.Header().Set("Cache-Control", "no-store")
+					serveNonceHTML(writer, request, assets, assetPath, nonceGenerator)
+					return
 				}
 				files.ServeHTTP(writer, request)
 				return
@@ -193,14 +199,46 @@ func spaFallback(assets fs.FS) http.Handler {
 			return
 		}
 
-		writer.Header().Set("Cache-Control", "no-store")
-		indexRequest := request.Clone(request.Context())
-		indexURL := *request.URL
-		indexURL.Path = "/"
-		indexURL.RawPath = ""
-		indexRequest.URL = &indexURL
-		files.ServeHTTP(writer, indexRequest)
+		serveNonceHTML(writer, request, assets, "index.html", nonceGenerator)
 	})
+}
+
+func serveNonceHTML(
+	writer http.ResponseWriter,
+	request *http.Request,
+	assets fs.FS,
+	assetPath string,
+	nonceGenerator *randomTokenGenerator,
+) {
+	payload, err := fs.ReadFile(assets, assetPath)
+	if err != nil {
+		http.Error(writer, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	placeholder := []byte(cspNoncePlaceholder)
+	if bytes.Count(payload, placeholder) != 1 {
+		http.Error(writer, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	nonce, err := nonceGenerator.Generate()
+	if err != nil {
+		http.Error(writer, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	rendered := bytes.Replace(payload, placeholder, []byte(nonce), 1)
+	writer.Header().Set("Cache-Control", "no-store")
+	writer.Header().Set("Content-Type", "text/html; charset=utf-8")
+	writer.Header().Set("Content-Length", strconv.Itoa(len(rendered)))
+	writer.Header().Set(
+		"Content-Security-Policy",
+		"default-src 'self'; style-src 'self' 'nonce-"+nonce+"'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
+	)
+	writer.WriteHeader(http.StatusOK)
+	if request.Method == http.MethodHead {
+		return
+	}
+	// A client disconnect is terminal for this response; there is no safe secondary response to write.
+	_, _ = writer.Write(rendered)
 }
 
 func reservedSPAPath(requestPath string) bool {

@@ -36,6 +36,12 @@ const lineSeparatorCompartment = new Compartment()
 const ariaLabelCompartment = new Compartment()
 let applyingExternalValue = false
 
+function bootstrapCSPNonce(): string {
+  return document
+    .querySelector<HTMLMetaElement>('meta[name="nginx-uix-csp-nonce"]')
+    ?.content.trim() ?? ''
+}
+
 function lineSeparator(value: string): '\r\n' | '\n' {
   return value.includes('\r\n') ? '\r\n' : '\n'
 }
@@ -54,6 +60,7 @@ onMounted(() => {
         history(),
         keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap]),
         StreamLanguage.define(nginx),
+        EditorView.cspNonce.of(bootstrapCSPNonce()),
         readOnlyCompartment.of(EditorState.readOnly.of(props.readOnly)),
         lineSeparatorCompartment.of(
           EditorState.lineSeparator.of(lineSeparator(props.modelValue)),
