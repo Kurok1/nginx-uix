@@ -9,7 +9,7 @@
     :aria-busy="busy ? 'true' : 'false'"
   >
     <h2 id="validation-result-title">
-      启动与恢复
+      {{ t('dashboard.startupRecovery') }}
     </h2>
     <div class="validation-result__columns">
       <article
@@ -18,7 +18,7 @@
       >
         <div class="validation-result__card-heading">
           <h3 id="startup-validation-title">
-            启动校验
+            {{ t('dashboard.startupValidation') }}
           </h3>
           <StatusBadge
             :tone="validationPresentation.tone"
@@ -27,19 +27,19 @@
         </div>
         <div class="validation-result__metrics dashboard-grid">
           <MetricCard
-            label="检查时间"
+            :label="t('dashboard.checkedAt')"
             :value="validation?.checked_at ?? null"
             format="timestamp"
             :busy="busy"
           />
           <MetricCard
-            label="退出码"
+            :label="t('dashboard.exitCode')"
             :value="validation?.exit_code ?? null"
             format="number"
             :busy="busy"
           />
         </div>
-        <h4>诊断</h4>
+        <h4>{{ t('dashboard.diagnostics') }}</h4>
         <pre class="validation-result__diagnostic">{{ diagnostic }}</pre>
       </article>
 
@@ -49,7 +49,7 @@
       >
         <div class="validation-result__card-heading">
           <h3 id="recovery-status-title">
-            自动恢复
+            {{ t('dashboard.automaticRecovery') }}
           </h3>
           <StatusBadge
             :tone="recoveryPresentation.tone"
@@ -58,19 +58,19 @@
         </div>
         <div class="validation-result__metrics dashboard-grid">
           <MetricCard
-            label="当前窗口次数"
+            :label="t('dashboard.currentWindowCount')"
             :value="recovery?.count ?? null"
             format="number"
             :busy="busy"
           />
           <MetricCard
-            label="最近结果"
+            :label="t('dashboard.latestResult')"
             :value="recoveryPresentation.value"
             :busy="busy"
           />
           <MetricCard
-            label="永久失败"
-            :value="recovery === null ? null : recovery.permanent ? '是' : '否'"
+            :label="t('dashboard.permanentFailure')"
+            :value="recovery === null ? null : recovery.permanent ? t('common.yes') : t('common.no')"
             :busy="busy"
           />
         </div>
@@ -82,10 +82,10 @@
       aria-labelledby="runtime-issues-title"
     >
       <h3 id="runtime-issues-title">
-        问题
+        {{ t('dashboard.issues') }}
       </h3>
       <p v-if="issues.length === 0">
-        未发现问题。
+        {{ t('dashboard.noIssues') }}
       </p>
       <ul v-else>
         <li
@@ -104,6 +104,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import type { RecoveryStatus, StartupValidation } from '../api/types'
 import MetricCard from './MetricCard.vue'
@@ -126,37 +127,50 @@ const props = withDefaults(
   }>(),
   { busy: false },
 )
+const { t } = useI18n()
 
 const validationPresentation = computed<Presentation>(() => {
   if (props.validation === null) {
-    return { label: '无法确认', tone: 'unknown', value: null }
+    return { label: t('common.unableToConfirm'), tone: 'unknown', value: null }
   }
   if (props.validation.valid) {
-    return { label: '通过', tone: 'success', value: '通过' }
+    return { label: t('dashboard.passed'), tone: 'success', value: t('dashboard.passed') }
   }
-  return { label: '失败', tone: 'error', value: '失败' }
+  return { label: t('dashboard.failed'), tone: 'error', value: t('dashboard.failed') }
 })
 
 const recoveryPresentation = computed<Presentation>(() => {
   if (props.recovery === null) {
-    return { label: '无法确认', tone: 'unknown', value: null }
+    return { label: t('common.unableToConfirm'), tone: 'unknown', value: null }
   }
   switch (props.recovery.last_result) {
     case 'restarting':
-      return { label: '正在恢复', tone: 'warning', value: '正在恢复' }
+      return {
+        label: t('dashboard.recovering'),
+        tone: 'warning',
+        value: t('dashboard.recovering'),
+      }
     case 'invalid_config':
-      return { label: '配置无效', tone: 'error', value: '配置无效' }
+      return {
+        label: t('dashboard.invalidConfiguration'),
+        tone: 'error',
+        value: t('dashboard.invalidConfiguration'),
+      }
     case 'permanent_failure':
-      return { label: '永久失败', tone: 'error', value: '永久失败' }
+      return {
+        label: t('dashboard.permanentFailure'),
+        tone: 'error',
+        value: t('dashboard.permanentFailure'),
+      }
   }
-  return { label: '无法确认', tone: 'unknown', value: null }
+  return { label: t('common.unableToConfirm'), tone: 'unknown', value: null }
 })
 
 const diagnostic = computed(() => {
   if (props.validation === null) {
-    return '无法确认'
+    return t('common.unableToConfirm')
   }
-  return props.validation.diagnostic === '' ? '无诊断信息' : props.validation.diagnostic
+  return props.validation.diagnostic === '' ? t('dashboard.noDiagnostics') : props.validation.diagnostic
 })
 </script>
 

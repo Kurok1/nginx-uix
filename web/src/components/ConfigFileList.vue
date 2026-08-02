@@ -6,7 +6,7 @@
   <div class="config-file-list">
     <nav
       class="config-file-list__desktop"
-      aria-label="生效配置加载顺序"
+      :aria-label="t('effectiveConfig.loadOrderLabel')"
     >
       <ol>
         <li
@@ -20,7 +20,7 @@
             @click="emit('select', occurrence.id)"
             @keydown="selectWithKeyboard($event, occurrence.id)"
           >
-            <span class="config-file-list__order">第 {{ occurrence.load_order }} 项</span>
+            <span class="config-file-list__order">{{ t('effectiveConfig.loadEntry', { order: occurrence.load_order }) }}</span>
             <span class="config-file-list__path">{{ occurrence.path }}</span>
           </button>
         </li>
@@ -28,7 +28,7 @@
     </nav>
 
     <div class="config-file-list__selector">
-      <label :for="selectorId">配置加载项</label>
+      <label :for="selectorId">{{ t('effectiveConfig.loadEntryPicker') }}</label>
       <select
         :id="selectorId"
         :value="selectedId"
@@ -39,7 +39,7 @@
           :key="occurrence.id"
           :value="occurrence.id"
         >
-          第 {{ occurrence.load_order }} 项 · {{ occurrence.path }}
+          {{ t('effectiveConfig.loadEntry', { order: occurrence.load_order }) }} · {{ occurrence.path }}
         </option>
       </select>
     </div>
@@ -48,6 +48,7 @@
 
 <script setup lang="ts">
 import { useId } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import type { EffectiveConfigOccurrence } from '../api/types'
 
@@ -61,6 +62,7 @@ const emit = defineEmits<{
 }>()
 
 const selectorId = useId()
+const { t } = useI18n()
 
 function selectWithKeyboard(event: KeyboardEvent, id: string): void {
   if (event.key !== 'Enter' && event.key !== ' ') {

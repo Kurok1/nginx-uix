@@ -4,6 +4,7 @@
  */
 import { mount } from '@vue/test-utils'
 
+import { appI18n } from '../i18n'
 import UnsavedRecovery from './UnsavedRecovery.vue'
 import recoverySource from './UnsavedRecovery.vue?raw'
 
@@ -22,8 +23,8 @@ describe('UnsavedRecovery', () => {
     expect(wrapper.text()).toContain('nginx.conf')
     expect(wrapper.findAll('button')).toHaveLength(2)
     expect(
-      wrapper.get('button[aria-label="Copy local content for conf.d/site.conf"]').text(),
-    ).toBe('Copy')
+      wrapper.get('button[aria-label="复制 conf.d/site.conf 的本地内容"]').text(),
+    ).toBe('复制')
     expect(wrapper.text()).not.toContain('server {')
     expect(wrapper.find('pre').exists()).toBe(false)
     expect(wrapper.find('code').exists()).toBe(false)
@@ -39,6 +40,18 @@ describe('UnsavedRecovery', () => {
     expect(wrapper.emitted('copy')).toEqual([['conf.d/site.conf']])
     expect(wrapper.find('form').exists()).toBe(false)
     expect(wrapper.find('[type="submit"]').exists()).toBe(false)
+  })
+
+  it.each([
+    ['zh-CN' as const, '未保存的工作区变更', '复制 conf.d/site.conf 的本地内容', '复制'],
+    ['en-US' as const, 'Unsaved workspace changes', 'Copy local content for conf.d/site.conf', 'Copy'],
+  ])('localizes recovery controls in %s', (locale, heading, ariaLabel, buttonText) => {
+    appI18n.global.locale.value = locale
+    const wrapper = mount(UnsavedRecovery, { props: { paths: ['conf.d/site.conf'] } })
+
+    expect(wrapper.get('h2').text()).toBe(heading)
+    expect(wrapper.get('button').attributes('aria-label')).toBe(ariaLabel)
+    expect(wrapper.get('button').text()).toBe(buttonText)
   })
 
   it('uses 44px controls, variables and no persistence or API surface', () => {

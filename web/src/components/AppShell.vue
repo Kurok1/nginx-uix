@@ -7,7 +7,7 @@
     <a
       class="app-shell__skip-link"
       href="#main-content"
-    >Skip to main content</a>
+    >{{ t('navigation.skipToContent') }}</a>
     <GlobalNav />
     <SubNav />
     <main
@@ -23,8 +23,12 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+
 import GlobalNav from './GlobalNav.vue'
 import SubNav from './SubNav.vue'
+
+const { t } = useI18n()
 </script>
 
 <style scoped>

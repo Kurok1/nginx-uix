@@ -4,6 +4,7 @@
 -->
 <script setup lang="ts">
 import { computed, inject, onBeforeUnmount } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { routerKey, type RouteLocationRaw } from 'vue-router'
 
 import LanguageSelector from '../components/LanguageSelector.vue'
@@ -19,6 +20,7 @@ interface Props {
 
 const props = defineProps<Props>()
 const router = inject(routerKey, null)
+const { t } = useI18n()
 const sessions = props.store ?? sessionStore
 const workspaces = props.workspace ?? workspaceStore
 const dirtyPaths = computed(() =>
@@ -87,9 +89,9 @@ function installWorkspaceReturn(): void {
       </div>
       <header class="login-view__header">
         <h1 id="login-title">
-          登录 Nginx UIX
+          {{ t('auth.title') }}
         </h1>
-        <p>使用管理员凭据继续。</p>
+        <p>{{ t('auth.description') }}</p>
       </header>
       <UnsavedRecovery
         v-if="dirtyPaths.length > 0"

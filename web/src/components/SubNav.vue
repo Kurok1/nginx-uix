@@ -5,19 +5,19 @@
 <template>
   <nav
     class="sub-nav"
-    aria-label="Section navigation"
+    :aria-label="t('navigation.sectionLabel')"
   >
     <div class="sub-nav__content">
-      <span class="sub-nav__title">Operations</span>
+      <span class="sub-nav__title">{{ t('navigation.sectionTitle') }}</span>
       <ul class="sub-nav__links">
         <li>
           <RouterLink to="/">
-            Dashboard
+            {{ t('navigation.dashboard') }}
           </RouterLink>
         </li>
         <li>
           <RouterLink to="/configuration">
-            Configuration
+            {{ t('navigation.configuration') }}
           </RouterLink>
         </li>
         <li>
@@ -25,22 +25,22 @@
             class="sub-nav__primary"
             to="/config/workspaces"
           >
-            Workspaces
+            {{ t('navigation.workspaces') }}
           </RouterLink>
         </li>
         <li>
           <RouterLink to="/config/route-lab">
-            Route Lab
+            {{ t('navigation.routeLab') }}
           </RouterLink>
         </li>
         <li>
           <RouterLink to="/certificates">
-            Certificates
+            {{ t('navigation.certificates') }}
           </RouterLink>
         </li>
         <li>
           <RouterLink to="/config/operations">
-            Recovery &amp; History
+            {{ t('navigation.recoveryHistory') }}
           </RouterLink>
         </li>
       </ul>
@@ -49,7 +49,10 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
+
+const { t } = useI18n()
 </script>
 
 <style scoped>

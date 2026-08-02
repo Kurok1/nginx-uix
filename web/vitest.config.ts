@@ -13,5 +13,6 @@ export default defineConfig({
     execArgv: ['--no-experimental-webstorage'],
     globals: true,
     restoreMocks: true,
+    setupFiles: ['./src/test/setup.ts'],
   },
 })

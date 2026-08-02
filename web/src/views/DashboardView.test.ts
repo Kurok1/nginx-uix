@@ -12,6 +12,7 @@ import type {
   SystemComponents,
   SystemStatusResponse,
 } from '../api/types'
+import { appI18n } from '../i18n'
 import ComponentHealth from '../components/ComponentHealth.vue'
 import componentHealthSource from '../components/ComponentHealth.vue?raw'
 import processMetricsSource from '../components/ProcessMetrics.vue?raw'
@@ -173,6 +174,25 @@ describe('DashboardView', () => {
     expect(wrapper.get('time.dashboard__sample-time').attributes('datetime')).toBe(
       healthyStatus.sampled_at,
     )
+  })
+
+  it('renders runtime evidence and status descriptions in English', async () => {
+    appI18n.global.locale.value = 'en-US'
+    const wrapper = mount(DashboardView, {
+      props: {
+        client: createStatusClient(vi.fn().mockResolvedValue(healthyStatus)),
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.get('h1').text()).toBe('Runtime status')
+    expect(componentByName(wrapper, 'UI').text()).toContain('Healthy')
+    expect(componentByName(wrapper, 'Nginx').text()).toContain('Running')
+    expect(wrapper.text()).toContain('Process metrics')
+    expect(wrapper.text()).toContain('Startup validation')
+    expect(wrapper.text()).toContain('Automatic recovery')
+    expect(wrapper.text()).toContain('Recovering')
+    expect(wrapper.text()).not.toContain('运行状态')
   })
 
   it('polls every five seconds', async () => {

@@ -7,7 +7,7 @@ import { createMemoryHistory } from 'vue-router'
 
 import { APIClient, APIRequestError } from './api/client'
 import type { LoginRequest, SessionResponse } from './api/types'
-import { createAppI18n } from './i18n'
+import { appI18n, createAppI18n } from './i18n'
 import {
   createAppRouter,
   installSessionExpiryRedirect,
@@ -86,6 +86,7 @@ function workspaceStore(dirty = false): WorkspaceStore {
 
 describe('application router', () => {
   beforeEach(() => {
+    appI18n.global.locale.value = 'en-US'
     localStorage.clear()
     sessionStorage.clear()
   })
@@ -182,23 +183,23 @@ describe('application router', () => {
   it('adds Workspaces, Route Lab, Certificates and Recovery & History to both navigation levels and bounds overflow', () => {
     expect(globalNavSource.match(/<LanguageSelector/g)).toHaveLength(2)
     expect(globalNavSource.match(/to="\/config\/workspaces"/g)).toHaveLength(2)
-    expect(globalNavSource).toContain('Workspaces')
+    expect(globalNavSource).toContain("t('navigation.workspaces')")
     expect(globalNavSource).toContain('to="/configuration"')
     expect(globalNavSource.match(/to="\/config\/operations"/g)).toHaveLength(2)
-    expect(globalNavSource).toContain('Recovery &amp; History')
+    expect(globalNavSource).toContain("t('navigation.recoveryHistory')")
     expect(globalNavSource.match(/to="\/config\/route-lab"/g)).toHaveLength(2)
-    expect(globalNavSource).toContain('Route Lab')
+    expect(globalNavSource).toContain("t('navigation.routeLab')")
     expect(globalNavSource.match(/to="\/certificates"/g)).toHaveLength(2)
-    expect(globalNavSource).toContain('Certificates')
+    expect(globalNavSource).toContain("t('navigation.certificates')")
     expect(subNavSource).toContain('to="/config/workspaces"')
-    expect(subNavSource).toContain('Workspaces')
+    expect(subNavSource).toContain("t('navigation.workspaces')")
     expect(subNavSource).toContain('to="/configuration"')
     expect(subNavSource).toContain('to="/config/operations"')
-    expect(subNavSource).toContain('Recovery &amp; History')
+    expect(subNavSource).toContain("t('navigation.recoveryHistory')")
     expect(subNavSource).toContain('to="/config/route-lab"')
-    expect(subNavSource).toContain('Route Lab')
+    expect(subNavSource).toContain("t('navigation.routeLab')")
     expect(subNavSource).toContain('to="/certificates"')
-    expect(subNavSource).toContain('Certificates')
+    expect(subNavSource).toContain("t('navigation.certificates')")
     expect(appShellSource).toMatch(/\.app-shell\s*\{[\s\S]*overflow-x: hidden/)
   })
 

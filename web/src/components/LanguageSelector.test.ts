@@ -5,24 +5,24 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
 
-import { createAppI18n, installLocaleRouting } from '../i18n'
+import { appI18n, installLocaleRouting } from '../i18n'
 import LanguageSelector from './LanguageSelector.vue'
 import languageSelectorSource from './LanguageSelector.vue?raw'
 
 describe('LanguageSelector', () => {
   async function mountSelector(locale: 'zh-CN' | 'en-US' = 'en-US') {
-    const i18n = createAppI18n(locale)
+    appI18n.global.locale.value = locale
     const router = createRouter({
       history: createMemoryHistory(),
       routes: [{ path: '/', component: { template: '<div />' } }],
     })
-    installLocaleRouting(router, i18n, localStorage)
+    installLocaleRouting(router, appI18n, localStorage)
     await router.push(`/?lang=${locale}`)
     await router.isReady()
     const wrapper = mount(LanguageSelector, {
-      global: { plugins: [i18n, router] },
+      global: { plugins: [router] },
     })
-    return { i18n, router, wrapper }
+    return { i18n: appI18n, router, wrapper }
   }
 
   beforeEach(() => {

@@ -28,6 +28,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 export type MetricFormat = 'text' | 'number' | 'timestamp'
 
@@ -49,19 +50,17 @@ const props = withDefaults(
 const isTimestamp = computed(
   () => props.value !== null && props.format === 'timestamp' && typeof props.value === 'string',
 )
+const { d, n, t } = useI18n()
 
 const formattedValue = computed(() => {
   if (props.value === null) {
-    return '无法确认'
+    return t('common.unableToConfirm')
   }
   if (props.format === 'number' && typeof props.value === 'number') {
-    return new Intl.NumberFormat('zh-CN').format(props.value)
+    return n(props.value, 'decimal')
   }
   if (props.format === 'timestamp' && typeof props.value === 'string') {
-    return new Intl.DateTimeFormat('zh-CN', {
-      dateStyle: 'medium',
-      timeStyle: 'medium',
-    }).format(new Date(props.value))
+    return d(new Date(props.value), 'short')
   }
   return String(props.value)
 })

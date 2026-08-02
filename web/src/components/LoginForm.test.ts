@@ -7,6 +7,7 @@ import { createMemoryHistory, createRouter, type Router } from 'vue-router'
 
 import { APIRequestError } from '../api/client'
 import type { LoginRequest, SessionResponse } from '../api/types'
+import { appI18n } from '../i18n'
 import { createSessionStore, type SessionClient, type SessionStore } from '../session'
 import formFieldSource from './FormField.vue?raw'
 import LoginForm from './LoginForm.vue'
@@ -88,6 +89,33 @@ describe('LoginForm', () => {
     expect(wrapper.get('label[for="login-password"]').text()).toBe('密码')
     expect(password.attributes('autocomplete')).toBe('current-password')
     expect(wrapper.find('a').exists()).toBe(false)
+  })
+
+  it('renders the complete form and safe credential error in English', async () => {
+    appI18n.global.locale.value = 'en-US'
+    const login = vi.fn<(input: LoginRequest) => Promise<SessionResponse>>().mockRejectedValue(
+      new APIRequestError({
+        kind: 'api',
+        message: 'private authentication detail',
+        status: 401,
+        apiError: {
+          code: 'invalid_credentials',
+          message: 'private authentication detail',
+          request_id: 'request-english-login',
+        },
+      }),
+    )
+    const { wrapper } = await mountLoginForm(createSessionStore(createClient({ login })))
+
+    expect(wrapper.get('label[for="login-username"]').text()).toBe('Username')
+    expect(wrapper.get('label[for="login-password"]').text()).toBe('Password')
+    expect(wrapper.get('button[type="submit"]').text()).toBe('Sign in')
+
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.get('#login-error').text()).toBe('The username or password is incorrect.')
+    expect(wrapper.text()).not.toContain('private authentication detail')
   })
 
   it('submits through the native form without disabling the focused fields', async () => {
@@ -179,7 +207,7 @@ describe('LoginForm', () => {
     await flushPromises()
 
     const error = wrapper.get('#login-error')
-    expect(error.text()).toBe('用户名或密码错误。')
+    expect(error.text()).toBe('用户名或密码不正确。')
     expect(error.attributes('aria-live')).toBe('polite')
     expect(error.attributes('aria-atomic')).toBe('true')
     expect(error.get('svg[aria-hidden="true"]').attributes('focusable')).toBe('false')

@@ -15,6 +15,7 @@ import type {
 	SessionResponse,
 	StructuredEffectiveConfigResponse,
 } from '../api/types'
+import { appI18n } from '../i18n'
 import { installSessionExpiryRedirect } from '../router'
 import { createSessionStore, type SessionClient } from '../session'
 import EffectiveConfigView from './EffectiveConfigView.vue'
@@ -182,6 +183,23 @@ describe('EffectiveConfigView', () => {
     expect(wrapper.get('code').element.textContent).toBe(repeatedConfig.occurrences[2]?.content)
     expect(wrapper.get('[data-id="occurrence-000003"]').attributes('aria-current')).toBe('true')
     expect(wrapper.get('[data-id="occurrence-000002"]').attributes('aria-current')).toBeUndefined()
+  })
+
+  it('renders metadata, controls and viewer chrome in English without changing raw config', async () => {
+    appI18n.global.locale.value = 'en-US'
+    const wrapper = mount(EffectiveConfigView, {
+      props: { client: createConfigClient(vi.fn().mockResolvedValue(repeatedConfig)) },
+    })
+    await flushPromises()
+
+    expect(wrapper.get('h1').text()).toBe('Effective configuration')
+    expect(wrapper.text()).toContain('Nginx version:1.30.3')
+    expect(wrapper.text()).toContain('Entry configuration:/etc/nginx/nginx.conf')
+    expect(wrapper.text()).toContain('Loaded entries:3')
+    expect(wrapper.text()).toContain('Configuration content')
+    expect(wrapper.text()).toContain('Entry 1')
+    expect(wrapper.get('code').element.textContent).toBe(repeatedConfig.occurrences[0]?.content)
+    expect(wrapper.text()).not.toContain('生效配置')
   })
 
   it('renders a specific empty result without mounting a file list or viewer', async () => {

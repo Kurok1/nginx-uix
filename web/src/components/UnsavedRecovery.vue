@@ -8,11 +8,10 @@
     :aria-labelledby="headingId"
   >
     <h2 :id="headingId">
-      Unsaved workspace changes
+      {{ t('recoveryDraft.title') }}
     </h2>
     <p>
-      Local text remains in this browser session. Copy it before leaving if you need a
-      recovery copy.
+      {{ t('recoveryDraft.description') }}
     </p>
     <ul>
       <li
@@ -22,10 +21,10 @@
         <span>{{ path }}</span>
         <button
           type="button"
-          :aria-label="`Copy local content for ${path}`"
+          :aria-label="t('recoveryDraft.copyLabel', { path })"
           @click="emit('copy', path)"
         >
-          Copy
+          {{ t('recoveryDraft.copy') }}
         </button>
       </li>
     </ul>
@@ -34,6 +33,7 @@
 
 <script setup lang="ts">
 import { useId } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 defineProps<{
   paths: readonly string[]
@@ -43,6 +43,7 @@ const emit = defineEmits<{
 }>()
 
 const headingId = useId()
+const { t } = useI18n()
 </script>
 
 <style scoped>

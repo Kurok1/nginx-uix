@@ -9,7 +9,7 @@
     :aria-busy="busy ? 'true' : 'false'"
   >
     <h2 id="runtime-status-title">
-      组件健康
+      {{ t('dashboard.componentHealth') }}
     </h2>
     <div class="runtime-status__grid dashboard-grid">
       <ComponentHealth
@@ -29,6 +29,8 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+
 import type { SystemComponents } from '../api/types'
 import ComponentHealth from './ComponentHealth.vue'
 
@@ -39,6 +41,8 @@ withDefaults(
   }>(),
   { busy: false },
 )
+
+const { t } = useI18n()
 </script>
 
 <style scoped>

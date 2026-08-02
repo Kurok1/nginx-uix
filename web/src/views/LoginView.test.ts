@@ -9,7 +9,7 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import type { LoginRequest, SessionResponse } from '../api/types'
 import LoginForm from '../components/LoginForm.vue'
 import UnsavedRecovery from '../components/UnsavedRecovery.vue'
-import { createAppI18n } from '../i18n'
+import { appI18n } from '../i18n'
 import { createSessionStore, type SessionClient } from '../session'
 import type { WorkspaceStateModel, WorkspaceStore } from '../workspace'
 import LoginView from './LoginView.vue'
@@ -114,7 +114,7 @@ describe('LoginView', () => {
     const router = await loginRouter()
     const wrapper = mount(LoginView, {
       props: { store },
-      global: { plugins: [createAppI18n('zh-CN'), router] },
+      global: { plugins: [router] },
     })
 
     const main = wrapper.get('main.login-view')
@@ -142,6 +142,19 @@ describe('LoginView', () => {
     )
   })
 
+  it('renders the login heading and description in English', async () => {
+    appI18n.global.locale.value = 'en-US'
+    const router = await loginRouter()
+    const wrapper = mount(LoginView, {
+      global: { plugins: [router] },
+    })
+
+    expect(wrapper.get('h1#login-title').text()).toBe('Sign in to Nginx UIX')
+    expect(wrapper.get('.login-view__header p').text()).toBe(
+      'Use your administrator credentials to continue.',
+    )
+  })
+
   it('shows dirty-memory recovery and refreshes metadata before routing back after login', async () => {
     const login = vi.fn<(input: LoginRequest) => Promise<SessionResponse>>().mockResolvedValue(
       currentSession,
@@ -151,12 +164,12 @@ describe('LoginView', () => {
     const router = await loginRouter()
     const wrapper = mount(LoginView, {
       props: { store, workspace },
-      global: { plugins: [createAppI18n('zh-CN'), router] },
+      global: { plugins: [router] },
     })
 
     const recovery = wrapper.getComponent(UnsavedRecovery)
     expect(recovery.props('paths')).toEqual(['nginx.conf'])
-    await recovery.get('button[aria-label="Copy local content for nginx.conf"]').trigger('click')
+    await recovery.get('button[aria-label="复制 nginx.conf 的本地内容"]').trigger('click')
     expect(workspace.copyLocalContent).toHaveBeenCalledWith('nginx.conf')
 
     await wrapper.get('input[name="username"]').setValue('operator')
@@ -180,7 +193,7 @@ describe('LoginView', () => {
     await router.replace('/login?redirect=/config/operations?tab=audit')
     const wrapper = mount(LoginView, {
       props: { store, workspace },
-      global: { plugins: [createAppI18n('zh-CN'), router] },
+      global: { plugins: [router] },
     })
 
     await wrapper.get('input[name="username"]').setValue('operator')
