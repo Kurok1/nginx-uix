@@ -7,15 +7,15 @@
     <div class="workspace-header__title">
       <h1>{{ workspace.name }}</h1>
       <p v-if="workspace.state === 'needs_attention'">
-        Workspace ID: {{ workspace.id }}
+        {{ t('workspace.workspaceId', { id: workspace.id }) }}
       </p>
       <p v-else-if="workspace.state === 'published'">
-        Release ID: {{ workspace.last_release_id }}
+        {{ t('workspace.releaseId', { id: workspace.last_release_id }) }}
       </p>
     </div>
     <dl>
       <div>
-        <dt>State</dt>
+        <dt>{{ t('workspace.state') }}</dt>
         <dd>
           <span
             data-state-icon
@@ -25,34 +25,34 @@
         </dd>
       </div>
       <div>
-        <dt>Production</dt>
-        <dd>{{ productionMatches ? 'Matches production snapshot' : 'Production changed' }}</dd>
+        <dt>{{ t('workspace.production') }}</dt>
+        <dd>{{ productionMatches ? t('workspace.matchesProduction') : t('workspace.productionChanged') }}</dd>
       </div>
       <div>
-        <dt>Draft</dt>
-        <dd>{{ draftChangeCount }} draft changes</dd>
+        <dt>{{ t('workspace.draft') }}</dt>
+        <dd>{{ t('workspace.draftChanges', { count: draftChangeCount }, draftChangeCount) }}</dd>
       </div>
       <div>
-        <dt>Safety boundary</dt>
-        <dd>{{ workspace.state === 'published' ? '发布校验与运行确认已完成' : '尚未执行 Nginx 校验' }}</dd>
+        <dt>{{ t('workspace.safetyBoundary') }}</dt>
+        <dd>{{ workspace.state === 'published' ? t('workspace.publishedSafety') : t('workspace.uncheckedSafety') }}</dd>
       </div>
     </dl>
     <nav
       v-if="workspace.state === 'ready'"
       class="workspace-header__structured-links"
-      aria-label="Structured configuration"
+      :aria-label="t('workspace.structuredConfiguration')"
     >
       <a
         :href="'/config/workspaces/' + workspace.id + '/upstreams'"
         data-structured-link="upstreams"
       >
-        Manage upstreams
+        {{ t('workspace.manageUpstreams') }}
       </a>
       <a
         :href="'/config/workspaces/' + workspace.id + '/servers'"
         data-structured-link="servers"
       >
-        Manage servers &amp; locations
+        {{ t('workspace.manageServers') }}
       </a>
     </nav>
   </header>
@@ -60,6 +60,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import type { WorkspaceDetail } from '../api/types'
 
@@ -71,13 +72,14 @@ const props = defineProps<{
 const productionMatches = computed(
   () => props.workspace.production_digest === props.workspace.base_digest,
 )
+const { t } = useI18n()
 const stateLabel = computed(() => {
   switch (props.workspace.state) {
-    case 'preparing': return 'Preparing'
-    case 'ready': return 'Ready'
-    case 'stale': return 'Stale'
-	case 'published': return 'Published'
-    case 'needs_attention': return 'Needs attention'
+    case 'preparing': return t('workspace.states.preparing')
+    case 'ready': return t('workspace.states.ready')
+    case 'stale': return t('workspace.states.stale')
+	case 'published': return t('workspace.states.published')
+    case 'needs_attention': return t('workspace.states.needsAttention')
     default: return ''
   }
 })

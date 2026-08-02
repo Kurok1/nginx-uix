@@ -35,7 +35,7 @@ func (s *Service) DraftSnapshot(
 	ctx context.Context,
 	id WorkspaceID,
 ) (_ DraftSnapshot, returnErr error) {
-	workspace, root, lock, manifest, _, err := s.openVerifiedWorkspace(ctx, id, LockShared)
+	workspace, root, lock, manifest, _, err := s.openVerifiedWorkspace(ctx, id, LockShared, workspaceAccessReadyRead)
 	if err != nil {
 		return DraftSnapshot{}, fmt.Errorf("read draft snapshot: %w", err)
 	}

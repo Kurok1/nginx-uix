@@ -7,42 +7,42 @@
     <header class="structured-page__header">
       <div>
         <p class="structured-page__eyebrow">
-          {{ workspace?.name ?? 'Configuration workspace' }}
+          {{ workspace?.name ?? t('structured.fallbackWorkspace') }}
         </p>
-        <h1>{{ mode === 'upstreams' ? 'Upstreams' : 'Servers & Locations' }}</h1>
-        <p>Draft only — full Nginx validation has not run</p>
+        <h1>{{ mode === 'upstreams' ? t('structured.upstreams') : t('structured.serversLocations') }}</h1>
+        <p>{{ t('structured.draftOnly') }}</p>
       </div>
       <button
         type="button"
         :disabled="phase === 'loading' || pending !== null"
         @click="refresh"
       >
-        {{ phase === 'loading' ? 'Refreshing…' : 'Refresh structure' }}
+        {{ phase === 'loading' ? t('structured.refreshing') : t('structured.refresh') }}
       </button>
     </header>
 
     <nav
       class="structured-page__navigation"
-      aria-label="Workspace configuration modes"
+      :aria-label="t('structured.navigationLabel')"
     >
       <RouterLink
         :to="upstreamsPath"
         @click="guardNavigation"
       >
-        Upstreams
+        {{ t('structured.upstreams') }}
       </RouterLink>
       <RouterLink
         :to="serversPath"
         @click="guardNavigation"
       >
-        Servers &amp; Locations
+        {{ t('structured.serversLocations') }}
       </RouterLink>
       <RouterLink
         :to="rawEditorPath"
         data-fallback="raw-editor"
         @click="guardNavigation"
       >
-        Open raw editor
+        {{ t('structured.rawEditor') }}
       </RouterLink>
     </nav>
 
@@ -70,22 +70,22 @@
       aria-live="polite"
     >
       <span aria-hidden="true">◌</span>
-      Loading structured workspace…
+      {{ t('structured.loading') }}
     </p>
 
     <template v-if="workspace !== null && catalog !== null">
       <dl class="structured-page__identity">
         <div>
-          <dt>Workspace state</dt>
-          <dd>{{ workspace.state }}</dd>
+          <dt>{{ t('structured.workspaceState') }}</dt>
+          <dd>{{ workspaceStateLabel(workspace.state) }}</dd>
         </div>
         <div>
-          <dt>Draft revision</dt>
+          <dt>{{ t('structured.draftRevision') }}</dt>
           <dd><code>{{ abbreviateETag(catalog.draft_etag) }}</code></dd>
         </div>
         <div>
-          <dt>Projection</dt>
-          <dd>{{ catalog.complete ? 'Complete' : 'Incomplete — raw editing only' }}</dd>
+          <dt>{{ t('structured.projection') }}</dt>
+          <dd>{{ catalog.complete ? t('structured.complete') : t('structured.incomplete') }}</dd>
         </div>
       </dl>
 
@@ -101,34 +101,33 @@
         role="alert"
       >
         <span aria-hidden="true">◇!</span>
-        Structured edits are blocked because the include graph or syntax projection is incomplete.
-        Use the raw editor to resolve the listed diagnostics.
+        {{ t('structured.incompleteBlock') }}
       </p>
 
       <nav
         class="structured-task-tabs"
-        aria-label="Structured workspace tasks"
+        :aria-label="t('structured.tasksLabel')"
       >
         <button
           type="button"
           :aria-pressed="activeTask === 'browse'"
           @click="activeTask = 'browse'"
         >
-          Browse
+          {{ t('structured.browse') }}
         </button>
         <button
           type="button"
           :aria-pressed="activeTask === 'edit'"
           @click="activeTask = 'edit'"
         >
-          Edit
+          {{ t('structured.edit') }}
         </button>
         <button
           type="button"
           :aria-pressed="activeTask === 'review'"
           @click="activeTask = 'review'"
         >
-          Review
+          {{ t('structured.review') }}
         </button>
       </nav>
 
@@ -136,12 +135,12 @@
         v-if="mode === 'upstreams'"
         class="structured-resource-selector"
       >
-        <span>Upstream</span>
+        <span>{{ t('structured.upstream') }}</span>
         <select
           :value="selectedUpstreamId ?? ''"
           @change="selectUpstreamFromControl"
         >
-          <option value="">Create new upstream</option>
+          <option value="">{{ t('structured.createNewUpstream') }}</option>
           <option
             v-for="candidate in catalog.upstreams"
             :key="candidate.id"
@@ -156,7 +155,7 @@
         class="structured-resource-selector"
         data-structured-selector="server"
       >
-        <span>HTTP server</span>
+        <span>{{ t('structured.httpServer') }}</span>
         <select
           :value="selectedServerId ?? ''"
           @change="selectServerFromControl"
@@ -175,12 +174,12 @@
         class="structured-resource-selector"
         data-structured-selector="location"
       >
-        <span>Location</span>
+        <span>{{ t('structured.location') }}</span>
         <select
           :value="selectedLocationId ?? ''"
           @change="selectLocationFromControl"
         >
-          <option value="">Add a root location</option>
+          <option value="">{{ t('structured.addRootLocation') }}</option>
           <option
             v-for="candidate in locationOptions"
             :key="candidate.id"
@@ -203,11 +202,11 @@
                 :disabled="mutationDisabled || catalog.http_blocks.every((block) => !block.editable)"
                 @click="selectUpstream(null)"
               >
-                Create upstream
+                {{ t('structured.createUpstream') }}
               </button>
             </div>
             <StructuredResourceList
-              label="Upstreams"
+              :label="t('structured.upstreams')"
               :resources="upstreamResources"
               :selected-id="selectedUpstreamId"
               @select="selectUpstream"
@@ -215,7 +214,7 @@
           </template>
           <template v-else>
             <StructuredResourceList
-              label="HTTP servers"
+              :label="t('structured.httpServers')"
               :resources="serverResources"
               :selected-id="selectedServerId"
               @select="selectServer"
@@ -277,12 +276,12 @@
         :disabled="preview === null"
         @click="reviewDrawerOpen = true"
       >
-        Review generated change
+        {{ t('structured.reviewGenerated') }}
       </button>
 
       <ReviewDrawer
         :open="reviewDrawerOpen"
-        title="Structured change review"
+        :title="t('structured.changeReview')"
         :trigger="reviewTrigger"
         @close="reviewDrawerOpen = false"
       >
@@ -312,8 +311,10 @@ import {
   watch,
 } from 'vue'
 import { RouterLink } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 
 import { apiClient, APIRequestError } from '../api/client'
+import { formatAPIRequestError } from '../api/error_message'
 import type {
   StructuredChangePreview,
   StructuredChangeResult,
@@ -333,6 +334,8 @@ import StructuredResourceList, {
 } from '../components/StructuredResourceList.vue'
 import UpstreamEditor from '../components/UpstreamEditor.vue'
 import { sessionStore } from '../session'
+
+const { t } = useI18n()
 
 export type StructuredViewMode = 'servers' | 'upstreams'
 
@@ -377,7 +380,7 @@ const phase = ref<'error' | 'loading' | 'ready'>('loading')
 const pending = ref<'apply' | 'preview' | null>(null)
 const pageError = ref('')
 const mutationError = ref('')
-const successMessage = ref('')
+const successChangedCount = ref<number | null>(null)
 const confirmation = ref('')
 const selectedUpstreamId = ref<string | null>(null)
 const selectedServerId = ref<string | null>(null)
@@ -400,6 +403,11 @@ const serversPath = computed(
 const csrfToken = computed(
   () => props.csrfToken || sessionStore.state.session?.csrf_token || '',
 )
+const successMessage = computed(() => {
+  const count = successChangedCount.value
+  if (count === null) return ''
+  return t(count === 1 ? 'structured.draftUpdatedOne' : 'structured.draftUpdatedMany', { count })
+})
 const selectedUpstream = computed(
   () =>
     catalog.value?.upstreams.find((candidate) => candidate.id === selectedUpstreamId.value) ??
@@ -424,14 +432,8 @@ const upstreamResources = computed<StructuredResourceItem[]>(() =>
   (catalog.value?.upstreams ?? []).map((candidate) => ({
     id: candidate.id,
     label: candidate.name,
-    meta:
-      String(candidate.servers.length) +
-      ' server' +
-      (candidate.servers.length === 1 ? '' : 's') +
-      ' · ' +
-      String(candidate.references.length) +
-      ' reference' +
-      (candidate.references.length === 1 ? '' : 's'),
+    meta: countLabel(candidate.servers.length, 'server') + ' · ' +
+      countLabel(candidate.references.length, 'reference'),
     editable: candidate.editable,
     problem: resourceHasProblem(candidate.id),
   })),
@@ -441,10 +443,9 @@ const serverResources = computed<StructuredResourceItem[]>(() =>
     id: candidate.id,
     label: serverLabel(candidate),
     meta:
-      (candidate.listens.length === 0 ? 'No listen summary' : candidate.listens.join(', ')) +
+      (candidate.listens.length === 0 ? t('structured.noListenSummary') : candidate.listens.join(', ')) +
       ' · ' +
-      String(locationCount(candidate.locations)) +
-      ' locations',
+      countLabel(locationCount(candidate.locations), 'location'),
     editable: candidate.editable,
     problem: resourceHasProblem(candidate.id),
   })),
@@ -522,7 +523,7 @@ async function load(): Promise<void> {
   } catch (error) {
     if (controller.signal.aborted) return
     phase.value = 'error'
-    pageError.value = errorMessage(error, 'Could not load the structured workspace.')
+    pageError.value = errorMessage(error, 'structured.errors.load')
   } finally {
     if (readController === controller) readController = null
   }
@@ -563,7 +564,7 @@ function handleFormChange(): void {
 
 function canDiscard(): boolean {
   if (!editorDirty.value) return true
-  const message = 'Discard the current unsaved structured form values?'
+  const message = t('structured.discard')
   return props.confirmDiscard?.(message) ?? window.confirm(message)
 }
 
@@ -638,7 +639,7 @@ function guardNavigation(event: MouseEvent): void {
 
 async function requestPreview(nextOperation: StructuredOperation): Promise<void> {
   if (mutationDisabled.value || csrfToken.value === '') {
-    mutationError.value = 'A current authenticated session is required.'
+    mutationError.value = t('structured.authRequired')
     return
   }
   mutationController?.abort()
@@ -646,7 +647,7 @@ async function requestPreview(nextOperation: StructuredOperation): Promise<void>
   mutationController = controller
   pending.value = 'preview'
   mutationError.value = ''
-  successMessage.value = ''
+  successChangedCount.value = null
   try {
     const nextPreview = await props.client.previewStructuredChange(
       props.workspaceId,
@@ -668,7 +669,7 @@ async function requestPreview(nextOperation: StructuredOperation): Promise<void>
     if (shouldOpenReviewDrawer()) reviewDrawerOpen.value = true
   } catch (error) {
     if (controller.signal.aborted) return
-    mutationError.value = errorMessage(error, 'Could not generate a safe structured preview.')
+    mutationError.value = errorMessage(error, 'structured.errors.preview')
   } finally {
     if (mutationController === controller) mutationController = null
     pending.value = null
@@ -688,7 +689,7 @@ async function applyPreview(): Promise<void> {
     (confirmationTarget.value !== '' && confirmation.value !== confirmationTarget.value) ||
     csrfToken.value === ''
   ) {
-    mutationError.value = 'The preview is no longer ready to apply.'
+    mutationError.value = t('structured.previewNotReady')
     return
   }
   mutationController?.abort()
@@ -705,17 +706,12 @@ async function applyPreview(): Promise<void> {
       csrfToken.value,
       controller.signal,
     )
-    successMessage.value =
-      'Draft updated: ' +
-      String(result.changed_paths.length) +
-      ' file' +
-      (result.changed_paths.length === 1 ? '' : 's') +
-      ' changed. Full Nginx validation has not run.'
+    successChangedCount.value = result.changed_paths.length
     editorDirty.value = false
     await load()
   } catch (error) {
     if (controller.signal.aborted) return
-    mutationError.value = errorMessage(error, 'Could not update the workspace draft.')
+    mutationError.value = errorMessage(error, 'structured.errors.apply')
   } finally {
     if (mutationController === controller) mutationController = null
     pending.value = null
@@ -774,8 +770,28 @@ function flattenLocationOptions(
 
 function serverLabel(server: StructuredHTTPServer): string {
   if (server.server_names.length > 0) return server.server_names.join(', ')
-  if (server.listens.length > 0) return 'Server on ' + server.listens.join(', ')
-  return 'Unnamed server at ' + server.source.path + ':' + String(server.source.start_line)
+  if (server.listens.length > 0) {
+    return t('structured.serverOn', { listens: server.listens.join(', ') })
+  }
+  return t('structured.unnamedServerAt', {
+    source: server.source.path + ':' + String(server.source.start_line),
+  })
+}
+
+function countLabel(count: number, kind: 'location' | 'reference' | 'server'): string {
+  const suffix = count === 1 ? 'One' : 'Many'
+  return t(`structured.${kind}Count${suffix}`, { count })
+}
+
+function workspaceStateLabel(state: WorkspaceDetail['state']): string {
+  const labels: Record<WorkspaceDetail['state'], string> = {
+    preparing: t('workspace.states.preparing'),
+    ready: t('workspace.states.ready'),
+    stale: t('workspace.states.stale'),
+    published: t('workspace.states.published'),
+    needs_attention: t('workspace.states.needsAttention'),
+  }
+  return labels[state]
 }
 
 function abbreviateETag(etag: string): string {
@@ -783,39 +799,57 @@ function abbreviateETag(etag: string): string {
   return separator < 0 ? etag : etag.slice(separator + 1, separator + 9)
 }
 
-function errorMessage(error: unknown, fallback: string): string {
-  if (!(error instanceof APIRequestError) || error.kind !== 'api') return fallback
+function errorMessage(error: unknown, fallbackKey: string): string {
+  const fallback = t(fallbackKey)
+  if (!(error instanceof APIRequestError)) return fallback
+  if (error.kind !== 'api') return formatAPIRequestError(error)
+  let message: string
   switch (error.apiError?.code) {
     case 'STRUCTURED_PREVIEW_STALE':
     case 'CONFIG_WORKSPACE_CONFLICT':
-      return 'The workspace revision changed. Form values and preview were kept; refresh before retrying.'
+      message = t('structured.errors.revision')
+      break
     case 'STRUCTURED_LIMIT_EXCEEDED':
-      return 'The structured project or generated diff exceeded its safe bound.'
+      message = t('structured.errors.limit')
+      break
     case 'STRUCTURED_PARSE_FAILED':
-      return 'The affected configuration cannot be parsed safely. Open the raw editor.'
+      message = t('structured.errors.parse')
+      break
     case 'STRUCTURED_CONTEXT_AMBIGUOUS':
-      return 'The selected syntax appears in more than one include context and is read only.'
+      message = t('structured.errors.ambiguous')
+      break
     case 'STRUCTURED_EDIT_CONFLICT':
-      return 'The selected source spans changed and the edit could not be verified.'
+      message = t('structured.errors.editConflict')
+      break
     case 'UPSTREAM_REFERENCED':
-      return 'The upstream is still referenced. Review the visible reference locations.'
+      message = t('structured.errors.referenced')
+      break
     case 'UPSTREAM_REFERENCE_INCOMPLETE':
-      return 'Dynamic or unknown proxy_pass syntax prevents complete reference analysis.'
+      message = t('structured.errors.referenceIncomplete')
+      break
     case 'UPSTREAM_DUPLICATE':
-      return 'That upstream name is already in use.'
+      message = t('structured.errors.duplicateUpstream')
+      break
     case 'LOCATION_DUPLICATE':
-      return 'An identical location rule already exists under this parent.'
+      message = t('structured.errors.duplicateLocation')
+      break
     case 'UPSTREAM_INVALID':
     case 'LOCATION_INVALID':
     case 'PROXY_PASS_INVALID':
-      return 'The structured fields are not valid for this Nginx context.'
+      message = t('structured.errors.invalid')
+      break
     case 'CONFIG_WORKSPACE_STALE':
-      return 'Production configuration changed. Create a new workspace to continue.'
+      message = t('structured.errors.stale')
+      break
     case 'CONFIG_WORKSPACE_NEEDS_ATTENTION':
-      return 'Workspace consistency cannot be confirmed; structured editing is unavailable.'
+      message = t('structured.errors.needsAttention')
+      break
     default:
-      return error.apiError?.message ?? fallback
+      return formatAPIRequestError(error)
   }
+  return error.requestID === undefined
+    ? message
+    : t('errors.withRequestId', { message, requestId: error.requestID })
 }
 
 function handleBeforeUnload(event: BeforeUnloadEvent): void {

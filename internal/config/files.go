@@ -26,9 +26,17 @@ import (
 
 var controlBaseManifestPath = RelativePath("control/base-manifest.bin")
 
+type verifiedWorkspaceAccess uint8
+
+const (
+	workspaceAccessReadyRead verifiedWorkspaceAccess = iota
+	workspaceAccessHistoricalRead
+	workspaceAccessMutation
+)
+
 // Tree returns the complete canonical workspace inventory under a shared lock.
 func (s *Service) Tree(ctx context.Context, id WorkspaceID) (_ TreeView, returnErr error) {
-	workspace, root, lock, manifest, baseManifest, err := s.openVerifiedWorkspace(ctx, id, LockShared)
+	workspace, root, lock, manifest, baseManifest, err := s.openVerifiedWorkspace(ctx, id, LockShared, workspaceAccessHistoricalRead)
 	if err != nil {
 		return TreeView{}, fmt.Errorf("read workspace tree: %w", err)
 	}
@@ -51,7 +59,7 @@ func (s *Service) ReadFile(ctx context.Context, id WorkspaceID, rawPath Relative
 	if err != nil {
 		return FileView{}, fmt.Errorf("read workspace file: %w", err)
 	}
-	workspace, root, lock, manifest, _, err := s.openVerifiedWorkspace(ctx, id, LockShared)
+	workspace, root, lock, manifest, _, err := s.openVerifiedWorkspace(ctx, id, LockShared, workspaceAccessHistoricalRead)
 	if err != nil {
 		return FileView{}, fmt.Errorf("read workspace file: %w", err)
 	}
@@ -187,7 +195,7 @@ func (s *Service) mutateFile(
 		returnErr = errors.Join(returnErr, wrapServiceError("release replaced workspace lock", lock.Close()))
 	}()
 
-	workspace, manifest, baseManifest, ensureBase, err := s.verifiedWorkspaceUnderLock(ctx, id, root, true)
+	workspace, manifest, baseManifest, ensureBase, err := s.verifiedWorkspaceUnderLock(ctx, id, root, workspaceAccessMutation)
 	if err != nil {
 		return MutationResult{}, fmt.Errorf("replace workspace file: %w", err)
 	}
@@ -370,6 +378,7 @@ func (s *Service) openVerifiedWorkspace(
 	ctx context.Context,
 	id WorkspaceID,
 	mode LockMode,
+	access verifiedWorkspaceAccess,
 ) (Workspace, *ScopedRoot, *WorkspaceLock, Manifest, Manifest, error) {
 	if ctx == nil || s == nil {
 		return Workspace{}, nil, nil, Manifest{}, Manifest{}, fmt.Errorf("service is unavailable")
@@ -386,7 +395,7 @@ func (s *Service) openVerifiedWorkspace(
 	if err != nil {
 		return Workspace{}, nil, nil, Manifest{}, Manifest{}, errors.Join(err, root.Close())
 	}
-	workspace, manifest, baseManifest, _, err := s.verifiedWorkspaceUnderLock(ctx, id, root, false)
+	workspace, manifest, baseManifest, _, err := s.verifiedWorkspaceUnderLock(ctx, id, root, access)
 	if err != nil {
 		return Workspace{}, nil, nil, Manifest{}, Manifest{}, errors.Join(err, lock.Close(), root.Close())
 	}
@@ -422,17 +431,34 @@ func (s *Service) verifiedWorkspaceUnderLock(
 	ctx context.Context,
 	id WorkspaceID,
 	root *ScopedRoot,
-	mutation bool,
+	access verifiedWorkspaceAccess,
 ) (Workspace, Manifest, Manifest, bool, error) {
 	workspace, err := s.reader.Workspace(ctx, id)
 	if err != nil {
 		return Workspace{}, Manifest{}, Manifest{}, false, err
 	}
-	if workspace.State != StateReady {
+	mutation := access == workspaceAccessMutation
+	switch access {
+	case workspaceAccessReadyRead, workspaceAccessMutation:
+		if workspace.State != StateReady {
+			return Workspace{}, Manifest{}, Manifest{}, false, ErrConflict
+		}
+	case workspaceAccessHistoricalRead:
+		if workspace.State != StateReady && workspace.State != StatePublished {
+			return Workspace{}, Manifest{}, Manifest{}, false, ErrConflict
+		}
+	default:
 		return Workspace{}, Manifest{}, Manifest{}, false, ErrConflict
 	}
+	if workspace.State == StatePublished {
+		if _, err := ParseReleaseID(string(workspace.LastReleaseID)); err != nil {
+			return Workspace{}, Manifest{}, Manifest{}, false, ErrConflict
+		}
+	}
 	state, err := ReadControlState(ctx, root)
-	if err != nil || state.WorkspaceID != id || state.State != StateReady || state.Revision != workspace.Revision {
+	if err != nil || state.WorkspaceID != id || state.State != workspace.State ||
+		state.StateReasonCode != workspace.StateReasonCode || state.Revision != workspace.Revision ||
+		!state.UpdatedAt.Equal(workspace.UpdatedAt) {
 		return Workspace{}, Manifest{}, Manifest{}, false, ErrConflict
 	}
 	if _, err := ReadJournal(ctx, root); err == nil {
@@ -447,9 +473,11 @@ func (s *Service) verifiedWorkspaceUnderLock(
 	}
 	baseManifest, err := readManifestAt(ctx, root, controlBaseManifestPath, s.limits)
 	ensureBase := false
-	if errors.Is(err, fs.ErrNotExist) && workspace.Revision == 1 {
+	baseMayMatchDraft := workspace.Revision == 1 ||
+		(!mutation && workspace.State == StatePublished && workspace.BaseDigest == workspace.DraftDigest)
+	if errors.Is(err, fs.ErrNotExist) && baseMayMatchDraft {
 		baseManifest = manifest
-		ensureBase = true
+		ensureBase = workspace.State == StateReady
 		err = nil
 	}
 	if err != nil || baseManifest.Digest() != workspace.BaseDigest {

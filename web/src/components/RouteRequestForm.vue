@@ -11,20 +11,20 @@
     <header>
       <div>
         <p class="route-request-form__eyebrow">
-          Browser-memory request
+          {{ t('routeLab.request.eyebrow') }}
         </p>
         <h2 id="route-request-title">
-          Request
+          {{ t('routeLab.request.title') }}
         </h2>
       </div>
-      <span>{{ pending ? 'Working…' : 'Not saved' }}</span>
+      <span>{{ pending ? t('routeLab.request.working') : t('routeLab.request.notSaved') }}</span>
     </header>
 
     <fieldset :disabled="disabled || pending">
-      <legend>Connection semantics</legend>
+      <legend>{{ t('routeLab.request.connection') }}</legend>
       <div class="route-request-form__grid route-request-form__grid--connection">
         <label>
-          <span>Scheme</span>
+          <span>{{ t('routeLab.request.scheme') }}</span>
           <select
             name="scheme"
             :value="modelValue.scheme"
@@ -35,7 +35,7 @@
           </select>
         </label>
         <label>
-          <span>Port</span>
+          <span>{{ t('routeLab.request.port') }}</span>
           <input
             name="port"
             type="number"
@@ -48,7 +48,7 @@
         </label>
       </div>
       <label>
-        <span>Host <strong aria-hidden="true">*</strong></span>
+        <span>{{ t('routeLab.request.host') }} <strong aria-hidden="true">*</strong></span>
         <input
           name="host"
           type="text"
@@ -60,10 +60,10 @@
           aria-describedby="route-host-help"
           @input="updateText('host', $event)"
         >
-        <small id="route-host-help">HTTP Host selection; this never changes the loopback connection target.</small>
+        <small id="route-host-help">{{ t('routeLab.request.hostHelp') }}</small>
       </label>
       <label>
-        <span>TLS SNI</span>
+        <span>{{ t('routeLab.request.tlsSni') }}</span>
         <input
           name="sni"
           type="text"
@@ -75,15 +75,15 @@
           aria-describedby="route-sni-help"
           @input="updateText('sni', $event)"
         >
-        <small id="route-sni-help">Separate from Host. Leave empty to use the HTTPS host when supported.</small>
+        <small id="route-sni-help">{{ t('routeLab.request.sniHelp') }}</small>
       </label>
     </fieldset>
 
     <fieldset :disabled="disabled || pending">
-      <legend>HTTP request</legend>
+      <legend>{{ t('routeLab.request.httpRequest') }}</legend>
       <div class="route-request-form__grid route-request-form__grid--request-line">
         <label>
-          <span>Method</span>
+          <span>{{ t('routeLab.request.method') }}</span>
           <select
             name="method"
             :value="modelValue.method"
@@ -97,7 +97,7 @@
           </select>
         </label>
         <label>
-          <span>URI path <strong aria-hidden="true">*</strong></span>
+          <span>{{ t('routeLab.request.uriPath') }} <strong aria-hidden="true">*</strong></span>
           <input
             name="uri"
             type="text"
@@ -111,22 +111,22 @@
         </label>
       </div>
       <label>
-        <span>Query</span>
+        <span>{{ t('routeLab.request.query') }}</span>
         <input
           name="query"
           type="text"
           autocomplete="off"
           spellcheck="false"
-          placeholder="page=1 (without ?)"
+          :placeholder="t('routeLab.request.queryPlaceholder')"
           :value="modelValue.query"
           @input="updateText('query', $event)"
         >
       </label>
 
       <fieldset class="route-request-form__headers">
-        <legend>Headers</legend>
+        <legend>{{ t('routeLab.request.headers') }}</legend>
         <p id="route-header-help">
-          Sensitive header values are never persisted and cannot be copied from history.
+          {{ t('routeLab.request.headerHelp') }}
         </p>
         <div
           v-for="(header, index) in modelValue.headers"
@@ -134,7 +134,7 @@
           class="route-request-form__header-row"
         >
           <label>
-            <span>Header {{ index + 1 }} name</span>
+            <span>{{ t('routeLab.request.headerName', { number: index + 1 }) }}</span>
             <input
               type="text"
               autocomplete="off"
@@ -145,7 +145,7 @@
             >
           </label>
           <label>
-            <span>Header {{ index + 1 }} value</span>
+            <span>{{ t('routeLab.request.headerValue', { number: index + 1 }) }}</span>
             <input
               :type="isSensitiveHeader(header.name) ? 'password' : 'text'"
               autocomplete="off"
@@ -157,10 +157,10 @@
           </label>
           <button
             type="button"
-            :aria-label="`Remove header ${index + 1}`"
+            :aria-label="t('routeLab.request.removeHeaderLabel', { number: index + 1 })"
             @click="removeHeader(index)"
           >
-            Remove
+            {{ t('routeLab.request.remove') }}
           </button>
         </div>
         <button
@@ -168,12 +168,12 @@
           :disabled="modelValue.headers.length >= 32"
           @click="addHeader"
         >
-          Add header
+          {{ t('routeLab.request.addHeader') }}
         </button>
       </fieldset>
 
       <label>
-        <span>Body</span>
+        <span>{{ t('routeLab.request.body') }}</span>
         <textarea
           name="body"
           maxlength="65536"
@@ -183,10 +183,10 @@
           aria-describedby="route-body-help"
           @input="updateText('body', $event)"
         />
-        <small id="route-body-help">Never persisted. Any body requires named confirmation before execution.</small>
+        <small id="route-body-help">{{ t('routeLab.request.bodyHelp') }}</small>
       </label>
       <label>
-        <span>Timeout (milliseconds)</span>
+        <span>{{ t('routeLab.request.timeout') }}</span>
         <input
           name="timeout_ms"
           type="number"
@@ -201,9 +201,9 @@
     </fieldset>
 
     <fieldset :disabled="disabled || pending">
-      <legend>Assertions</legend>
+      <legend>{{ t('routeLab.request.assertions') }}</legend>
       <label>
-        <span>Expected status (optional)</span>
+        <span>{{ t('routeLab.request.expectedStatus') }}</span>
         <input
           name="assert_status"
           type="number"
@@ -215,7 +215,7 @@
         >
       </label>
       <label>
-        <span>Response contains (optional)</span>
+        <span>{{ t('routeLab.request.responseContains') }}</span>
         <input
           name="assert_contains"
           type="text"
@@ -226,7 +226,7 @@
         >
       </label>
       <label>
-        <span>Response must not contain (optional)</span>
+        <span>{{ t('routeLab.request.responseExcludes') }}</span>
         <input
           name="assert_forbidden"
           type="text"
@@ -243,7 +243,7 @@
       class="route-request-form__warning"
       role="status"
     >
-      <span aria-hidden="true">△</span> This method or body can cause upstream side effects.
+      <span aria-hidden="true">△</span> {{ t('routeLab.request.sideEffectWarning') }}
     </p>
 
     <div class="route-request-form__actions">
@@ -252,7 +252,7 @@
         data-action="analyze-route"
         :disabled="disabled || pending"
       >
-        {{ pendingAction === 'analyze' ? 'Analyzing…' : 'Analyze route' }}
+        {{ pendingAction === 'analyze' ? t('routeLab.request.analyzing') : t('routeLab.request.analyze') }}
       </button>
       <button
         type="button"
@@ -260,7 +260,7 @@
         :disabled="disabled || pending"
         @click="emitRun"
       >
-        {{ pendingAction === 'run' ? 'Queuing…' : 'Run isolated test' }}
+        {{ pendingAction === 'run' ? t('routeLab.request.queuing') : t('routeLab.request.run') }}
       </button>
     </div>
   </form>
@@ -268,6 +268,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import type {
   RouteAssertionsInput,
@@ -275,6 +276,8 @@ import type {
   RouteTestRequest,
 } from '../api/route_lab'
 import { requiresRouteConfirmation } from '../route_lab'
+
+const { t } = useI18n()
 
 const props = withDefaults(defineProps<{
   disabled?: boolean

@@ -129,7 +129,7 @@ done
 if ! command -v sha256sum >/dev/null 2>&1 && ! command -v shasum >/dev/null 2>&1; then
   fail 'sha256sum or shasum is required'
 fi
-[ "${VERSION}" = 1.0.0 ] || fail "unexpected release version: ${VERSION}"
+[ "${VERSION}" = 1.1.0 ] || fail "unexpected release version: ${VERSION}"
 docker info >/dev/null
 docker buildx version >/dev/null
 mkdir -p "${OUTPUT_DIR}"

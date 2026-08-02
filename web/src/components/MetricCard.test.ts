@@ -4,10 +4,15 @@
  */
 import { mount } from '@vue/test-utils'
 
+import { appI18n } from '../i18n'
 import MetricCard from './MetricCard.vue'
 import metricCardSource from './MetricCard.vue?raw'
 
 describe('MetricCard', () => {
+  beforeEach(() => {
+    appI18n.global.locale.value = 'zh-CN'
+  })
+
   it('renders a labelled numeric metric and supporting copy as description data', () => {
     const wrapper = mount(MetricCard, {
       props: {
@@ -30,6 +35,19 @@ describe('MetricCard', () => {
 
     expect(wrapper.get('dd').text()).toBe('无法确认')
     expect(wrapper.text()).not.toContain('0')
+  })
+
+  it('uses the active locale for fallback text and timestamp formatting', () => {
+    appI18n.global.locale.value = 'en-US'
+    const missing = mount(MetricCard, {
+      props: { label: 'Started at', value: null, format: 'timestamp' },
+    })
+    const timestamp = mount(MetricCard, {
+      props: { label: 'Started at', value: '2026-01-02T03:04:00Z', format: 'timestamp' },
+    })
+
+    expect(missing.get('dd').text()).toBe('Unable to confirm')
+    expect(timestamp.get('time').text()).toContain('Jan')
   })
 
   it('renders an RFC 3339 timestamp with native time semantics', () => {

@@ -5,6 +5,7 @@
 
 import { describe, expect, it, vi } from 'vitest'
 
+import { APIRequestError } from './api/client'
 import type {
   AttentionCase,
   ConfigBackup,
@@ -161,6 +162,33 @@ function clientFixture(): OperationsClient & {
 }
 
 describe('operations store', () => {
+  it('keeps failures as locale-independent error codes', async () => {
+    const client = clientFixture()
+    client.listBackups = async () => {
+      throw new Error('network failed')
+    }
+    const store = createOperationsStore(client, sessionFixture(), () => new FakeStream())
+
+    await expect(store.loadBackups()).rejects.toThrow('network failed')
+    expect(store.state.error).toBe('backups_failed')
+  })
+
+  it('retains safe request evidence alongside a locale-independent error code', async () => {
+    const client = clientFixture()
+    client.listBackups = async () => {
+      throw new APIRequestError({
+        kind: 'malformed_response',
+        message: 'private malformed response detail',
+        requestID: 'request-operations-backups',
+      })
+    }
+    const store = createOperationsStore(client, sessionFixture(), () => new FakeStream())
+
+    await expect(store.loadBackups()).rejects.toBeInstanceOf(APIRequestError)
+    expect(store.state.error).toBe('backups_failed')
+    expect(store.state.errorRequestID).toBe('request-operations-backups')
+  })
+
   it('loads blocking evidence and follows a restore SSE task independently of the request', async () => {
     const client = clientFixture()
     const stream = new FakeStream()

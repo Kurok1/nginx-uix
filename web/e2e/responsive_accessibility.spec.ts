@@ -5,7 +5,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 
 import {
-  assertNoApplicationStorage,
+  assertOnlyLocalePreferenceStorage,
   assertNoAxeViolations,
   authenticatedSession,
   healthyStatus,
@@ -35,7 +35,7 @@ for (const viewport of viewports) {
       status: { status: 200, body: healthyStatus },
     })
 
-    await page.goto('/')
+    await page.goto('/?lang=zh-CN')
     await expect(page.getByRole('heading', { level: 1, name: '运行状态' })).toBeVisible()
 
     const runtimeGrid = page.locator('.runtime-status__grid')
@@ -45,7 +45,7 @@ for (const viewport of viewports) {
     await assertNoPageOverflow(page)
     await assertMinimumTargets(page)
     await assertHeadingOrder(page)
-    await assertNoApplicationStorage(page)
+    await assertOnlyLocalePreferenceStorage(page)
     await assertNoAxeViolations(page)
     api.assertContract()
   })
@@ -57,7 +57,7 @@ for (const viewport of viewports) {
       effectiveConfig: { status: 200, body: repeatedEffectiveConfig },
     })
 
-    await page.goto('/configuration')
+    await page.goto('/configuration?lang=zh-CN')
     await expect(page.getByRole('heading', { level: 1, name: '生效配置' })).toBeVisible()
 
     const desktopNavigator = page.getByRole('navigation', { name: '生效配置加载顺序' })
@@ -85,7 +85,7 @@ for (const viewport of viewports) {
     await assertNoPageOverflow(page)
     await assertMinimumTargets(page)
     await assertHeadingOrder(page)
-    await assertNoApplicationStorage(page)
+    await assertOnlyLocalePreferenceStorage(page)
     await assertNoAxeViolations(page)
     api.assertContract()
   })
@@ -97,10 +97,10 @@ test('desktop tab order exposes the skip link and visible focus in DOM order', a
     session: { status: 200, body: authenticatedSession },
     status: { status: 200, body: healthyStatus },
   })
-  await page.goto('/')
+  await page.goto('/?lang=zh-CN')
   await expect(page.getByRole('heading', { level: 1, name: '运行状态' })).toBeVisible()
 
-  const skipLink = page.getByRole('link', { name: 'Skip to main content' })
+  const skipLink = page.getByRole('link', { name: '跳转到主要内容' })
   await page.keyboard.press('Tab')
   await expect(skipLink).toBeFocused()
   await assertVisibleFocus(skipLink)
@@ -118,6 +118,7 @@ test('desktop tab order exposes the skip link and visible focus in DOM order', a
     page.locator('.global-nav__links a').nth(3),
     page.locator('.global-nav__links a').nth(4),
     page.locator('.global-nav__links a').nth(5),
+    page.getByRole('combobox', { name: '语言' }),
     page.getByRole('button', { name: '退出登录' }),
     page.locator('.sub-nav__links a').nth(0),
     page.locator('.sub-nav__links a').nth(1),
@@ -143,13 +144,13 @@ test('mobile navigation opens with Enter and Space from fresh component states',
     session: { status: 200, body: authenticatedSession },
     status: { status: 200, body: healthyStatus },
   })
-  await page.goto('/')
+  await page.goto('/?lang=zh-CN')
   await expect(page.getByRole('heading', { level: 1, name: '运行状态' })).toBeVisible()
 
-  let menuButton = page.getByRole('button', { name: 'Open navigation' })
+  let menuButton = page.getByRole('button', { name: '打开导航' })
   await menuButton.focus()
   await menuButton.press('Enter')
-  await expect(page.getByRole('button', { name: 'Close navigation' })).toHaveAttribute(
+  await expect(page.getByRole('button', { name: '关闭导航' })).toHaveAttribute(
     'aria-expanded',
     'true',
   )
@@ -157,16 +158,16 @@ test('mobile navigation opens with Enter and Space from fresh component states',
 
   await page.reload()
   await expect(page.getByRole('heading', { level: 1, name: '运行状态' })).toBeVisible()
-  menuButton = page.getByRole('button', { name: 'Open navigation' })
+  menuButton = page.getByRole('button', { name: '打开导航' })
   await menuButton.focus()
   await menuButton.press('Space')
-  await expect(page.getByRole('button', { name: 'Close navigation' })).toHaveAttribute(
+  await expect(page.getByRole('button', { name: '关闭导航' })).toHaveAttribute(
     'aria-expanded',
     'true',
   )
   await expect(page.locator('#global-nav-menu')).toBeVisible()
   await assertMinimumTargets(page)
-  await assertVisibleFocus(page.getByRole('button', { name: 'Close navigation' }))
+  await assertVisibleFocus(page.getByRole('button', { name: '关闭导航' }))
   api.assertContract()
 })
 
@@ -176,7 +177,7 @@ test('configuration selection and wrapping work with Enter and Space', async ({ 
     session: { status: 200, body: authenticatedSession },
     effectiveConfig: { status: 200, body: repeatedEffectiveConfig },
   })
-  await page.goto('/configuration')
+  await page.goto('/configuration?lang=zh-CN')
   await expect(page.getByRole('heading', { level: 1, name: '生效配置' })).toBeVisible()
 
   const thirdOccurrence = page.getByRole('button', {
@@ -218,13 +219,13 @@ test('stable pages expose labelled local semantics rather than page-wide announc
     session: { status: 200, body: authenticatedSession },
     effectiveConfig: { status: 200, body: repeatedEffectiveConfig },
   })
-  await page.goto('/configuration')
+  await page.goto('/configuration?lang=zh-CN')
   await expect(page.getByRole('heading', { level: 1, name: '生效配置' })).toBeVisible()
 
   await expect(page.locator('.app-shell[aria-live], main[aria-live]')).toHaveCount(0)
   await expect(page.locator('[aria-live="polite"]')).toHaveCount(1)
-  await expect(page.getByRole('navigation', { name: 'Global navigation' })).toBeVisible()
-  await expect(page.getByRole('navigation', { name: 'Section navigation' })).toBeVisible()
+  await expect(page.getByRole('navigation', { name: '全局导航' })).toBeVisible()
+  await expect(page.getByRole('navigation', { name: '分区导航' })).toBeVisible()
   await expect(page.getByRole('navigation', { name: '生效配置加载顺序' })).toBeVisible()
   await expect(page.getByRole('region', { name: '配置内容 /etc/nginx/nginx.conf' })).toBeVisible()
   await expect(page.getByRole('button', { name: '刷新配置' })).toBeVisible()
@@ -239,7 +240,7 @@ test('stable pages expose labelled local semantics rather than page-wide announc
 
 async function assertNavigationMode(page: Page, mobile: boolean): Promise<void> {
   const desktopLinks = page.locator('.global-nav__links')
-  const menuButton = page.getByRole('button', { name: 'Open navigation' })
+  const menuButton = page.getByRole('button', { name: '打开导航' })
   if (mobile) {
     await expect(desktopLinks).toBeHidden()
     await expect(menuButton).toBeVisible()

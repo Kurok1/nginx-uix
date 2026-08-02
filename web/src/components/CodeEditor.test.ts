@@ -5,6 +5,7 @@
 import { redo, redoDepth, undo, undoDepth } from '@codemirror/commands'
 import { language } from '@codemirror/language'
 import { openSearchPanel, searchPanelOpen } from '@codemirror/search'
+import { EditorView } from '@codemirror/view'
 import { mount } from '@vue/test-utils'
 import { defineComponent, nextTick, ref } from 'vue'
 
@@ -12,6 +13,32 @@ import CodeEditor from './CodeEditor.vue'
 import editorSource from './CodeEditor.vue?raw'
 
 describe('CodeEditor', () => {
+	it('applies the HTML bootstrap nonce to CodeMirror runtime styles', () => {
+		const meta = document.createElement('meta')
+		meta.name = 'nginx-uix-csp-nonce'
+		meta.content = '0123456789abcdef0123456789abcdef'
+		document.head.append(meta)
+		const wrapper = mount(CodeEditor, {
+			props: {
+				modelValue: 'events {}\n',
+				readOnly: false,
+				ariaLabel: 'nginx.conf editor',
+			},
+			attachTo: document.body,
+		})
+		const view = wrapper.vm.editorViewForTest()
+
+		expect(view.state.facet(EditorView.cspNonce)).toBe(meta.content)
+		expect(
+			[...document.head.querySelectorAll('style')].some(
+				(style) => style.nonce === meta.content,
+			),
+		).toBe(true)
+
+		wrapper.unmount()
+		meta.remove()
+	})
+
   it('emits exact text changes and updates external text without recreating the view', async () => {
     const wrapper = mount(CodeEditor, {
       props: {
@@ -90,6 +117,7 @@ describe('CodeEditor', () => {
     await wrapper.setProps({ readOnly: true })
     expect(wrapper.vm.editorViewForTest()).toBe(view)
     expect(view.state.readOnly).toBe(true)
+    expect(content.attributes('tabindex')).toBe('0')
 
     await wrapper.setProps({ readOnly: false, ariaLabel: 'site.conf editor' })
     expect(view.state.readOnly).toBe(false)

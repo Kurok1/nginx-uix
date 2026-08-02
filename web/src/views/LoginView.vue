@@ -4,8 +4,10 @@
 -->
 <script setup lang="ts">
 import { computed, inject, onBeforeUnmount } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { routerKey, type RouteLocationRaw } from 'vue-router'
 
+import LanguageSelector from '../components/LanguageSelector.vue'
 import LoginForm from '../components/LoginForm.vue'
 import UnsavedRecovery from '../components/UnsavedRecovery.vue'
 import { sessionStore, type SessionStore } from '../session'
@@ -18,6 +20,7 @@ interface Props {
 
 const props = defineProps<Props>()
 const router = inject(routerKey, null)
+const { t } = useI18n()
 const sessions = props.store ?? sessionStore
 const workspaces = props.workspace ?? workspaceStore
 const dirtyPaths = computed(() =>
@@ -81,11 +84,14 @@ function installWorkspaceReturn(): void {
     aria-labelledby="login-title"
   >
     <section class="login-view__panel">
+      <div class="login-view__language">
+        <LanguageSelector />
+      </div>
       <header class="login-view__header">
         <h1 id="login-title">
-          登录 Nginx UIX
+          {{ t('auth.title') }}
         </h1>
-        <p>使用管理员凭据继续。</p>
+        <p>{{ t('auth.description') }}</p>
       </header>
       <UnsavedRecovery
         v-if="dirtyPaths.length > 0"
@@ -116,6 +122,12 @@ function installWorkspaceReturn(): void {
 
 .login-view__header {
   margin-block-end: var(--spacing-xl);
+}
+
+.login-view__language {
+  display: flex;
+  margin-block-end: var(--spacing-md);
+  justify-content: flex-end;
 }
 
 .login-view__panel :deep(.unsaved-recovery) {

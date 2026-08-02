@@ -20,6 +20,70 @@ test.beforeEach(async ({ context }) => {
   await setAuthenticatedCookie(context)
 })
 
+const structuredLocaleCases = [
+  {
+    locale: 'zh-CN',
+    upstreams: '上游',
+    draftOnly: '仅修改草稿——尚未执行完整 Nginx 校验',
+    upstreamName: '上游名称',
+    reviewRename: '审查上游重命名',
+    diff: '生成的统一差异',
+    confirm: '输入与 application 完全相同的内容以确认',
+    apply: '应用到草稿',
+    updated: '草稿已更新：已变更 1 个文件。',
+    servers: 'Server 与 Location',
+    matcherType: '匹配类型',
+  },
+  {
+    locale: 'en-US',
+    upstreams: 'Upstreams',
+    draftOnly: 'Draft only — full Nginx validation has not run',
+    upstreamName: 'Upstream name',
+    reviewRename: 'Review upstream rename',
+    diff: 'Generated unified diff',
+    confirm: 'Type application exactly to confirm',
+    apply: 'Apply to draft',
+    updated: 'Draft updated: 1 file changed.',
+    servers: 'Servers & Locations',
+    matcherType: 'Matcher type',
+  },
+] as const
+
+for (const copy of structuredLocaleCases) {
+  test(`${copy.locale} structured upstream preview and apply preserve configuration identifiers`, async ({ page }) => {
+    const workspace = await installWorkspaceAPIFixture(page, { seedWorkspace: true })
+    const structured = await installStructuredAPIFixture(page, workspace)
+
+    await page.goto(`/config/workspaces/${workspace.workspaceId}/upstreams?lang=${copy.locale}`)
+    await expect(page.getByRole('heading', { level: 1, name: copy.upstreams })).toBeVisible()
+    await expect(page.getByText(copy.draftOnly, { exact: true })).toBeVisible()
+    await page.getByLabel(copy.upstreamName).fill('application')
+    await page.getByRole('button', { name: copy.reviewRename }).click()
+    const review = page.locator('.structured-workbench__review')
+    await expect(review.getByRole('region', { name: copy.diff })).toContainText('upstream backend')
+    await review.getByLabel(copy.confirm).fill('application')
+    await review.getByRole('button', { name: copy.apply }).click()
+    await expect(page.getByText(copy.updated)).toBeVisible()
+    await expect(page.getByLabel(copy.upstreamName)).toHaveValue('application')
+    structured.assertContract()
+    workspace.assertContract()
+  })
+
+  test(`${copy.locale} structured server and location projection remains inspectable`, async ({ page }) => {
+    await page.setViewportSize({ width: 640, height: 900 })
+    const workspace = await installWorkspaceAPIFixture(page, { seedWorkspace: true })
+    const structured = await installStructuredAPIFixture(page, workspace)
+
+    await page.goto(`/config/workspaces/${workspace.workspaceId}/servers?lang=${copy.locale}`)
+    await expect(page.getByRole('heading', { level: 1, name: copy.servers })).toBeVisible()
+    await expect(page.locator('[data-structured-selector="server"]')).toBeVisible()
+    await expect(page.locator('[data-structured-selector="location"]')).toBeVisible()
+    await expect(page.getByLabel(copy.matcherType)).toHaveValue('exact')
+    structured.assertContract()
+    workspace.assertContract()
+  })
+}
+
 test('upstream rename is previewed, explicitly confirmed and applied only to the draft', async ({
   page,
 }) => {
@@ -95,12 +159,12 @@ test('compact server view exposes all location matchers, both selectors and acce
   await expect(locationSelector).toBeVisible()
 
   for (const name of [
-    'Exact location /health',
+    'Exact (=) location /health',
     'Prefix location /api',
-    'Priority prefix location /assets/',
-    'Regex location \\.php$',
-    'Case-insensitive regex location \\.(gif|jpg)$',
-    'Named location @fallback',
+    'Priority prefix (^~) location /assets/',
+    'Regular expression (~) location \\.php$',
+    'Case-insensitive regex (~*) location \\.(gif|jpg)$',
+    'Named (@) location @fallback',
   ]) {
     await expect(page.getByRole('treeitem', { name })).toBeVisible()
   }

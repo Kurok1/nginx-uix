@@ -39,6 +39,46 @@ func TestTreeIsStableAndReturnsCurrentWorkspaceETag(t *testing.T) {
 	}
 }
 
+func TestTreeReadsVerifiedPublishedWorkspace(t *testing.T) {
+	fixture := newServiceFixture(t)
+	workspace := fixture.mustCreate(t)
+	if _, err := fixture.service.CreateFile(context.Background(), Actor{UserID: 7, RequestID: "req-published-tree"}, workspace.ID, CreateFileInput{
+		Path: mustRelativePath(t, "conf.d/published.conf"), Content: []byte("server { listen 8081; }\n"), IfMatch: workspace.ETag(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	setReviewWorkspaceState(t, fixture, workspace.ID, StatePublished)
+
+	published, err := fixture.repository.Workspace(context.Background(), workspace.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tree, err := fixture.service.Tree(context.Background(), workspace.ID)
+	if err != nil {
+		t.Fatalf("Tree(published) error = %v", err)
+	}
+	if tree.WorkspaceETag != published.ETag() || tree.DiffStatuses["conf.d/published.conf"] != "created" ||
+		!slices.ContainsFunc(tree.Entries, func(entry Entry) bool {
+			return entry.Path == "conf.d/published.conf" && entry.Type == EntryRegular && entry.Class == EntryManagedText
+		}) {
+		t.Fatalf("Tree(published) = %#v", tree)
+	}
+}
+
+func TestTreeReadsPublishedWorkspaceWithoutDraftChanges(t *testing.T) {
+	fixture := newServiceFixture(t)
+	workspace := fixture.mustCreate(t)
+	setReviewWorkspaceState(t, fixture, workspace.ID, StatePublished)
+
+	tree, err := fixture.service.Tree(context.Background(), workspace.ID)
+	if err != nil {
+		t.Fatalf("Tree(unchanged published) error = %v", err)
+	}
+	if tree.WorkspaceETag != workspace.ETag() || tree.DiffStatuses["conf.d/site.conf"] != "unchanged" {
+		t.Fatalf("Tree(unchanged published) = %#v", tree)
+	}
+}
+
 func TestTreeProjectsManagedDiffStatusWithoutUsingUnifiedDiff(t *testing.T) {
 	fixture := newServiceFixture(t)
 	writeFixtureFile(t, filepath.Join(fixture.production.productionRoot, "private.key"), "secret\n", 0o600)
@@ -138,6 +178,104 @@ func TestReadFileReturnsManagedContentAndRejectsOtherClasses(t *testing.T) {
 			}
 			if err := os.Remove(path); err != nil {
 				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestReadFileReturnsHistoricalContentFromPublishedWorkspace(t *testing.T) {
+	fixture := newServiceFixture(t)
+	workspace := fixture.mustCreate(t)
+	updated, err := fixture.service.ReplaceFile(context.Background(), Actor{UserID: 7, RequestID: "req-published-file"}, workspace.ID, ReplaceFileInput{
+		Path: mustRelativePath(t, "conf.d/site.conf"), Content: []byte("server { listen 8443 ssl; }\n"), IfMatch: workspace.ETag(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	setReviewWorkspaceState(t, fixture, workspace.ID, StatePublished)
+
+	view, err := fixture.service.ReadFile(context.Background(), workspace.ID, mustRelativePath(t, "conf.d/site.conf"))
+	if err != nil {
+		t.Fatalf("ReadFile(published) error = %v", err)
+	}
+	if view.Content != "server { listen 8443 ssl; }\n" || view.WorkspaceETag != updated.Workspace.ETag() {
+		t.Fatalf("ReadFile(published) = %#v", view)
+	}
+}
+
+func TestPublishedWorkspaceReadFailsClosedOnControlMetadataMismatch(t *testing.T) {
+	tests := map[string]func(*ControlState){
+		"state":       func(control *ControlState) { control.State = StateReady },
+		"reason code": func(control *ControlState) { control.StateReasonCode = "UNEXPECTED" },
+		"updated at":  func(control *ControlState) { control.UpdatedAt = control.UpdatedAt.Add(time.Second) },
+	}
+	for name, mutate := range tests {
+		t.Run(name, func(t *testing.T) {
+			fixture := newServiceFixture(t)
+			workspace := fixture.mustCreate(t)
+			setReviewWorkspaceState(t, fixture, workspace.ID, StatePublished)
+			published, err := fixture.repository.Workspace(context.Background(), workspace.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			root := fixture.openWorkspace(t, workspace.ID)
+			control := controlStateFromWorkspace(published)
+			mutate(&control)
+			if err := WriteControlState(context.Background(), root, control); err != nil {
+				root.Close()
+				t.Fatal(err)
+			}
+			if err := root.Close(); err != nil {
+				t.Fatal(err)
+			}
+
+			if _, err := fixture.service.Tree(context.Background(), workspace.ID); !errors.Is(err, ErrConflict) {
+				t.Fatalf("Tree(control %s mismatch) error = %v, want ErrConflict", name, err)
+			}
+		})
+	}
+}
+
+func TestPublishedWorkspaceReadRequiresBaseManifestWhenDraftChanged(t *testing.T) {
+	fixture := newServiceFixture(t)
+	workspace := fixture.mustCreate(t)
+	if _, err := fixture.service.CreateFile(context.Background(), Actor{UserID: 7, RequestID: "req-published-base"}, workspace.ID, CreateFileInput{
+		Path: mustRelativePath(t, "conf.d/published.conf"), Content: []byte("server { listen 8081; }\n"), IfMatch: workspace.ETag(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	setReviewWorkspaceState(t, fixture, workspace.ID, StatePublished)
+	root := fixture.openWorkspace(t, workspace.ID)
+	if err := root.RemoveRegular(context.Background(), controlBaseManifestPath); err != nil {
+		root.Close()
+		t.Fatal(err)
+	}
+	if err := root.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := fixture.service.Tree(context.Background(), workspace.ID); !errors.Is(err, ErrConflict) {
+		t.Fatalf("Tree(missing changed base manifest) error = %v, want ErrConflict", err)
+	}
+}
+
+func TestPublishedWorkspaceReadRequiresValidLastReleaseID(t *testing.T) {
+	for name, releaseID := range map[string]ReleaseID{
+		"missing":   "",
+		"malformed": "not-a-release-id",
+	} {
+		t.Run(name, func(t *testing.T) {
+			fixture := newServiceFixture(t)
+			workspace := fixture.mustCreate(t)
+			setReviewWorkspaceState(t, fixture, workspace.ID, StatePublished)
+			fixture.repository.mu.Lock()
+			published := fixture.repository.workspaces[workspace.ID]
+			published.LastReleaseID = releaseID
+			fixture.repository.workspaces[workspace.ID] = published
+			fixture.repository.mu.Unlock()
+
+			if _, err := fixture.service.Tree(context.Background(), workspace.ID); !errors.Is(err, ErrConflict) {
+				t.Fatalf("Tree(last_release_id=%q) error = %v, want ErrConflict", releaseID, err)
 			}
 		})
 	}
@@ -369,16 +507,20 @@ func TestCreateFileAcceptsDomainContentThroughTwoMiBAndRejectsInvalidText(t *tes
 }
 
 func TestFileMutationRequiresReadyWorkspace(t *testing.T) {
-	fixture := newServiceFixture(t)
-	workspace := fixture.mustCreate(t)
-	fixture.repository.forceState(workspace.ID, StateStale, "PRODUCTION_CHANGED")
-	_, err := fixture.service.ReplaceFile(context.Background(), Actor{UserID: 7, RequestID: "req-not-ready"}, workspace.ID, ReplaceFileInput{
-		Path: mustRelativePath(t, "conf.d/site.conf"), Content: []byte("server {}\n"), IfMatch: workspace.ETag(),
-	})
-	if !errors.Is(err, ErrConflict) {
-		t.Fatalf("ReplaceFile(stale) error = %v, want ErrConflict", err)
+	for _, state := range []WorkspaceState{StateStale, StatePublished} {
+		t.Run(string(state), func(t *testing.T) {
+			fixture := newServiceFixture(t)
+			workspace := fixture.mustCreate(t)
+			setReviewWorkspaceState(t, fixture, workspace.ID, state)
+			_, err := fixture.service.ReplaceFile(context.Background(), Actor{UserID: 7, RequestID: "req-not-ready"}, workspace.ID, ReplaceFileInput{
+				Path: mustRelativePath(t, "conf.d/site.conf"), Content: []byte("server {}\n"), IfMatch: workspace.ETag(),
+			})
+			if !errors.Is(err, ErrConflict) {
+				t.Fatalf("ReplaceFile(%s) error = %v, want ErrConflict", state, err)
+			}
+			assertFileContent(t, fixture.path(workspace.ID, "draft/conf.d/site.conf"), "server { listen 8080; }\n")
+		})
 	}
-	assertFileContent(t, fixture.path(workspace.ID, "draft/conf.d/site.conf"), "server { listen 8080; }\n")
 }
 
 func TestFileMutationMovesChangedProductionToStale(t *testing.T) {

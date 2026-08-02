@@ -10,15 +10,15 @@
     <header>
       <div>
         <p class="route-run__eyebrow">
-          Isolated runtime result — production Nginx was not reloaded
+          {{ t('routeLab.runEyebrow') }}
         </p>
         <h2 id="route-run-title">
-          Runtime evidence
+          {{ t('routeLab.run.title') }}
         </h2>
       </div>
       <StatusBadge
         :tone="runTone"
-        :label="run === null ? 'Not run' : runStateLabel(run.state)"
+        :label="run === null ? t('routeLab.run.notRun') : runStateLabel(run.state)"
       />
     </header>
 
@@ -26,12 +26,12 @@
       v-if="run === null"
       class="route-run__empty"
     >
-      No isolated test has been queued in this browser session. Static analysis alone is not runtime proof.
+      {{ t('routeLab.run.empty') }}
     </p>
 
     <template v-else>
       <div class="route-run__identity">
-        <p>Run ID <code>{{ run.id }}</code></p>
+        <p>{{ t('routeLab.run.runId') }} <code>{{ run.id }}</code></p>
         <span data-stream-state>{{ streamLabel }}</span>
       </div>
 
@@ -43,7 +43,7 @@
           aria-live="polite"
           aria-atomic="true"
         >
-          {{ run.cancel_requested_at === undefined ? `Current stage: ${stageLabel(run.stage)}` : 'Cancelling… waiting for persisted cleanup evidence.' }}
+          {{ run.cancel_requested_at === undefined ? t('routeLab.run.currentStage', { stage: stageLabel(run.stage) }) : t('routeLab.run.cancelling') }}
         </p>
         <button
           type="button"
@@ -52,13 +52,13 @@
           :aria-describedby="run.cancel_requested_at === undefined ? undefined : 'route-cancel-reason'"
           @click="$emit('cancel')"
         >
-          {{ run.cancel_requested_at === undefined ? 'Cancel test' : 'Cancellation requested' }}
+          {{ run.cancel_requested_at === undefined ? t('routeLab.run.cancel') : t('routeLab.run.cancellationRequested') }}
         </button>
         <p
           v-if="run.cancel_requested_at !== undefined"
           id="route-cancel-reason"
         >
-          The server has recorded cancellation; the task remains active until cleanup reaches a terminal state.
+          {{ t('routeLab.run.cancellationRecorded') }}
         </p>
       </div>
 
@@ -67,10 +67,10 @@
         aria-labelledby="route-run-timeline-title"
       >
         <h3 id="route-run-timeline-title">
-          Persisted stages
+          {{ t('routeLab.run.persistedStages') }}
         </h3>
         <p v-if="run.stages.length === 0">
-          The run is queued; no later stage has been persisted.
+          {{ t('routeLab.run.noStages') }}
         </p>
         <ol v-else>
           <li
@@ -99,7 +99,7 @@
         <strong>{{ terminalTitle }}</strong>
         <p>{{ terminalMessage }}</p>
         <p v-if="run.last_error_code !== undefined">
-          Safe error code: <code>{{ run.last_error_code }}</code>
+          {{ t('routeLab.run.safeErrorCode') }} <code>{{ run.last_error_code }}</code>
         </p>
       </div>
 
@@ -109,21 +109,21 @@
           aria-labelledby="route-comparison-title"
         >
           <h3 id="route-comparison-title">
-            Prediction compared with observation
+            {{ t('routeLab.run.comparison') }}
           </h3>
           <div>
             <article>
-              <span>Predicted</span>
-              <strong>Server</strong>
-              <code>{{ run.static_analysis.predicted_server_route_id ?? 'Indeterminate' }}</code>
-              <strong>Location</strong>
-              <code>{{ run.static_analysis.predicted_location_route_id ?? 'Server context' }}</code>
+              <span>{{ t('routeLab.run.predicted') }}</span>
+              <strong>{{ t('routeLab.run.server') }}</strong>
+              <code>{{ run.static_analysis.predicted_server_route_id ?? t('routeLab.run.indeterminate') }}</code>
+              <strong>{{ t('routeLab.run.location') }}</strong>
+              <code>{{ run.static_analysis.predicted_location_route_id ?? t('routeLab.run.serverContext') }}</code>
             </article>
             <article>
-              <span>Observed</span>
-              <strong>Server</strong>
+              <span>{{ t('routeLab.run.observed') }}</span>
+              <strong>{{ t('routeLab.run.server') }}</strong>
               <code>{{ result.evidence.server_route_id }}</code>
-              <strong>Location</strong>
+              <strong>{{ t('routeLab.run.location') }}</strong>
               <code>{{ result.evidence.route_id }}</code>
             </article>
           </div>
@@ -131,7 +131,7 @@
             v-if="routeMismatch"
             class="route-run__mismatch"
           >
-            <span aria-hidden="true">△</span> Static prediction and runtime observation differ. Both evidence sets remain visible.
+            <span aria-hidden="true">△</span> {{ t('routeLab.run.mismatch') }}
           </p>
         </section>
 
@@ -140,21 +140,21 @@
           aria-labelledby="route-http-result-title"
         >
           <h3 id="route-http-result-title">
-            Observed HTTP result
+            {{ t('routeLab.run.httpResult') }}
           </h3>
           <dl>
-            <div><dt>Status</dt><dd>{{ result.response.status_code }}</dd></div>
-            <div><dt>Final URI</dt><dd><code>{{ result.evidence.final_uri }}</code></dd></div>
-            <div><dt>Upstream</dt><dd><code>{{ result.evidence.upstream || 'None observed' }}</code></dd></div>
-            <div><dt>Upstream status</dt><dd>{{ result.evidence.upstream_status || 'None observed' }}</dd></div>
-            <div><dt>Request time</dt><dd>{{ result.evidence.request_time_ms }} ms</dd></div>
-            <div><dt>Total time</dt><dd>{{ result.response.duration_ms }} ms</dd></div>
-            <div><dt>Response bytes</dt><dd>{{ result.response.body_bytes }}</dd></div>
-            <div><dt>Assertions</dt><dd>{{ assertionSummary }}</dd></div>
+            <div><dt>{{ t('routeLab.run.status') }}</dt><dd>{{ result.response.status_code }}</dd></div>
+            <div><dt>{{ t('routeLab.run.finalUri') }}</dt><dd><code>{{ result.evidence.final_uri }}</code></dd></div>
+            <div><dt>{{ t('routeLab.run.upstream') }}</dt><dd><code>{{ result.evidence.upstream || t('routeLab.run.noneObserved') }}</code></dd></div>
+            <div><dt>{{ t('routeLab.run.upstreamStatus') }}</dt><dd>{{ result.evidence.upstream_status || t('routeLab.run.noneObserved') }}</dd></div>
+            <div><dt>{{ t('routeLab.run.requestTime') }}</dt><dd>{{ t('routeLab.run.milliseconds', { value: result.evidence.request_time_ms }) }}</dd></div>
+            <div><dt>{{ t('routeLab.run.totalTime') }}</dt><dd>{{ t('routeLab.run.milliseconds', { value: result.response.duration_ms }) }}</dd></div>
+            <div><dt>{{ t('routeLab.run.responseBytes') }}</dt><dd>{{ result.response.body_bytes }}</dd></div>
+            <div><dt>{{ t('routeLab.run.assertions') }}</dt><dd>{{ assertionSummary }}</dd></div>
           </dl>
 
           <div v-if="result.response.headers.length > 0">
-            <h4>Safe response headers</h4>
+            <h4>{{ t('routeLab.run.safeHeaders') }}</h4>
             <dl class="route-run__headers">
               <div
                 v-for="header in result.response.headers"
@@ -166,7 +166,7 @@
           </div>
 
           <div v-if="result.response.assertions.results.length > 0">
-            <h4>Assertion outcomes</h4>
+            <h4>{{ t('routeLab.run.assertionOutcomes') }}</h4>
             <ul class="route-run__assertions">
               <li
                 v-for="assertion in result.response.assertions.results"
@@ -174,23 +174,23 @@
               >
                 <span aria-hidden="true">{{ assertion.passed && assertion.complete ? '✓' : '×' }}</span>
                 {{ assertionLabel(assertion.kind) }} —
-                {{ !assertion.complete ? 'Indeterminate because the captured body was incomplete' : assertion.passed ? 'Passed' : 'Failed' }}
+                {{ !assertion.complete ? t('routeLab.run.assertionIncomplete') : assertion.passed ? t('routeLab.run.passed') : t('routeLab.run.failed') }}
               </li>
             </ul>
           </div>
 
           <div v-if="!result.response.snippet_omitted">
-            <h4>Bounded response snippet</h4>
+            <h4>{{ t('routeLab.run.snippet') }}</h4>
             <pre
               tabindex="0"
-              aria-label="Bounded response body snippet"
+              :aria-label="t('routeLab.run.snippetLabel')"
             ><code>{{ result.response.body_snippet }}</code></pre>
             <p v-if="result.response.body_truncated">
-              The response body was truncated at the capture limit.
+              {{ t('routeLab.run.snippetTruncated') }}
             </p>
           </div>
           <p v-else>
-            The response snippet was omitted by the safety policy.
+            {{ t('routeLab.run.snippetOmitted') }}
           </p>
         </section>
 
@@ -201,12 +201,12 @@
           aria-labelledby="route-cleanup-title"
         >
           <h3 id="route-cleanup-title">
-            {{ cleanupConfirmed ? 'Sandbox cleanup confirmed' : 'Cleanup could not be confirmed' }}
+            {{ cleanupConfirmed ? t('routeLab.run.cleanupConfirmed') : t('routeLab.run.cleanupUnconfirmed') }}
           </h3>
           <ul>
-            <li>{{ result.cleanup.master_reaped ? '✓' : '×' }} Sandbox master reaped</li>
-            <li>{{ result.cleanup.port_closed ? '✓' : '×' }} Loopback port closed</li>
-            <li>{{ result.cleanup.stage_removed ? '✓' : '×' }} Temporary stage removed</li>
+            <li>{{ result.cleanup.master_reaped ? '✓' : '×' }} {{ t('routeLab.run.masterReaped') }}</li>
+            <li>{{ result.cleanup.port_closed ? '✓' : '×' }} {{ t('routeLab.run.portClosed') }}</li>
+            <li>{{ result.cleanup.stage_removed ? '✓' : '×' }} {{ t('routeLab.run.stageRemoved') }}</li>
           </ul>
         </section>
 
@@ -216,7 +216,7 @@
           aria-labelledby="route-diagnostics-title"
         >
           <h3 id="route-diagnostics-title">
-            Safe diagnostics
+            {{ t('routeLab.run.diagnostics') }}
           </h3>
           <ul>
             <li
@@ -236,15 +236,19 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import {
   isTerminalRouteRun,
   type RouteAssertionKind,
   type RouteRunState,
+  type RouteRunStageName,
   type RouteStageResult,
   type RouteTestRun,
 } from '../api/route_lab'
 import StatusBadge, { type StatusTone } from './StatusBadge.vue'
+
+const { d, t } = useI18n()
 
 const props = withDefaults(defineProps<{
   run: RouteTestRun | null
@@ -279,52 +283,72 @@ const runTone = computed<StatusTone>(() => {
 })
 const streamLabel = computed(() => {
   switch (props.streamState) {
-    case 'live': return 'Live persisted progress connected'
-    case 'connecting': return 'Connecting to persisted progress…'
-    case 'reconnecting': return 'Reconnecting; the server task continues independently'
-    default: return 'Persisted progress'
+    case 'live': return t('routeLab.run.stream.live')
+    case 'connecting': return t('routeLab.run.stream.connecting')
+    case 'reconnecting': return t('routeLab.run.stream.reconnecting')
+    default: return t('routeLab.run.stream.persisted')
   }
 })
 const assertionSummary = computed(() => {
   const assertions = result.value?.response.assertions
-  if (assertions === undefined || assertions.results.length === 0) return 'No assertions'
-  if (!assertions.complete) return 'Indeterminate'
-  return assertions.passed ? 'Passed' : 'Failed'
+  if (assertions === undefined || assertions.results.length === 0) return t('routeLab.run.assertionSummary.none')
+  if (!assertions.complete) return t('routeLab.run.assertionSummary.indeterminate')
+  return assertions.passed
+    ? t('routeLab.run.assertionSummary.passed')
+    : t('routeLab.run.assertionSummary.failed')
 })
 const terminalTitle = computed(() => {
   switch (props.run?.state) {
-    case 'cancelled': return 'Route test cancelled'
-    case 'timed_out': return 'Route test timed out'
-    default: return 'Route test failed'
+    case 'cancelled': return t('routeLab.run.terminalTitle.cancelled')
+    case 'timed_out': return t('routeLab.run.terminalTitle.timedOut')
+    default: return t('routeLab.run.terminalTitle.failed')
   }
 })
 const terminalMessage = computed(() => {
   switch (props.run?.state) {
-    case 'cancelled': return 'Cancellation was recorded by the server. No successful runtime result was inferred.'
-    case 'timed_out': return 'The bounded isolated request did not finish before its server deadline.'
-    default: return 'The isolated run ended without complete runtime evidence.'
+    case 'cancelled': return t('routeLab.run.terminalMessage.cancelled')
+    case 'timed_out': return t('routeLab.run.terminalMessage.timedOut')
+    default: return t('routeLab.run.terminalMessage.failed')
   }
 })
 
 function runStateLabel(state: RouteRunState): string {
   const labels: Record<RouteRunState, string> = {
-    queued: 'Queued',
-    running: 'Running',
-    succeeded: 'Runtime completed',
-    failed: 'Runtime failed',
-    cancelled: 'Cancelled',
-    timed_out: 'Timed out',
+    queued: t('routeLab.run.states.queued'),
+    running: t('routeLab.run.states.running'),
+    succeeded: t('routeLab.run.states.succeeded'),
+    failed: t('routeLab.run.states.failed'),
+    cancelled: t('routeLab.run.states.cancelled'),
+    timed_out: t('routeLab.run.states.timedOut'),
   }
   return labels[state]
 }
 
-function stageLabel(value: string): string {
-  const words = value.replaceAll('_', ' ')
-  return words.charAt(0).toUpperCase() + words.slice(1)
+function stageLabel(value: RouteRunStageName): string {
+  const labels: Record<RouteRunStageName, string> = {
+    queued: t('routeLab.run.stages.queued'),
+    preparing: t('routeLab.run.stages.preparing'),
+    validating: t('routeLab.run.stages.validating'),
+    starting: t('routeLab.run.stages.starting'),
+    requesting: t('routeLab.run.stages.requesting'),
+    collecting: t('routeLab.run.stages.collecting'),
+    completed: t('routeLab.run.stages.completed'),
+    failed: t('routeLab.run.stages.failed'),
+    cancelled: t('routeLab.run.stages.cancelled'),
+    timed_out: t('routeLab.run.stages.timedOut'),
+  }
+  return labels[value]
 }
 
 function resultLabel(value: RouteStageResult): string {
-  return value.charAt(0).toUpperCase() + value.slice(1)
+  const labels: Record<RouteStageResult, string> = {
+    pending: t('routeLab.run.results.pending'),
+    running: t('routeLab.run.results.running'),
+    success: t('routeLab.run.results.success'),
+    failed: t('routeLab.run.results.failed'),
+    warning: t('routeLab.run.results.warning'),
+  }
+  return labels[value]
 }
 
 function resultIcon(value: RouteStageResult): string {
@@ -339,18 +363,15 @@ function resultIcon(value: RouteStageResult): string {
 
 function assertionLabel(kind: RouteAssertionKind): string {
   const labels: Record<RouteAssertionKind, string> = {
-    status_code: 'Expected status',
-    contains_text: 'Response contains text',
-    forbidden_text: 'Response excludes text',
+    status_code: t('routeLab.run.assertionLabels.statusCode'),
+    contains_text: t('routeLab.run.assertionLabels.containsText'),
+    forbidden_text: t('routeLab.run.assertionLabels.forbiddenText'),
   }
   return labels[kind]
 }
 
 function formatTime(value: string): string {
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'medium',
-  }).format(new Date(value))
+  return d(new Date(value), 'short')
 }
 </script>
 

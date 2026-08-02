@@ -6,7 +6,7 @@
   <section class="upstream-editor">
     <header>
       <div>
-        <h2>{{ upstream === null ? 'Create upstream' : 'Upstream details' }}</h2>
+        <h2>{{ upstream === null ? t('structured.upstreamEditor.create') : t('structured.upstreamEditor.details') }}</h2>
         <p v-if="upstream !== null">
           {{ upstream.source.path }}:{{ upstream.source.start_line }}
         </p>
@@ -16,15 +16,15 @@
         class="upstream-editor__state"
       >
         <span aria-hidden="true">{{ upstream.editable ? '●' : '◇' }}</span>
-        {{ upstream.editable ? 'Editable' : 'Read only' }}
+        {{ upstream.editable ? t('structured.resources.editable') : t('structured.resources.readOnly') }}
       </span>
     </header>
 
     <fieldset :disabled="disabled || (upstream !== null && !upstream.editable)">
-      <legend>{{ upstream === null ? 'New upstream' : 'Upstream identity' }}</legend>
+      <legend>{{ upstream === null ? t('structured.upstreamEditor.new') : t('structured.upstreamEditor.identity') }}</legend>
 
       <label v-if="upstream === null && httpBlocks.length > 1">
-        <span>HTTP context</span>
+        <span>{{ t('structured.upstreamEditor.httpContext') }}</span>
         <select
           v-model="httpBlockId"
           name="http-block"
@@ -40,7 +40,7 @@
       </label>
 
       <label>
-        <span>Upstream name</span>
+        <span>{{ t('structured.upstreamEditor.name') }}</span>
         <input
           v-model="upstreamName"
           name="upstream-name"
@@ -51,7 +51,7 @@
       </label>
 
       <p v-if="upstream !== null && upstream.preserved_directives.length > 0">
-        Preserved read-only directives:
+        {{ t('structured.upstreamEditor.preservedDirectives') }}
         <code
           v-for="directive in upstream.preserved_directives"
           :key="directive.name"
@@ -64,10 +64,10 @@
         aria-labelledby="upstream-reference-title"
       >
         <h3 id="upstream-reference-title">
-          References ({{ upstream.references.length }})
+          {{ t('structured.upstreamEditor.references', { count: upstream.references.length }) }}
         </h3>
         <p v-if="upstream.references.length === 0">
-          No direct proxy_pass references were found.
+          {{ t('structured.upstreamEditor.noReferences') }}
         </p>
         <ul v-else>
           <li
@@ -75,7 +75,7 @@
             :key="reference.id"
           >
             <code>{{ reference.source.path }}:{{ reference.source.start_line }}:{{ reference.source.start_column }}</code>
-            <span>{{ reference.state }}</span>
+            <span>{{ referenceStateLabel(reference.state) }}</span>
           </li>
         </ul>
       </section>
@@ -84,13 +84,13 @@
         v-if="upstream !== null && nameDirty"
         class="upstream-editor__notice"
       >
-        Finish or reset the upstream name edit before changing server entries.
+        {{ t('structured.upstreamEditor.finishName') }}
       </p>
       <p
         v-if="upstream !== null && serverDirty"
         class="upstream-editor__notice"
       >
-        Finish or reset the current server edit before renaming or switching entries.
+        {{ t('structured.upstreamEditor.finishServer') }}
       </p>
 
       <div class="upstream-editor__actions">
@@ -100,7 +100,7 @@
           :disabled="!canReviewUpstream"
           @click="reviewUpstream"
         >
-          {{ upstream === null ? 'Review upstream creation' : 'Review upstream rename' }}
+          {{ upstream === null ? t('structured.upstreamEditor.reviewCreation') : t('structured.upstreamEditor.reviewRename') }}
         </button>
         <button
           v-if="upstream !== null && nameDirty"
@@ -108,7 +108,7 @@
           data-action="reset-upstream-name"
           @click="resetUpstreamName"
         >
-          Reset name
+          {{ t('structured.upstreamEditor.resetName') }}
         </button>
         <button
           v-if="upstream !== null"
@@ -117,7 +117,7 @@
           :disabled="disabled || !upstream.editable || nameDirty || serverDirty || upstream.references.length > 0"
           @click="reviewUpstreamDeletion"
         >
-          Review upstream deletion
+          {{ t('structured.upstreamEditor.reviewDeletion') }}
         </button>
       </div>
     </fieldset>
@@ -126,10 +126,10 @@
       v-if="upstream !== null"
       :disabled="disabled || !upstream.editable || nameDirty"
     >
-      <legend>Upstream server</legend>
+      <legend>{{ t('structured.upstreamEditor.server') }}</legend>
       <div class="upstream-editor__server-picker">
         <label>
-          <span>Server entry</span>
+          <span>{{ t('structured.upstreamEditor.serverEntry') }}</span>
           <select
             v-model="selectedServerId"
             name="upstream-server"
@@ -150,13 +150,13 @@
           :disabled="serverDirty || nameDirty"
           @click="beginServerCreation"
         >
-          Add server
+          {{ t('structured.upstreamEditor.addServer') }}
         </button>
       </div>
 
       <div class="structured-field-grid">
         <label>
-          <span>Address or Unix socket path</span>
+          <span>{{ t('structured.upstreamEditor.address') }}</span>
           <input
             v-model="serverForm.address"
             name="server-address"
@@ -165,7 +165,7 @@
           >
         </label>
         <label>
-          <span>Port</span>
+          <span>{{ t('structured.upstreamEditor.port') }}</span>
           <input
             v-model="serverForm.port"
             name="server-port"
@@ -176,7 +176,7 @@
           >
         </label>
         <label>
-          <span>Weight</span>
+          <span>{{ t('structured.upstreamEditor.weight') }}</span>
           <input
             v-model="serverForm.weight"
             name="server-weight"
@@ -185,7 +185,7 @@
           >
         </label>
         <label>
-          <span>Max failures</span>
+          <span>{{ t('structured.upstreamEditor.maxFailures') }}</span>
           <input
             v-model="serverForm.maxFails"
             name="server-max-fails"
@@ -194,7 +194,7 @@
           >
         </label>
         <label>
-          <span>Failure timeout</span>
+          <span>{{ t('structured.upstreamEditor.failureTimeout') }}</span>
           <input
             v-model="serverForm.failTimeout"
             name="server-fail-timeout"
@@ -212,7 +212,7 @@
             name="server-unix"
             type="checkbox"
           >
-          Unix socket
+          {{ t('structured.upstreamEditor.unixSocket') }}
         </label>
         <label>
           <input
@@ -220,7 +220,7 @@
             name="server-backup"
             type="checkbox"
           >
-          Backup peer
+          {{ t('structured.upstreamEditor.backupPeer') }}
         </label>
         <label>
           <input
@@ -228,7 +228,7 @@
             name="server-down"
             type="checkbox"
           >
-          Administratively down
+          {{ t('structured.upstreamEditor.administrativelyDown') }}
         </label>
       </div>
 
@@ -236,7 +236,7 @@
         v-if="selectedServer !== null && selectedServer.preserved_parameters.length > 0"
         class="upstream-editor__preserved"
       >
-        Preserved read-only parameters:
+        {{ t('structured.upstreamEditor.preservedParameters') }}
         <code
           v-for="parameter in selectedServer.preserved_parameters"
           :key="parameter.name"
@@ -257,7 +257,7 @@
           :disabled="!canReviewServer"
           @click="reviewServer"
         >
-          {{ serverMode === 'create' ? 'Review server creation' : 'Review server update' }}
+          {{ serverMode === 'create' ? t('structured.upstreamEditor.reviewServerCreation') : t('structured.upstreamEditor.reviewServerUpdate') }}
         </button>
         <button
           v-if="serverMode === 'update' && selectedServer !== null"
@@ -266,7 +266,7 @@
           :disabled="!selectedServer.editable || serverDirty || nameDirty"
           @click="reviewServerDeletion"
         >
-          Review server deletion
+          {{ t('structured.upstreamEditor.reviewServerDeletion') }}
         </button>
         <button
           v-if="serverMode === 'update' && serverDirty"
@@ -274,14 +274,14 @@
           data-action="reset-server"
           @click="resetServer"
         >
-          Reset server changes
+          {{ t('structured.upstreamEditor.resetServer') }}
         </button>
         <button
           v-if="serverMode === 'create' && upstream.servers.length > 0"
           type="button"
           @click="cancelServerCreation"
         >
-          Cancel
+          {{ t('common.cancel') }}
         </button>
       </div>
     </fieldset>
@@ -290,10 +290,10 @@
       v-else
       :disabled="disabled"
     >
-      <legend>First upstream server</legend>
+      <legend>{{ t('structured.upstreamEditor.firstServer') }}</legend>
       <div class="structured-field-grid">
         <label>
-          <span>Address or Unix socket path</span>
+          <span>{{ t('structured.upstreamEditor.address') }}</span>
           <input
             v-model="serverForm.address"
             name="server-address"
@@ -302,7 +302,7 @@
           >
         </label>
         <label>
-          <span>Port</span>
+          <span>{{ t('structured.upstreamEditor.port') }}</span>
           <input
             v-model="serverForm.port"
             name="server-port"
@@ -319,7 +319,7 @@
           name="server-unix"
           type="checkbox"
         >
-        Unix socket
+        {{ t('structured.upstreamEditor.unixSocket') }}
       </label>
       <p
         v-if="serverError !== ''"
@@ -334,14 +334,18 @@
 
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import type {
   StructuredHTTPBlock,
   StructuredOperation,
+  StructuredReferenceState,
   StructuredUpstream,
   StructuredUpstreamServer,
   StructuredUpstreamServerInput,
 } from '../api/structured'
+
+const { t } = useI18n()
 
 interface ServerForm {
   address: string
@@ -500,13 +504,13 @@ function parseServerForm(
   form: ServerForm,
 ): { value: StructuredUpstreamServerInput | null; error: string } {
   const address = form.address.trim()
-  if (address === '') return { value: null, error: 'Server address is required.' }
+  if (address === '') return { value: null, error: t('structured.upstreamEditor.addressRequired') }
   const port = form.unix ? null : optionalInteger(form.port, 1, 65_535)
   const weight = optionalInteger(form.weight, 1)
   const maxFails = optionalInteger(form.maxFails, 0)
-  if (port === undefined) return { value: null, error: 'Port must be between 1 and 65535.' }
-  if (weight === undefined) return { value: null, error: 'Weight must be a positive integer.' }
-  if (maxFails === undefined) return { value: null, error: 'Max failures must be a non-negative integer.' }
+  if (port === undefined) return { value: null, error: t('structured.upstreamEditor.invalidPort') }
+  if (weight === undefined) return { value: null, error: t('structured.upstreamEditor.invalidWeight') }
+  if (maxFails === undefined) return { value: null, error: t('structured.upstreamEditor.invalidMaxFailures') }
   return {
     value: {
       address,
@@ -625,6 +629,18 @@ function endpointLabel(server: StructuredUpstreamServer): string {
     server.endpoint.address +
     (server.endpoint.port === null ? '' : ':' + String(server.endpoint.port))
   )
+}
+
+function referenceStateLabel(state: StructuredReferenceState): string {
+  const labels: Record<StructuredReferenceState, string> = {
+    resolved: t('structured.upstreamEditor.referenceStates.resolved'),
+    dangling: t('structured.upstreamEditor.referenceStates.dangling'),
+    external: t('structured.upstreamEditor.referenceStates.external'),
+    dynamic: t('structured.upstreamEditor.referenceStates.dynamic'),
+    ambiguous: t('structured.upstreamEditor.referenceStates.ambiguous'),
+    unknown: t('structured.upstreamEditor.referenceStates.unknown'),
+  }
+  return labels[state]
 }
 </script>
 

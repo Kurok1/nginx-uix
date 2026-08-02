@@ -5,6 +5,7 @@
 import { reactive } from 'vue'
 
 import { apiClient } from './api/client'
+import { apiRequestID } from './api/error_message'
 import {
   isTerminalRouteRun,
   type RouteAnalysis,
@@ -47,6 +48,16 @@ export interface RouteLabEventStream {
   close: () => void
 }
 
+export type RouteLabErrorCode =
+  | ''
+  | 'session_expired'
+  | 'analysis_failed'
+  | 'queue_failed'
+  | 'run_failed'
+  | 'progress_failed'
+  | 'cancellation_failed'
+  | 'history_failed'
+
 export interface RouteLabState {
   phase: 'idle' | 'analyzing' | 'ready' | 'queuing' | 'tracking'
   stream: 'closed' | 'connecting' | 'live' | 'reconnecting'
@@ -58,8 +69,10 @@ export interface RouteLabState {
   historyCursor: string
   historyLoading: boolean
   historyWorkspaceId: string
-  error: string
-  historyError: string
+  error: RouteLabErrorCode
+  errorRequestID: string
+  historyError: RouteLabErrorCode
+  historyErrorRequestID: string
 }
 
 export interface RouteLabStore {
@@ -97,7 +110,9 @@ export function createRouteLabStore(
     historyLoading: false,
     historyWorkspaceId: '',
     error: '',
+    errorRequestID: '',
     historyError: '',
+    historyErrorRequestID: '',
   })
   let stream: RouteLabEventStream | null = null
   let analysisPromise: Promise<RouteAnalysis> | null = null
@@ -108,7 +123,8 @@ export function createRouteLabStore(
 
   const removeExpiryListener = sessions.onExpired(() => {
     closeStream()
-    state.error = 'Session expired while tracking the isolated test. Sign in to resume.'
+    state.error = 'session_expired'
+    state.errorRequestID = ''
   })
 
   function csrfToken(): string {
@@ -141,9 +157,7 @@ export function createRouteLabStore(
         return result
       })
       .catch((error: unknown) => {
-        if (!sessions.handleAPIError(error)) {
-          state.error = 'Static route analysis could not be completed.'
-        }
+        handleError(error, 'analysis_failed')
         state.phase = state.activeRun === null ? 'idle' : 'tracking'
         throw error
       })
@@ -179,9 +193,7 @@ export function createRouteLabStore(
         return run
       })
       .catch((error: unknown) => {
-        if (!sessions.handleAPIError(error)) {
-          state.error = 'The isolated route test could not be queued.'
-        }
+        handleError(error, 'queue_failed')
         state.phase = state.analysis === null ? 'idle' : 'ready'
         throw error
       })
@@ -205,7 +217,7 @@ export function createRouteLabStore(
       else connect(run.id)
       return run
     } catch (error: unknown) {
-      if (!sessions.handleAPIError(error)) state.error = 'The route test could not be loaded.'
+      handleError(error, 'run_failed')
       throw error
     }
   }
@@ -227,9 +239,7 @@ export function createRouteLabStore(
         return run
       })
       .catch((error: unknown) => {
-        if (!sessions.handleAPIError(error)) {
-          state.error = 'Persisted route-test progress could not be refreshed.'
-        }
+        handleError(error, 'progress_failed')
         throw error
       })
       .finally(() => {
@@ -252,9 +262,7 @@ export function createRouteLabStore(
         return updated
       })
       .catch((error: unknown) => {
-        if (!sessions.handleAPIError(error)) {
-          state.error = 'Cancellation could not be recorded. The isolated test may still be running.'
-        }
+        handleError(error, 'cancellation_failed')
         throw error
       })
       .finally(() => {
@@ -283,9 +291,7 @@ export function createRouteLabStore(
         return page
       })
       .catch((error: unknown) => {
-        if (!sessions.handleAPIError(error)) {
-          state.historyError = 'Route-test history could not be loaded.'
-        }
+        handleHistoryError(error, 'history_failed')
         throw error
       })
       .finally(() => {
@@ -336,6 +342,20 @@ export function createRouteLabStore(
     state.analysisETag = ''
     state.error = ''
     if (state.activeRun === null) state.phase = 'idle'
+  }
+
+  function handleError(error: unknown, code: RouteLabErrorCode): void {
+    if (!sessions.handleAPIError(error)) {
+      state.error = code
+      state.errorRequestID = apiRequestID(error)
+    }
+  }
+
+  function handleHistoryError(error: unknown, code: RouteLabErrorCode): void {
+    if (!sessions.handleAPIError(error)) {
+      state.historyError = code
+      state.historyErrorRequestID = apiRequestID(error)
+    }
   }
 
   function dispose(): void {

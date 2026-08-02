@@ -37,6 +37,8 @@ describe('ConfigEditor', () => {
     })
 
     expect(wrapper.findAll('[role="tab"]')).toHaveLength(2)
+    expect(wrapper.get('[role="tablist"]').findAll('[aria-label^="Close "]')).toHaveLength(0)
+    expect(wrapper.find('button[aria-label="Close conf.d/site.conf"]').exists()).toBe(true)
     expect(wrapper.get('[role="tab"][aria-selected="true"]').text()).toContain('site.conf')
     expect(wrapper.text()).toContain('Unsaved changes')
     const editors = wrapper.findAllComponents(CodeEditor)
@@ -72,6 +74,42 @@ describe('ConfigEditor', () => {
     expect(wrapper.emitted('save')).toEqual([['nginx.conf']])
     expect(wrapper.emitted('select')).toEqual([['nginx.conf']])
     expect(wrapper.emitted('close')).toEqual([['nginx.conf']])
+  })
+
+  it('moves tab selection and focus with arrow, Home and End keys', async () => {
+    const wrapper = mount(ConfigEditor, {
+      attachTo: globalThis.document.body,
+      props: {
+        documents: [document('conf.d/site.conf'), document('nginx.conf')],
+        selectedPath: 'conf.d/site.conf',
+        canSave: true,
+        pending: false,
+        readOnly: false,
+      },
+    })
+    const tabs = wrapper.findAll<HTMLButtonElement>('[role="tab"]')
+
+    await tabs[0]?.trigger('keydown', { key: 'ArrowRight' })
+    expect(wrapper.emitted('select')).toEqual([['nginx.conf']])
+    expect(globalThis.document.activeElement).toBe(tabs[1]?.element)
+
+    await tabs[1]?.trigger('keydown', { key: 'ArrowRight' })
+    expect(wrapper.emitted('select')?.at(-1)).toEqual(['conf.d/site.conf'])
+    expect(globalThis.document.activeElement).toBe(tabs[0]?.element)
+
+    await tabs[0]?.trigger('keydown', { key: 'End' })
+    expect(wrapper.emitted('select')?.at(-1)).toEqual(['nginx.conf'])
+    expect(globalThis.document.activeElement).toBe(tabs[1]?.element)
+
+    await tabs[1]?.trigger('keydown', { key: 'Home' })
+    expect(wrapper.emitted('select')?.at(-1)).toEqual(['conf.d/site.conf'])
+    expect(globalThis.document.activeElement).toBe(tabs[0]?.element)
+
+    await tabs[0]?.trigger('keydown', { key: 'ArrowLeft' })
+    expect(wrapper.emitted('select')?.at(-1)).toEqual(['nginx.conf'])
+    expect(globalThis.document.activeElement).toBe(tabs[1]?.element)
+
+    wrapper.unmount()
   })
 
   it('opens find and gives an explicit reason whenever save is disabled', async () => {

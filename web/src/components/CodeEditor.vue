@@ -33,11 +33,24 @@ const host = ref<HTMLElement | null>(null)
 const editorView = shallowRef<EditorView | null>(null)
 const readOnlyCompartment = new Compartment()
 const lineSeparatorCompartment = new Compartment()
-const ariaLabelCompartment = new Compartment()
+const contentAttributesCompartment = new Compartment()
 let applyingExternalValue = false
+
+function bootstrapCSPNonce(): string {
+  return document
+    .querySelector<HTMLMetaElement>('meta[name="nginx-uix-csp-nonce"]')
+    ?.content.trim() ?? ''
+}
 
 function lineSeparator(value: string): '\r\n' | '\n' {
   return value.includes('\r\n') ? '\r\n' : '\n'
+}
+
+function contentAttributes(ariaLabel: string) {
+  return EditorView.contentAttributes.of({
+    'aria-label': ariaLabel,
+    tabindex: '0',
+  })
 }
 
 onMounted(() => {
@@ -54,13 +67,12 @@ onMounted(() => {
         history(),
         keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap]),
         StreamLanguage.define(nginx),
+        EditorView.cspNonce.of(bootstrapCSPNonce()),
         readOnlyCompartment.of(EditorState.readOnly.of(props.readOnly)),
         lineSeparatorCompartment.of(
           EditorState.lineSeparator.of(lineSeparator(props.modelValue)),
         ),
-        ariaLabelCompartment.of(
-          EditorView.contentAttributes.of({ 'aria-label': props.ariaLabel }),
-        ),
+        contentAttributesCompartment.of(contentAttributes(props.ariaLabel)),
         EditorView.updateListener.of((update) => {
           if (update.docChanged && !applyingExternalValue) {
             emit('update:modelValue', update.state.sliceDoc())
@@ -105,7 +117,10 @@ watch(
   () => props.readOnly,
   (readOnly) => {
     editorView.value?.dispatch({
-      effects: readOnlyCompartment.reconfigure(EditorState.readOnly.of(readOnly)),
+      effects: [
+        readOnlyCompartment.reconfigure(EditorState.readOnly.of(readOnly)),
+        contentAttributesCompartment.reconfigure(contentAttributes(props.ariaLabel)),
+      ],
     })
   },
 )
@@ -114,8 +129,8 @@ watch(
   () => props.ariaLabel,
   (ariaLabel) => {
     editorView.value?.dispatch({
-      effects: ariaLabelCompartment.reconfigure(
-        EditorView.contentAttributes.of({ 'aria-label': ariaLabel }),
+      effects: contentAttributesCompartment.reconfigure(
+        contentAttributes(ariaLabel),
       ),
     })
   },

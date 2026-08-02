@@ -5,19 +5,145 @@
 package httpapi
 
 import (
+	"bytes"
 	"io/fs"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 	"testing/fstest"
 )
 
+const testCSPNoncePlaceholder = "__NGINX_UIX_CSP_NONCE__"
+
+func TestSPAFallbackInjectsFreshNonceIntoCSPAndHTML(t *testing.T) {
+	t.Parallel()
+
+	index := `<!doctype html><meta name="nginx-uix-csp-nonce" content="` + testCSPNoncePlaceholder + `"><div id="app"></div>`
+	handler := NewHandler(Dependencies{Assets: fstest.MapFS{
+		"index.html": {Data: []byte(index)},
+	}})
+	noncePattern := regexp.MustCompile(`'nonce-([0-9a-f]{32})'`)
+	nonces := make([]string, 0, 2)
+	for range 2 {
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodGet, "/config/workspaces", nil)
+		request.Header.Set("X-Request-ID", "csp-test-request")
+
+		handler.ServeHTTP(recorder, request)
+
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("status = %d, want %d; body = %q", recorder.Code, http.StatusOK, recorder.Body.String())
+		}
+		matches := noncePattern.FindStringSubmatch(recorder.Header().Get("Content-Security-Policy"))
+		if len(matches) != 2 {
+			t.Fatalf("Content-Security-Policy = %q, want one 128-bit style nonce", recorder.Header().Get("Content-Security-Policy"))
+		}
+		nonce := matches[1]
+		nonces = append(nonces, nonce)
+		if !strings.Contains(recorder.Body.String(), `content="`+nonce+`"`) ||
+			strings.Contains(recorder.Body.String(), testCSPNoncePlaceholder) {
+			t.Fatalf("HTML nonce bootstrap does not match CSP: %q", recorder.Body.String())
+		}
+		if strings.Contains(recorder.Header().Get("Content-Security-Policy"), "unsafe-inline") {
+			t.Fatalf("Content-Security-Policy enables unsafe-inline: %q", recorder.Header().Get("Content-Security-Policy"))
+		}
+	}
+	if nonces[0] == nonces[1] {
+		t.Fatalf("HTML responses reused nonce %q", nonces[0])
+	}
+}
+
+func TestSPAFallbackUsesNonceSourceIndependentFromRequestID(t *testing.T) {
+	t.Parallel()
+
+	handler := NewHandler(Dependencies{
+		Assets:          fstest.MapFS{"index.html": {Data: testNonceIndexHTML("spa index")}},
+		RequestIDSource: bytes.NewReader(bytes.Repeat([]byte{0x2a}, 16)),
+		CSPNonceSource:  bytes.NewReader(bytes.Repeat([]byte{0x3b}, 16)),
+	})
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/", nil)
+	handler.ServeHTTP(recorder, request)
+
+	if got, want := recorder.Header().Get("X-Request-ID"), strings.Repeat("2a", 16); got != want {
+		t.Fatalf("X-Request-ID = %q, want %q", got, want)
+	}
+	wantNonce := strings.Repeat("3b", 16)
+	if csp := recorder.Header().Get("Content-Security-Policy"); !strings.Contains(csp, "'nonce-"+wantNonce+"'") {
+		t.Fatalf("Content-Security-Policy = %q, want independent nonce %q", csp, wantNonce)
+	}
+	if !strings.Contains(recorder.Body.String(), `content="`+wantNonce+`"`) {
+		t.Fatalf("HTML nonce bootstrap = %q, want nonce %q", recorder.Body.String(), wantNonce)
+	}
+}
+
+func TestSPAFallbackDoesNotLogCSPNonce(t *testing.T) {
+	t.Parallel()
+
+	var logs bytes.Buffer
+	nonce := strings.Repeat("4c", 16)
+	handler := NewHandler(Dependencies{
+		Assets:         fstest.MapFS{"index.html": {Data: testNonceIndexHTML("spa index")}},
+		CSPNonceSource: bytes.NewReader(bytes.Repeat([]byte{0x4c}, 16)),
+		Logger:         slog.New(slog.NewTextHandler(&logs, nil)),
+	})
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/", nil)
+	request.Header.Set("X-Request-ID", "nonce-log-test")
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Header().Get("Content-Security-Policy"), nonce) {
+		t.Fatalf("status/CSP = %d/%q, want rendered nonce", recorder.Code, recorder.Header().Get("Content-Security-Policy"))
+	}
+	if strings.Contains(logs.String(), nonce) {
+		t.Fatalf("request log contains CSP nonce: %s", logs.String())
+	}
+}
+
+func TestSPAFallbackFailsClosedWithoutOnePlaceholderOrNonce(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]Dependencies{
+		"missing placeholder": {
+			Assets: fstest.MapFS{"index.html": {Data: []byte("spa index")}},
+		},
+		"duplicate placeholder": {
+			Assets: fstest.MapFS{"index.html": {Data: []byte(testCSPNoncePlaceholder + testCSPNoncePlaceholder)}},
+		},
+		"random source failure": {
+			Assets:         fstest.MapFS{"index.html": {Data: testNonceIndexHTML("spa index")}},
+			CSPNonceSource: failingReader{},
+		},
+	}
+	for name, dependencies := range tests {
+		t.Run(name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodGet, "/", nil)
+			request.Header.Set("X-Request-ID", "csp-failure-test")
+
+			NewHandler(dependencies).ServeHTTP(recorder, request)
+
+			if recorder.Code != http.StatusInternalServerError {
+				t.Fatalf("status = %d, want %d; body = %q", recorder.Code, http.StatusInternalServerError, recorder.Body.String())
+			}
+			if got := recorder.Header().Get("Content-Security-Policy"); got != baseContentSecurityPolicy {
+				t.Fatalf("Content-Security-Policy = %q, want fail-closed baseline %q", got, baseContentSecurityPolicy)
+			}
+			if strings.Contains(recorder.Body.String(), "spa index") || strings.Contains(recorder.Body.String(), testCSPNoncePlaceholder) {
+				t.Fatalf("failure response exposed unprotected HTML: %q", recorder.Body.String())
+			}
+		})
+	}
+}
+
 func TestSPAFallbackServesHistoryRoutesAndStaticAssets(t *testing.T) {
 	t.Parallel()
 
 	assets := productionShapeAssets(t, fstest.MapFS{
-		"dist/index.html":    &fstest.MapFile{Data: []byte("<!doctype html><div id=\"app\"></div>")},
+		"dist/index.html":    &fstest.MapFile{Data: testNonceIndexHTML("<div id=\"app\"></div>")},
 		"dist/assets/app.js": &fstest.MapFile{Data: []byte("console.log('nginx-uix')")},
 	})
 	handler := NewHandler(Dependencies{Assets: assets})
@@ -31,8 +157,8 @@ func TestSPAFallbackServesHistoryRoutesAndStaticAssets(t *testing.T) {
 			if recorder.Code != http.StatusOK {
 				t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)
 			}
-			if got, want := recorder.Body.String(), "<!doctype html><div id=\"app\"></div>"; got != want {
-				t.Fatalf("body = %q, want %q", got, want)
+			if got := recorder.Body.String(); !strings.Contains(got, "<div id=\"app\"></div>") || strings.Contains(got, testCSPNoncePlaceholder) {
+				t.Fatalf("body = %q, want rendered SPA index", got)
 			}
 			if got, want := recorder.Header().Get("Cache-Control"), "no-store"; got != want {
 				t.Fatalf("Cache-Control = %q, want %q", got, want)
@@ -58,7 +184,7 @@ func TestSPAFallbackDoesNotSwallowReservedRoutesOrMethods(t *testing.T) {
 	t.Parallel()
 
 	assets := productionShapeAssets(t, fstest.MapFS{
-		"dist/index.html": &fstest.MapFile{Data: []byte("<!doctype html><div id=\"app\"></div>")},
+		"dist/index.html": &fstest.MapFile{Data: testNonceIndexHTML("<div id=\"app\"></div>")},
 	})
 	handler := NewHandler(Dependencies{Assets: assets})
 
@@ -94,6 +220,10 @@ func productionShapeAssets(t *testing.T, files fstest.MapFS) fs.FS {
 	return assets
 }
 
+func testNonceIndexHTML(body string) []byte {
+	return []byte(`<!doctype html><meta name="nginx-uix-csp-nonce" content="` + testCSPNoncePlaceholder + `">` + body)
+}
+
 func TestLiveDoesNotExposeRuntimeDetails(t *testing.T) {
 	t.Parallel()
 
@@ -121,7 +251,7 @@ func TestSPAFallbackServesIndexOnlyForKnownNavigationRoutes(t *testing.T) {
 	t.Parallel()
 
 	handler := NewHandler(Dependencies{Assets: fstest.MapFS{
-		"index.html": {Data: []byte("spa index")},
+		"index.html": {Data: testNonceIndexHTML("spa index")},
 	}})
 	paths := []string{
 		"/login",
@@ -147,7 +277,7 @@ func TestSPAFallbackServesIndexOnlyForKnownNavigationRoutes(t *testing.T) {
 				if recorder.Code != http.StatusOK {
 					t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)
 				}
-				if method == http.MethodGet && recorder.Body.String() != "spa index" {
+				if method == http.MethodGet && !strings.Contains(recorder.Body.String(), "spa index") {
 					t.Fatalf("body = %q, want SPA index", recorder.Body.String())
 				}
 				if method == http.MethodHead && recorder.Body.Len() != 0 {
@@ -162,7 +292,7 @@ func TestSPAFallbackServesAssetsFirstAndRejectsUnknownSurfaces(t *testing.T) {
 	t.Parallel()
 
 	handler := NewHandler(Dependencies{Assets: fstest.MapFS{
-		"index.html":    {Data: []byte("spa index")},
+		"index.html":    {Data: testNonceIndexHTML("spa index")},
 		"assets/app.js": {Data: []byte("application asset")},
 		"styles.css":    {Data: []byte("style asset")},
 	}})
@@ -172,8 +302,9 @@ func TestSPAFallbackServesAssetsFirstAndRejectsUnknownSurfaces(t *testing.T) {
 		path       string
 		wantStatus int
 		wantBody   string
+		contains   bool
 	}{
-		{name: "root index", method: http.MethodGet, path: "/", wantStatus: http.StatusOK, wantBody: "spa index"},
+		{name: "root index", method: http.MethodGet, path: "/", wantStatus: http.StatusOK, wantBody: "spa index", contains: true},
 		{name: "nested asset", method: http.MethodGet, path: "/assets/app.js", wantStatus: http.StatusOK, wantBody: "application asset"},
 		{name: "root asset", method: http.MethodGet, path: "/styles.css", wantStatus: http.StatusOK, wantBody: "style asset"},
 		{name: "missing JavaScript", method: http.MethodGet, path: "/assets/missing.js", wantStatus: http.StatusNotFound},
@@ -201,7 +332,10 @@ func TestSPAFallbackServesAssetsFirstAndRejectsUnknownSurfaces(t *testing.T) {
 			if recorder.Code != test.wantStatus {
 				t.Fatalf("status = %d, want %d", recorder.Code, test.wantStatus)
 			}
-			if test.wantBody != "" && recorder.Body.String() != test.wantBody {
+			if test.wantBody != "" && test.contains && !strings.Contains(recorder.Body.String(), test.wantBody) {
+				t.Fatalf("body = %q, want content %q", recorder.Body.String(), test.wantBody)
+			}
+			if test.wantBody != "" && !test.contains && recorder.Body.String() != test.wantBody {
 				t.Fatalf("body = %q, want %q", recorder.Body.String(), test.wantBody)
 			}
 			if test.wantStatus != http.StatusOK && strings.Contains(recorder.Body.String(), "spa index") {

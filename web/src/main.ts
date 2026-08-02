@@ -5,8 +5,9 @@
 import { createApp } from 'vue'
 
 import App from './App.vue'
+import { appI18n } from './i18n'
 import { appRouter } from './router'
 import './styles/tokens.css'
 import './styles/base.css'
 
-createApp(App).use(appRouter).mount('#app')
+createApp(App).use(appI18n).use(appRouter).mount('#app')

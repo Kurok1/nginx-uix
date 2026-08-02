@@ -67,6 +67,31 @@ func TestReleaseServiceCreatesBoundCheckAndPublishesWorkspace(t *testing.T) {
 	if err != nil || published.State != StatePublished || published.LastReleaseID != release.ID {
 		t.Fatalf("published workspace = %+v, err = %v", published, err)
 	}
+	tree, err := fixture.service.Tree(context.Background(), workspace.ID)
+	if err != nil || tree.WorkspaceETag != published.ETag() || tree.DiffStatuses["conf.d/site.conf"] != "modified" {
+		t.Fatalf("published tree = %+v, err = %v", tree, err)
+	}
+	file, err := fixture.service.ReadFile(context.Background(), workspace.ID, "conf.d/site.conf")
+	if err != nil || file.Content != "server { listen 8081; }\n" || file.WorkspaceETag != published.ETag() {
+		t.Fatalf("published file = %+v, err = %v", file, err)
+	}
+	if _, err := fixture.service.ReplaceFile(context.Background(), Actor{UserID: 7, RequestID: "edit-published"}, workspace.ID, ReplaceFileInput{
+		Path: "conf.d/site.conf", Content: []byte("server { listen 8082; }\n"), IfMatch: published.ETag(),
+	}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("ReplaceFile(published) error = %v, want ErrConflict", err)
+	}
+	if err := fixture.service.Delete(
+		context.Background(),
+		Actor{UserID: 7, RequestID: "delete-published"},
+		published.ID,
+		published.ETag(),
+		published.Name,
+	); !errors.Is(err, ErrConflict) {
+		t.Fatalf("Delete(published) error = %v, want ErrConflict", err)
+	}
+	if persisted, err := fixture.repository.Workspace(context.Background(), workspace.ID); err != nil || persisted != published {
+		t.Fatalf("published workspace after rejected delete = %+v, err = %v", persisted, err)
+	}
 }
 
 func TestReleaseServiceBlocksQueueWhileAnyAttentionCaseIsOpen(t *testing.T) {

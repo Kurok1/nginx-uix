@@ -7,6 +7,7 @@ import { createMemoryHistory } from 'vue-router'
 
 import { APIClient, APIRequestError } from './api/client'
 import type { LoginRequest, SessionResponse } from './api/types'
+import { appI18n, createAppI18n } from './i18n'
 import {
   createAppRouter,
   installSessionExpiryRedirect,
@@ -85,6 +86,7 @@ function workspaceStore(dirty = false): WorkspaceStore {
 
 describe('application router', () => {
   beforeEach(() => {
+    appI18n.global.locale.value = 'en-US'
     localStorage.clear()
     sessionStorage.clear()
   })
@@ -179,24 +181,25 @@ describe('application router', () => {
   })
 
   it('adds Workspaces, Route Lab, Certificates and Recovery & History to both navigation levels and bounds overflow', () => {
+    expect(globalNavSource.match(/<LanguageSelector/g)).toHaveLength(2)
     expect(globalNavSource.match(/to="\/config\/workspaces"/g)).toHaveLength(2)
-    expect(globalNavSource).toContain('Workspaces')
+    expect(globalNavSource).toContain("t('navigation.workspaces')")
     expect(globalNavSource).toContain('to="/configuration"')
     expect(globalNavSource.match(/to="\/config\/operations"/g)).toHaveLength(2)
-    expect(globalNavSource).toContain('Recovery &amp; History')
+    expect(globalNavSource).toContain("t('navigation.recoveryHistory')")
     expect(globalNavSource.match(/to="\/config\/route-lab"/g)).toHaveLength(2)
-    expect(globalNavSource).toContain('Route Lab')
+    expect(globalNavSource).toContain("t('navigation.routeLab')")
     expect(globalNavSource.match(/to="\/certificates"/g)).toHaveLength(2)
-    expect(globalNavSource).toContain('Certificates')
+    expect(globalNavSource).toContain("t('navigation.certificates')")
     expect(subNavSource).toContain('to="/config/workspaces"')
-    expect(subNavSource).toContain('Workspaces')
+    expect(subNavSource).toContain("t('navigation.workspaces')")
     expect(subNavSource).toContain('to="/configuration"')
     expect(subNavSource).toContain('to="/config/operations"')
-    expect(subNavSource).toContain('Recovery &amp; History')
+    expect(subNavSource).toContain("t('navigation.recoveryHistory')")
     expect(subNavSource).toContain('to="/config/route-lab"')
-    expect(subNavSource).toContain('Route Lab')
+    expect(subNavSource).toContain("t('navigation.routeLab')")
     expect(subNavSource).toContain('to="/certificates"')
-    expect(subNavSource).toContain('Certificates')
+    expect(subNavSource).toContain("t('navigation.certificates')")
     expect(appShellSource).toMatch(/\.app-shell\s*\{[\s\S]*overflow-x: hidden/)
   })
 
@@ -237,8 +240,35 @@ describe('application router', () => {
     await router.push('/')
 
     expect(router.currentRoute.value.name).toBe('login')
-    expect(router.currentRoute.value.query.redirect).toBe('/')
+    expect(router.currentRoute.value.query.redirect).toBe('/?lang=en-US')
+    expect(router.currentRoute.value.query.lang).toBe('en-US')
     expect(store.state.phase).toBe('anonymous')
+  })
+
+  it('keeps the selected URL locale through the authentication redirect', async () => {
+    const getSession = vi.fn<() => Promise<SessionResponse>>().mockRejectedValue(
+      new APIRequestError({
+        kind: 'api',
+        message: 'authentication required',
+        status: 401,
+        apiError: {
+          code: 'unauthenticated',
+          message: 'authentication required',
+          request_id: 'request-locale',
+        },
+      }),
+    )
+    const store = createSessionStore(createClient(getSession))
+    const i18n = createAppI18n('en-US')
+    const router = createAppRouter(store, createMemoryHistory(), i18n)
+
+    await router.push('/configuration?lang=zh-CN')
+
+    expect(router.currentRoute.value.name).toBe('login')
+    expect(router.currentRoute.value.query.lang).toBe('zh-CN')
+    expect(router.currentRoute.value.query.redirect).toBe('/configuration?lang=zh-CN')
+    expect(i18n.global.locale.value).toBe('zh-CN')
+    expect(localStorage.getItem('nginx-uix.locale')).toBe('zh-CN')
   })
 
   it('confirms only when leaving a dirty workspace and owns beforeunload while dirty', async () => {
@@ -254,8 +284,11 @@ describe('application router', () => {
     await router.push('/config/workspaces/two')
     expect(confirmLeave).not.toHaveBeenCalled()
     await router.push('/')
-    expect(router.currentRoute.value.fullPath).toBe('/config/workspaces/two')
+    expect(router.currentRoute.value.fullPath).toBe('/config/workspaces/two?lang=en-US')
     expect(confirmLeave).toHaveBeenCalledOnce()
+    expect(confirmLeave).toHaveBeenCalledWith(
+      'Unsaved workspace text will remain only in this browser session. Leave this page?',
+    )
     expect(addEventListener).toHaveBeenCalledWith('beforeunload', expect.any(Function))
 
     workspaces.state.documents = []
@@ -265,6 +298,21 @@ describe('application router', () => {
     expect(confirmLeave).toHaveBeenCalledOnce()
     uninstall()
     expect(removeEventListener).toHaveBeenCalledWith('beforeunload', expect.any(Function))
+  })
+
+  it('uses the active locale for the dirty-workspace leave confirmation', async () => {
+    const sessions = createSessionStore(createClient(vi.fn().mockResolvedValue(currentSession)))
+    const workspaces = workspaceStore(true)
+    const confirmLeave = vi.fn(() => false)
+    const i18n = createAppI18n('zh-CN')
+    const router = createAppRouter(sessions, createMemoryHistory(), i18n)
+    const uninstall = installWorkspaceLeaveGuard(router, workspaces, confirmLeave, i18n)
+
+    await router.push('/config/workspaces/one?lang=zh-CN')
+    await router.push('/?lang=zh-CN')
+
+    expect(confirmLeave).toHaveBeenCalledWith('未保存的工作区文本将仅保留在当前浏览器会话中。是否离开此页面？')
+    uninstall()
   })
 
   it('clears memory and redirects to Login when a later API response expires the session', async () => {
@@ -294,10 +342,13 @@ describe('application router', () => {
     await vi.waitFor(() => expect(router.currentRoute.value.name).toBe('login'))
 
     expect(store.state).toEqual({ phase: 'anonymous', session: null })
-    expect(localStorage.length).toBe(0)
+    expect(localStorage).toHaveLength(1)
+    expect(localStorage.getItem('nginx-uix.locale')).toBe('en-US')
     expect(sessionStorage.length).toBe(0)
     expect(workspaces.markSessionExpired).toHaveBeenCalledOnce()
-    expect(router.currentRoute.value.query.redirect).toBe('/config/workspaces/workspace-id')
+    expect(router.currentRoute.value.query.redirect).toBe(
+      '/config/workspaces/workspace-id?lang=en-US',
+    )
     uninstall()
   })
 })

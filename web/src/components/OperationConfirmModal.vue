@@ -36,7 +36,7 @@
           v-if="requiresReason"
           :for="reasonId"
         >
-          Reason
+          {{ t('operations.modal.reason') }}
           <textarea
             :id="reasonId"
             v-model="reason"
@@ -44,20 +44,20 @@
             maxlength="256"
             autocomplete="off"
           />
-          <span>1–256 characters; leading or trailing spaces are not accepted.</span>
+          <span>{{ t('operations.modal.reasonHelp') }}</span>
         </label>
         <label
           v-if="confirmationText !== ''"
           :for="confirmationId"
         >
-          Type “{{ confirmationText }}” to confirm
+          {{ t('operations.modal.typeToConfirm', { value: confirmationText }) }}
           <input
             :id="confirmationId"
             v-model="confirmation"
             data-confirmation
             type="text"
             autocomplete="off"
-            :aria-label="`Type ${confirmationText} exactly to confirm`"
+            :aria-label="t('operations.modal.typeExactly', { value: confirmationText })"
           >
         </label>
         <div class="operation-modal__actions">
@@ -68,14 +68,14 @@
             :disabled="pending"
             @click="requestCancel"
           >
-            Cancel
+            {{ t('common.cancel') }}
           </button>
           <button
             type="submit"
             data-action="confirm"
             :disabled="!canConfirm || pending"
           >
-            {{ pending ? 'Submitting…' : confirmLabel }}
+            {{ pending ? t('operations.modal.submitting') : confirmLabel }}
           </button>
         </div>
       </form>
@@ -85,8 +85,11 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, toRef, useId, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import { useFocusTrap } from '../composables/useFocusTrap'
+
+const { t } = useI18n()
 
 interface Props {
   confirmationText: string

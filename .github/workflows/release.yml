@@ -187,12 +187,17 @@ jobs:
             find "${RELEASE_OUTPUT_DIR}" -maxdepth 1 -type f -print | sort
           )
           test "${#release_assets[@]}" -eq 5
+          release_notes="docs/release/${GITHUB_REF_NAME}-release-notes.md"
+          test -f "${release_notes}"
 
           if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            gh release edit "${GITHUB_REF_NAME}" \
+              --title "Nginx UIX ${VERSION}" \
+              --notes-file "${release_notes}"
             gh release upload "${GITHUB_REF_NAME}" "${release_assets[@]}" --clobber
           else
             gh release create "${GITHUB_REF_NAME}" "${release_assets[@]}" \
               --verify-tag \
               --title "Nginx UIX ${VERSION}" \
-              --generate-notes
+              --notes-file "${release_notes}"
           fi

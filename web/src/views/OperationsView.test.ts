@@ -10,6 +10,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import type {
   AttentionCase,
+  AuditEvent,
   ConfigBackup,
   ConfigRestore,
   NginxRestart,
@@ -17,6 +18,7 @@ import type {
   SystemStatusResponse,
 } from '../api/types'
 import type { OperationsState, OperationsStore } from '../operations'
+import { appI18n } from '../i18n'
 import OperationsView from './OperationsView.vue'
 
 const backup: ConfigBackup = {
@@ -44,6 +46,18 @@ const attention: AttentionCase = {
   state: 'open',
   reason_code: 'runtime_unknown',
   opened_at: '2026-07-19T07:00:00Z',
+}
+
+const audit: AuditEvent = {
+  id: 1,
+  occurred_at: '2026-07-19T08:05:00Z',
+  actor_name: 'operator',
+  action: 'config.backup.protect',
+  object_type: 'config_backup',
+  object_id: backup.id,
+  result: 'succeeded',
+  request_id: 'request-audit',
+  details: { protected: true },
 }
 
 const runtime: SystemStatusResponse = {
@@ -134,7 +148,7 @@ function storeFixture(): OperationsStore {
     restoreCursor: '',
     restarts: [],
     restartCursor: '',
-    audit: [],
+    audit: [audit],
     auditCursor: '',
     retention: null,
     activeRestore: null,
@@ -142,6 +156,7 @@ function storeFixture(): OperationsStore {
     verification: null,
     pending: '',
     error: '',
+    errorRequestID: '',
   })
   return {
     state,
@@ -186,6 +201,32 @@ async function mountView(store: OperationsStore, path = '/config/operations') {
 }
 
 describe('OperationsView', () => {
+  it('localizes a scoped failure while preserving its request ID', async () => {
+    appI18n.global.locale.value = 'en-US'
+    const store = storeFixture()
+    store.state.error = 'backups_failed'
+    store.state.errorRequestID = 'request-operations-view'
+    const { wrapper } = await mountView(store)
+
+    expect(wrapper.text()).toContain(
+      'Backup evidence could not be loaded. Request ID: request-operations-view.',
+    )
+    wrapper.unmount()
+  })
+
+  it('renders recovery controls in Simplified Chinese', async () => {
+    appI18n.global.locale.value = 'zh-CN'
+    const { wrapper } = await mountView(storeFixture())
+
+    expect(wrapper.get('h1').text()).toBe('恢复与历史')
+    expect(wrapper.text()).toContain('刷新证据')
+    expect(wrapper.get('[role="tab"][aria-selected="true"]').text()).toBe('概览')
+    expect(wrapper.get('[data-attention-case]').text()).toContain('需要处理')
+    expect(wrapper.get('[data-runtime-control]').text()).toContain('Nginx 运行中')
+    expect(wrapper.text()).toContain('不可变备份')
+    wrapper.unmount()
+  })
+
   it('keeps attention evidence first and queues only a named fixed restart', async () => {
     const store = storeFixture()
     const { wrapper } = await mountView(store)
@@ -243,6 +284,7 @@ describe('OperationsView', () => {
     await flushPromises()
     expect(router.currentRoute.value.query.tab).toBe('audit')
     expect(store.loadAudit).toHaveBeenCalled()
+    expect(wrapper.get('[data-audit-action]').text()).toBe('config.backup.protect')
     wrapper.unmount()
   })
 })

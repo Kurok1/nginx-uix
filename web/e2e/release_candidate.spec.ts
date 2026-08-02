@@ -7,7 +7,7 @@ import { expect, test } from '@playwright/test'
 import {
   apiError,
   appOrigin,
-  assertNoApplicationStorage,
+  assertOnlyLocalePreferenceStorage,
   authenticatedSession,
   csrfToken,
   healthyStatus,
@@ -47,13 +47,13 @@ test('login-publish-route-test-and-issue-certificate', async ({ context, page })
     },
     status: { status: 200, body: healthyStatus },
   })
-  await page.goto('/login')
-  await page.getByLabel('用户名').fill('admin')
-  await page.getByLabel('密码').fill('correct horse battery staple')
-  await page.getByLabel('密码').press('Enter')
-  await expect(page).toHaveURL(`${appOrigin}/`)
-  await expect(page.getByRole('heading', { level: 1, name: '运行状态' })).toBeVisible()
-  await assertNoApplicationStorage(page)
+  await page.goto('/login?lang=en-US')
+  await page.getByLabel('Username').fill('admin')
+  await page.getByLabel('Password').fill('correct horse battery staple')
+  await page.getByLabel('Password').press('Enter')
+  await expect(page).toHaveURL(`${appOrigin}/?lang=en-US`)
+  await expect(page.getByRole('heading', { level: 1, name: 'Runtime status' })).toBeVisible()
+  await assertOnlyLocalePreferenceStorage(page)
   expect(loginAPI.callsFor('login')).toHaveLength(1)
   loginAPI.assertContract()
 
@@ -61,7 +61,7 @@ test('login-publish-route-test-and-issue-certificate', async ({ context, page })
   await page.unrouteAll({ behavior: 'wait' })
   const workspace = await installWorkspaceAPIFixture(page, { seedWorkspace: true })
   const release = await installReleaseAPIFixture(page, workspace)
-  await page.goto(`/config/workspaces/${workspace.workspaceId}`)
+  await page.goto(`/config/workspaces/${workspace.workspaceId}?lang=en-US`)
   const workspaceReview = page.getByRole('region', { name: 'Workspace review' })
   await workspaceReview.getByRole('button', { name: 'Review all file diffs' }).click()
   await expect(workspaceReview.getByRole('region', { name: 'Unified configuration diff' })).toBeVisible()
@@ -84,7 +84,7 @@ test('login-publish-route-test-and-issue-certificate', async ({ context, page })
   await page.unrouteAll({ behavior: 'wait' })
   const routeWorkspace = await installWorkspaceAPIFixture(page, { seedWorkspace: true })
   const routeLab = await installRouteLabAPIFixture(page, routeWorkspace)
-  await page.goto('/config/route-lab')
+  await page.goto('/config/route-lab?lang=en-US')
   await page.getByRole('textbox', { name: /^Host HTTP/ }).fill('example.test')
   await page.getByLabel(/URI path/).fill('/api/users')
   await page.getByRole('button', { name: 'Analyze route' }).click()
@@ -105,7 +105,7 @@ test('login-publish-route-test-and-issue-certificate', async ({ context, page })
   // 4. Plan and execute a production wildcard DNS-01 certificate request with both confirmations.
   await page.unrouteAll({ behavior: 'wait' })
   const certificateAPI = await installCertificateAPIFixture(page)
-  await page.goto('/certificates')
+  await page.goto('/certificates?lang=en-US')
   await page.getByRole('button', { name: 'Request', exact: true }).click()
   await page.getByLabel('Domain 1').fill('*.example.test')
   await page.getByLabel('Validation method').selectOption('cloudflare_dns_01')
@@ -132,7 +132,7 @@ test('login-publish-route-test-and-issue-certificate', async ({ context, page })
     `/api/v1/certificate-order-plans/${certificatePlanID}/executions`,
   )).toHaveLength(1)
   expect(certificateOrderPlan.server_refs).toEqual([certificateServerCandidate.ref])
-  await assertNoApplicationStorage(page)
+  await assertOnlyLocalePreferenceStorage(page)
   certificateAPI.assertContract()
 
   // 5. Logout with the current CSRF token, then prove a protected deep link requires authentication.
@@ -146,13 +146,17 @@ test('login-publish-route-test-and-issue-certificate', async ({ context, page })
       },
     },
   })
-  await page.getByRole('button', { name: '退出登录' }).click()
-  await expect(page).toHaveURL(`${appOrigin}/login`)
+  await page.getByRole('button', { name: 'Sign out' }).click()
+  await expect(page).toHaveURL(`${appOrigin}/login?lang=en-US`)
   const logoutCall = logoutAPI.callsFor('logout')[0]
   expect(logoutCall?.headers.origin).toBe(appOrigin)
   expect(logoutCall?.headers['x-csrf-token']).toBe(csrfToken)
   expect((await context.cookies(appOrigin)).find(({ name }) => name === 'nginx_uix_session')).toBeUndefined()
-  await page.goto('/certificates')
-  await expect(page).toHaveURL(`${appOrigin}/login?redirect=/certificates`)
+  await page.goto('/certificates?lang=en-US')
+  await expect(page).toHaveURL((url) =>
+    url.pathname === '/login' &&
+    url.searchParams.get('lang') === 'en-US' &&
+    url.searchParams.get('redirect') === '/certificates?lang=en-US',
+  )
   logoutAPI.assertContract()
 })

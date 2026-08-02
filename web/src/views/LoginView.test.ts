@@ -9,6 +9,7 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import type { LoginRequest, SessionResponse } from '../api/types'
 import LoginForm from '../components/LoginForm.vue'
 import UnsavedRecovery from '../components/UnsavedRecovery.vue'
+import { appI18n } from '../i18n'
 import { createSessionStore, type SessionClient } from '../session'
 import type { WorkspaceStateModel, WorkspaceStore } from '../workspace'
 import LoginView from './LoginView.vue'
@@ -101,6 +102,10 @@ async function loginRouter() {
 }
 
 describe('LoginView', () => {
+  beforeEach(() => {
+    appI18n.global.locale.value = 'zh-CN'
+  })
+
   afterEach(() => {
     vi.restoreAllMocks()
   })
@@ -110,7 +115,11 @@ describe('LoginView', () => {
       currentSession,
     )
     const store = createSessionStore(createClient(login))
-    const wrapper = mount(LoginView, { props: { store } })
+    const router = await loginRouter()
+    const wrapper = mount(LoginView, {
+      props: { store },
+      global: { plugins: [router] },
+    })
 
     const main = wrapper.get('main.login-view')
     expect(main.attributes('aria-labelledby')).toBe('login-title')
@@ -127,12 +136,26 @@ describe('LoginView', () => {
   })
 
   it('uses shared page tokens without storage or direct network access', () => {
+    expect(loginViewSource).toContain('<LanguageSelector')
     expect(loginViewSource).toContain('background: var(--color-canvas-parchment)')
     expect(loginViewSource).toContain('border-radius: var(--rounded-lg)')
     expect(loginViewSource).not.toMatch(/#[\da-f]{3,8}\b/i)
     expect(loginViewSource).not.toMatch(/var\([^)]*,/)
     expect(loginViewSource).not.toMatch(
       /\b(?:fetch|localStorage|sessionStorage|indexedDB|caches)\b/,
+    )
+  })
+
+  it('renders the login heading and description in English', async () => {
+    appI18n.global.locale.value = 'en-US'
+    const router = await loginRouter()
+    const wrapper = mount(LoginView, {
+      global: { plugins: [router] },
+    })
+
+    expect(wrapper.get('h1#login-title').text()).toBe('Sign in to Nginx UIX')
+    expect(wrapper.get('.login-view__header p').text()).toBe(
+      'Use your administrator credentials to continue.',
     )
   })
 
@@ -150,7 +173,7 @@ describe('LoginView', () => {
 
     const recovery = wrapper.getComponent(UnsavedRecovery)
     expect(recovery.props('paths')).toEqual(['nginx.conf'])
-    await recovery.get('button[aria-label="Copy local content for nginx.conf"]').trigger('click')
+    await recovery.get('button[aria-label="复制 nginx.conf 的本地内容"]').trigger('click')
     expect(workspace.copyLocalContent).toHaveBeenCalledWith('nginx.conf')
 
     await wrapper.get('input[name="username"]').setValue('operator')

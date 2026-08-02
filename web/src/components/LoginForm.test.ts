@@ -7,6 +7,7 @@ import { createMemoryHistory, createRouter, type Router } from 'vue-router'
 
 import { APIRequestError } from '../api/client'
 import type { LoginRequest, SessionResponse } from '../api/types'
+import { appI18n } from '../i18n'
 import { createSessionStore, type SessionClient, type SessionStore } from '../session'
 import formFieldSource from './FormField.vue?raw'
 import LoginForm from './LoginForm.vue'
@@ -72,6 +73,10 @@ async function mountLoginForm(store: SessionStore, router = createTestRouter()) 
 }
 
 describe('LoginForm', () => {
+  beforeEach(() => {
+    appI18n.global.locale.value = 'zh-CN'
+  })
+
   afterEach(() => {
     vi.useRealTimers()
     vi.restoreAllMocks()
@@ -88,6 +93,35 @@ describe('LoginForm', () => {
     expect(wrapper.get('label[for="login-password"]').text()).toBe('密码')
     expect(password.attributes('autocomplete')).toBe('current-password')
     expect(wrapper.find('a').exists()).toBe(false)
+  })
+
+  it('renders the complete form and safe credential error in English', async () => {
+    appI18n.global.locale.value = 'en-US'
+    const login = vi.fn<(input: LoginRequest) => Promise<SessionResponse>>().mockRejectedValue(
+      new APIRequestError({
+        kind: 'api',
+        message: 'private authentication detail',
+        status: 401,
+        apiError: {
+          code: 'invalid_credentials',
+          message: 'private authentication detail',
+          request_id: 'request-english-login',
+        },
+      }),
+    )
+    const { wrapper } = await mountLoginForm(createSessionStore(createClient({ login })))
+
+    expect(wrapper.get('label[for="login-username"]').text()).toBe('Username')
+    expect(wrapper.get('label[for="login-password"]').text()).toBe('Password')
+    expect(wrapper.get('button[type="submit"]').text()).toBe('Sign in')
+
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.get('#login-error').text()).toBe(
+      'The username or password is incorrect. Request ID: request-english-login.',
+    )
+    expect(wrapper.text()).not.toContain('private authentication detail')
   })
 
   it('submits through the native form without disabling the focused fields', async () => {
@@ -179,7 +213,7 @@ describe('LoginForm', () => {
     await flushPromises()
 
     const error = wrapper.get('#login-error')
-    expect(error.text()).toBe('用户名或密码错误。')
+    expect(error.text()).toBe('用户名或密码不正确。请求 ID：request-invalid。')
     expect(error.attributes('aria-live')).toBe('polite')
     expect(error.attributes('aria-atomic')).toBe('true')
     expect(error.get('svg[aria-hidden="true"]').attributes('focusable')).toBe('false')
@@ -215,7 +249,9 @@ describe('LoginForm', () => {
     await wrapper.get('form').trigger('submit')
     await flushPromises()
 
-    expect(wrapper.get('#login-error').text()).toBe('登录尝试过于频繁，请稍后重试。')
+    expect(wrapper.get('#login-error').text()).toBe(
+      '请求过于频繁，请稍后重试。请求 ID：request-limited。',
+    )
     expect(wrapper.get('#login-retry-status').text()).toBe('3 秒后可重试。')
     expect(wrapper.get('#login-retry-status').attributes('aria-live')).toBe('off')
     expect(wrapper.get('input[name="password"]').attributes('aria-describedby')).toBe(
@@ -279,7 +315,7 @@ describe('LoginForm', () => {
     await flushPromises()
 
     const error = wrapper.get('#login-error')
-    expect(error.text()).toBe('登录服务暂时不可用，请稍后重试。')
+    expect(error.text()).toBe('无法连接到 Nginx UIX，请检查网络后重试。')
     expect(error.attributes('aria-live')).toBe('polite')
     expect(error.attributes('aria-atomic')).toBe('true')
     expect(wrapper.text()).not.toContain('ECONNREFUSED')

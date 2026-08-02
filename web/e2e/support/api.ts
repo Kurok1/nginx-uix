@@ -258,6 +258,7 @@ export async function installWorkspaceAPIFixture(
   options: { seedWorkspace?: boolean } = {},
 ): Promise<WorkspaceAPIFixture> {
   const workspaceId = '0123456789abcdef0123456789abcdef'
+  const publishedReleaseId = '22222222222222222222222222222222'
   const groupId = 'fedcba9876543210fedcba9876543210'
   const baseFiles = new Map<string, string>([
     [
@@ -298,6 +299,7 @@ export async function installWorkspaceAPIFixture(
       name: workspaceName,
       state: workspaceState,
       ...(workspaceState === 'ready' ? {} : { state_reason_code: `fixture_${workspaceState}` }),
+      ...(workspaceState === 'published' ? { last_release_id: publishedReleaseId } : {}),
       production_digest: revisionDigest(100),
       base_digest: revisionDigest(101),
       draft_etag: draftETag(),
@@ -972,19 +974,20 @@ export async function setAuthenticatedCookie(context: BrowserContext): Promise<v
   ])
 }
 
-export async function assertNoApplicationStorage(page: Page): Promise<void> {
+export async function assertOnlyLocalePreferenceStorage(page: Page): Promise<void> {
   const storage = await page.evaluate(async () => ({
-    localStorage: Object.keys(localStorage),
+    localStorage: Object.fromEntries(Object.entries(localStorage)),
     sessionStorage: Object.keys(sessionStorage),
     cacheStorage: await caches.keys(),
     indexedDB: (await indexedDB.databases()).map((database) => database.name ?? ''),
   }))
-  expect(storage).toEqual({
-    localStorage: [],
+  expect(storage).toMatchObject({
     sessionStorage: [],
     cacheStorage: [],
     indexedDB: [],
   })
+  expect(Object.keys(storage.localStorage)).toEqual(['nginx-uix.locale'])
+  expect(['zh-CN', 'en-US']).toContain(storage.localStorage['nginx-uix.locale'])
 }
 
 export async function assertNoAxeViolations(page: Page): Promise<void> {

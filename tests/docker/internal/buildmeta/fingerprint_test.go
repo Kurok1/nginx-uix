@@ -24,7 +24,7 @@ func TestV1ReleaseMetadataIsSynchronized(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const want = "1.0.0"
+	const want = "1.1.0"
 	const wantLicense = "Apache-2.0"
 	const wantLicenseDigest = "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
 
@@ -146,10 +146,14 @@ func TestV1UpgradeHarnessPinsDirectAndLongChainBaselines(t *testing.T) {
 		`git show "${SOURCE_REF}:VERSION"`,
 		`[ "${source_version}" = "${SOURCE_VERSION}" ]`,
 		`[ "${source_commit}" = "${EXPECTED_SOURCE_COMMIT}" ]`,
+		`v${PROJECT_VERSION}`,
 	} {
 		if !strings.Contains(upgrade, marker) {
 			t.Errorf("upgrade.sh does not pin source baseline marker %q", marker)
 		}
+	}
+	if strings.Contains(upgrade, "v1.0.0") {
+		t.Error("upgrade.sh must identify the current release from PROJECT_VERSION instead of v1.0.0")
 	}
 
 	matrixPayload, err := os.ReadFile(filepath.Join(root, "tests/docker/upgrade_compatibility.sh"))
@@ -381,7 +385,8 @@ func TestV1GitHubActionsKeepsUnitSmokeAndMultiPlatformBuildGates(t *testing.T) {
 		"SMOKE_PROFILE=basic",
 		`MULTIARCH_OUTPUT_DIR="${RUNNER_TEMP}/nginx-uix-multiarch"`,
 		`"${REPOSITORY_ROOT}/tests/docker/multiarch.sh"`,
-		"name: nginx-uix-1.0.0-${{ github.sha }}",
+		"CANDIDATE_IMAGE: nginx-uix:1.1.0-ci-${{ github.run_id }}-${{ github.run_attempt }}",
+		"name: nginx-uix-1.1.0-${{ github.sha }}",
 		"path: ${{ runner.temp }}/nginx-uix-multiarch/",
 		"if-no-files-found: error",
 		"compression-level: 0",
@@ -457,8 +462,12 @@ func TestV1ReleaseWorkflowPublishesGitHubReleaseAndGHCR(t *testing.T) {
 		`"${IMAGE_REPOSITORY}:${VERSION}"`,
 		`"${IMAGE_REPOSITORY}:latest"`,
 		"SHA256SUMS",
+		`release_notes="docs/release/${GITHUB_REF_NAME}-release-notes.md"`,
+		`test -f "${release_notes}"`,
 		"gh release create",
+		"gh release edit",
 		"gh release upload",
+		`--notes-file "${release_notes}"`,
 	} {
 		if !strings.Contains(workflow, marker) {
 			t.Errorf("release.yml does not preserve release marker %q", marker)
@@ -473,6 +482,7 @@ func TestV1ReleaseWorkflowPublishesGitHubReleaseAndGHCR(t *testing.T) {
 		"grype",
 		"sbom",
 		"docker load --input",
+		"--generate-notes",
 	} {
 		if strings.Contains(strings.ToLower(workflow), strings.ToLower(unwanted)) {
 			t.Errorf("release.yml must not include extended validation marker %q", unwanted)

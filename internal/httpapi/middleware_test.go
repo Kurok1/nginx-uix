@@ -26,7 +26,7 @@ func TestRequestBoundaryReplacesMalformedRequestIDAndAddsSecurityHeaders(t *test
 		t.Fatalf("X-Request-ID = %q, want generated %q", got, want)
 	}
 	for header, want := range map[string]string{
-		"Content-Security-Policy": "default-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
+		"Content-Security-Policy": "default-src 'self'; style-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
 		"X-Frame-Options":         "DENY",
 		"X-Content-Type-Options":  "nosniff",
 		"Referrer-Policy":         "no-referrer",

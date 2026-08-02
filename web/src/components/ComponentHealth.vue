@@ -22,6 +22,7 @@
 
 <script setup lang="ts">
 import { computed, useId } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import type { AgentHealthState, NginxRuntimeState } from '../api/types'
 import StatusBadge, { type StatusTone } from './StatusBadge.vue'
@@ -40,23 +41,52 @@ const props = defineProps<{
 }>()
 
 const headingId = `component-health-${useId()}`
+const { t } = useI18n()
 
 const presentation = computed<HealthPresentation>(() => {
   switch (props.state) {
     case 'healthy':
-      return { label: '正常', tone: 'success', description: '服务可用。' }
+      return {
+        label: t('dashboard.health.healthyLabel'),
+        tone: 'success',
+        description: t('dashboard.health.healthyDescription'),
+      }
     case 'running':
-      return { label: '运行中', tone: 'success', description: '进程状态已验证。' }
+      return {
+        label: t('dashboard.health.runningLabel'),
+        tone: 'success',
+        description: t('dashboard.health.runningDescription'),
+      }
     case 'degraded':
-      return { label: '降级', tone: 'warning', description: '服务仍在运行，但需要关注。' }
+      return {
+        label: t('dashboard.health.degradedLabel'),
+        tone: 'warning',
+        description: t('dashboard.health.degradedDescription'),
+      }
     case 'stopped':
-      return { label: '已停止', tone: 'error', description: '未发现运行中的进程。' }
+      return {
+        label: t('dashboard.health.stoppedLabel'),
+        tone: 'error',
+        description: t('dashboard.health.stoppedDescription'),
+      }
     case 'unavailable':
-      return { label: '不可用', tone: 'error', description: '无法连接本地 Agent。' }
+      return {
+        label: t('dashboard.health.unavailableLabel'),
+        tone: 'error',
+        description: t('dashboard.health.unavailableDescription'),
+      }
     case 'unknown':
-      return { label: '未知', tone: 'unknown', description: '当前无法确认运行状态。' }
+      return {
+        label: t('dashboard.health.unknownLabel'),
+        tone: 'unknown',
+        description: t('dashboard.health.unknownDescription'),
+      }
   }
-  return { label: '未知', tone: 'unknown', description: '当前无法确认运行状态。' }
+  return {
+    label: t('dashboard.health.unknownLabel'),
+    tone: 'unknown',
+    description: t('dashboard.health.unknownDescription'),
+  }
 })
 </script>
 

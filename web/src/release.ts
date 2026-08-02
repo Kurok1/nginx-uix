@@ -36,8 +36,15 @@ export interface ReleaseStateModel {
   stream: 'closed' | 'connecting' | 'live' | 'reconnecting'
   check: PublishCheck | null
   release: Release | null
-  error: string
+  error: ReleaseErrorCode
 }
+
+export type ReleaseErrorCode =
+  | ''
+  | 'session_expired'
+  | 'check_failed'
+  | 'queue_failed'
+  | 'refresh_failed'
 
 export interface ReleaseStore {
   readonly state: ReleaseStateModel
@@ -70,7 +77,7 @@ export function createReleaseStore(
 
   const removeExpiryListener = sessions.onExpired(() => {
     closeStream()
-    state.error = 'Session expired while tracking the release. Sign in to resume.'
+    state.error = 'session_expired'
   })
 
   function csrfToken(): string {
@@ -107,7 +114,7 @@ export function createReleaseStore(
         return result
       })
       .catch((error: unknown) => {
-        if (!sessions.handleAPIError(error)) state.error = 'The publication check could not be completed.'
+        if (!sessions.handleAPIError(error)) state.error = 'check_failed'
         state.phase = 'idle'
         throw error
       })
@@ -143,7 +150,7 @@ export function createReleaseStore(
         return release
       })
       .catch((error: unknown) => {
-        if (!sessions.handleAPIError(error)) state.error = 'The release could not be queued.'
+        if (!sessions.handleAPIError(error)) state.error = 'queue_failed'
         state.phase = 'checked'
         throw error
       })
@@ -176,7 +183,7 @@ export function createReleaseStore(
         return release
       })
       .catch((error: unknown) => {
-        if (!sessions.handleAPIError(error)) state.error = 'Release progress could not be refreshed.'
+        if (!sessions.handleAPIError(error)) state.error = 'refresh_failed'
         throw error
       })
       .finally(() => {

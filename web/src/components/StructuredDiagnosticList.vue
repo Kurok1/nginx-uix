@@ -10,7 +10,7 @@
     aria-labelledby="structured-diagnostics-title"
   >
     <h2 id="structured-diagnostics-title">
-      Structure diagnostics
+      {{ t('structured.diagnostics.title') }}
     </h2>
     <ul>
       <li
@@ -20,13 +20,13 @@
       >
         <span class="structured-diagnostic-list__severity">
           <span aria-hidden="true">{{ item.severity === 'blocking' ? '◇!' : '△!' }}</span>
-          {{ item.severity === 'blocking' ? 'Blocking' : 'Warning' }}
+          {{ item.severity === 'blocking' ? t('structured.diagnostics.blocking') : t('structured.diagnostics.warning') }}
         </span>
         <code>{{ item.code }}</code>
         <a :href="sourceHref(item.path, item.line)">
           {{ item.path }}:{{ item.line }}:{{ item.column }}
         </a>
-        <span v-if="item.related !== ''">Related: {{ item.related }}</span>
+        <span v-if="item.related !== ''">{{ t('structured.diagnostics.related', { value: item.related }) }}</span>
       </li>
     </ul>
   </section>
@@ -34,11 +34,14 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import type {
   StructuredDiagnostic,
   StructuredProjectDiagnostic,
 } from '../api/structured'
+
+const { t } = useI18n()
 
 interface DiagnosticItem {
   key: string

@@ -72,6 +72,39 @@ for (const width of releaseViewports) {
   })
 }
 
+test('zh-CN publication review and named confirmation preserve the release identity', async ({ page }) => {
+  await page.setViewportSize({ width: 833, height: 900 })
+  const workspace = await installWorkspaceAPIFixture(page, { seedWorkspace: true })
+  const release = await installReleaseAPIFixture(page, workspace)
+  await page.goto(`/config/workspaces/${workspace.workspaceId}?lang=zh-CN`)
+
+  const reviewTrigger = page.getByRole('button', { name: '打开工作区审查' })
+  await reviewTrigger.click()
+  const review = page.getByRole('dialog', { name: '工作区审查' })
+  await review.getByRole('button', { name: '审查全部文件差异' }).click()
+  await expect(review.getByRole('region', { name: '统一格式配置差异' })).toBeVisible()
+  await page.keyboard.press('Escape')
+
+  await page.getByRole('button', { name: '检查发布条件' }).click()
+  await expect(page.getByText('生产配置尚未变化。')).toBeVisible()
+  await page.getByRole('button', { name: '发布…' }).click()
+  const modal = page.getByRole('dialog', { name: '将配置发布到生产环境？' })
+  const publish = modal.getByRole('button', { name: '发布', exact: true })
+  await expect(publish).toBeDisabled()
+  await modal.getByLabel('准确输入 E2E workspace 以确认').fill('E2E workspace')
+  await publish.click()
+
+  await expect(page).toHaveURL((url) =>
+    url.searchParams.get('lang') === 'zh-CN' &&
+    url.searchParams.get('release') === release.releaseId,
+  )
+  const timeline = page.getByRole('region', { name: '发布进度' })
+  await expect(timeline.getByText('发布成功', { exact: true })).toBeVisible()
+  await expect(timeline.getByText(release.backupId)).toBeVisible()
+  workspace.assertContract()
+  release.assertContract()
+})
+
 test('needs-attention truth survives a 320px refresh without opening an event stream', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 900 })
   const workspace = await installWorkspaceAPIFixture(page, { seedWorkspace: true })

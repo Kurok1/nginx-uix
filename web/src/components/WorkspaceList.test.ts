@@ -87,6 +87,25 @@ describe('WorkspaceList', () => {
     expect(wrapper.emitted('request-delete')).toEqual([[item]])
   })
 
+  it('keeps the delete entry disabled for an immutable published workspace', async () => {
+    const item = workspace('published-id', 'Published snapshot', 'published')
+    const wrapper = mount(WorkspaceList, {
+      props: {
+        workspaces: [item],
+        selectedId: item.id,
+        pendingAction: null,
+      },
+    })
+
+    expect(
+      wrapper.get('[data-workspace-id="published-id"] [data-state-icon]').text(),
+    ).toBe('✓')
+    const deleteButton = wrapper.get('button[aria-label="Delete workspace Published snapshot"]')
+    expect(deleteButton.attributes()).toHaveProperty('disabled')
+    await deleteButton.trigger('click')
+    expect(wrapper.emitted('request-delete')).toBeUndefined()
+  })
+
   it('uses 44px controls and has no API, persistence or forbidden business CSS', () => {
     expect(listSource).toContain('min-height: var(--component-control-min-size)')
     expect(listSource).toContain('min-width: var(--component-control-min-size)')

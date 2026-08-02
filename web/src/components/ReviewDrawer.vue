@@ -22,7 +22,7 @@
         </h2>
         <button
           type="button"
-          aria-label="Close review"
+          :aria-label="t('common.closeReview')"
           @click="requestClose"
         >
           <span aria-hidden="true">×</span>
@@ -37,6 +37,7 @@
 
 <script setup lang="ts">
 import { onMounted, ref, toRef, useId, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import { useFocusTrap } from '../composables/useFocusTrap'
 
@@ -52,6 +53,7 @@ const emit = defineEmits<{
 }>()
 
 const dialog = ref<HTMLElement | null>(null)
+const { t } = useI18n()
 const titleId = useId()
 const trap = useFocusTrap(dialog, toRef(props, 'trigger'))
 

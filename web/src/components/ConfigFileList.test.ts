@@ -5,6 +5,7 @@
 import { mount } from '@vue/test-utils'
 
 import type { EffectiveConfigOccurrence } from '../api/types'
+import { appI18n } from '../i18n'
 import ConfigFileList from './ConfigFileList.vue'
 import configFileListSource from './ConfigFileList.vue?raw'
 
@@ -30,6 +31,10 @@ const repeatedOccurrences: EffectiveConfigOccurrence[] = [
 ]
 
 describe('ConfigFileList', () => {
+  beforeEach(() => {
+    appI18n.global.locale.value = 'zh-CN'
+  })
+
   it('renders response order and distinguishes repeated paths by load occurrence', () => {
     const wrapper = mount(ConfigFileList, {
       props: { occurrences: repeatedOccurrences, selectedId: 'occurrence-000002' },

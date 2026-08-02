@@ -27,7 +27,7 @@ func TestOpenAPIV1FrozenContractFingerprint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("openAPIContractFingerprint() error = %v", err)
 	}
-	const want = "7f8eb08b3a602c41ae82efc296688307384a73bba4e74d197ea104ff403029c4"
+	const want = "cbec829304bf5e1b00a9d79c8aae79505ebbfe6fa8402e87866822c23730d857"
 	if got != want {
 		t.Fatalf("OpenAPI v1 contract fingerprint = %q, want %q; contract changes require an explicit compatibility review", got, want)
 	}

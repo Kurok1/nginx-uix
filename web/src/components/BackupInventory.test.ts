@@ -7,6 +7,7 @@ import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
 
 import type { ConfigBackup } from '../api/types'
+import { appI18n } from '../i18n'
 import BackupInventory from './BackupInventory.vue'
 
 const completeBackup: ConfigBackup = {
@@ -27,6 +28,18 @@ const completeBackup: ConfigBackup = {
 }
 
 describe('BackupInventory', () => {
+  it('renders recovery evidence and actions in Simplified Chinese', () => {
+    appI18n.global.locale.value = 'zh-CN'
+    const wrapper = mount(BackupInventory, {
+      props: { backups: [completeBackup], loading: false, nextCursor: '' },
+    })
+
+    expect(wrapper.get('h2').text()).toBe('不可变备份')
+    expect(wrapper.text()).toContain('恢复')
+    expect(wrapper.text()).toContain('保护')
+    expect(wrapper.text()).toContain('已完成')
+  })
+
   it('uses native table and card projections and exposes explicit actions', async () => {
     const wrapper = mount(BackupInventory, {
       props: { backups: [completeBackup], loading: false, nextCursor: '' },

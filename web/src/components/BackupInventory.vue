@@ -11,18 +11,18 @@
     <header>
       <div>
         <h2 id="backup-inventory-title">
-          Immutable backups
+          {{ t('backups.title') }}
         </h2>
-        <p>Only verified, present recovery points can start a restore.</p>
+        <p>{{ t('backups.description') }}</p>
       </div>
-      <span>{{ backups.length }} visible</span>
+      <span>{{ t('backups.visible', { count: backups.length }) }}</span>
     </header>
 
     <p v-if="loading && backups.length === 0">
-      Loading backup evidence…
+      {{ t('backups.loading') }}
     </p>
     <p v-else-if="backups.length === 0">
-      No indexed backup recovery points are available.
+      {{ t('backups.empty') }}
     </p>
 
     <div
@@ -31,29 +31,29 @@
       data-backup-table
     >
       <table>
-        <caption>Indexed immutable recovery points and their current protection</caption>
+        <caption>{{ t('backups.caption') }}</caption>
         <thead>
           <tr>
             <th scope="col">
-              Backup ID
+              {{ t('backups.backupId') }}
             </th>
             <th scope="col">
-              Source
+              {{ t('backups.source') }}
             </th>
             <th scope="col">
-              State
+              {{ t('backups.state') }}
             </th>
             <th scope="col">
-              Verified
+              {{ t('backups.verified') }}
             </th>
             <th scope="col">
-              Size
+              {{ t('backups.size') }}
             </th>
             <th scope="col">
-              Protection
+              {{ t('backups.protection') }}
             </th>
             <th scope="col">
-              Actions
+              {{ t('backups.actions') }}
             </th>
           </tr>
         </thead>
@@ -72,7 +72,7 @@
                 :label="stateLabel(backup)"
               />
             </td>
-            <td>{{ backup.verified_at === undefined ? 'Not verified' : formatTime(backup.verified_at) }}</td>
+            <td>{{ backup.verified_at === undefined ? t('backups.notVerified') : formatTime(backup.verified_at) }}</td>
             <td>{{ formatBytes(backup.total_bytes) }}</td>
             <td>
               <StatusBadge
@@ -89,7 +89,7 @@
                   data-action="restore"
                   @click="$emit('restore', backup)"
                 >
-                  Restore
+                  {{ t('backups.restore') }}
                 </button>
                 <button
                   v-if="canProtect(backup)"
@@ -97,7 +97,7 @@
                   data-action="protect"
                   @click="$emit('protect', backup)"
                 >
-                  Protect
+                  {{ t('backups.protect') }}
                 </button>
                 <button
                   v-if="canUnprotect(backup)"
@@ -105,9 +105,9 @@
                   data-action="unprotect"
                   @click="$emit('unprotect', backup)"
                 >
-                  Remove manual protection
+                  {{ t('backups.removeProtection') }}
                 </button>
-                <span v-if="!hasActions(backup)">Evidence only</span>
+                <span v-if="!hasActions(backup)">{{ t('backups.evidenceOnly') }}</span>
               </div>
             </td>
           </tr>
@@ -127,7 +127,7 @@
       >
         <header>
           <h3 :id="`backup-card-${backup.id}`">
-            Backup <code>{{ abbreviate(backup.id) }}</code>
+            {{ t('backups.backup', { id: abbreviate(backup.id) }) }}
           </h3>
           <StatusBadge
             :tone="stateTone(backup)"
@@ -135,10 +135,10 @@
           />
         </header>
         <dl>
-          <div><dt>Source</dt><dd>{{ sourceLabel(backup) }}</dd></div>
-          <div><dt>Verified</dt><dd>{{ backup.verified_at === undefined ? 'Not verified' : formatTime(backup.verified_at) }}</dd></div>
-          <div><dt>Size</dt><dd>{{ formatBytes(backup.total_bytes) }}</dd></div>
-          <div><dt>Protection</dt><dd>{{ protectionLabel(backup) }}</dd></div>
+          <div><dt>{{ t('backups.source') }}</dt><dd>{{ sourceLabel(backup) }}</dd></div>
+          <div><dt>{{ t('backups.verified') }}</dt><dd>{{ backup.verified_at === undefined ? t('backups.notVerified') : formatTime(backup.verified_at) }}</dd></div>
+          <div><dt>{{ t('backups.size') }}</dt><dd>{{ formatBytes(backup.total_bytes) }}</dd></div>
+          <div><dt>{{ t('backups.protection') }}</dt><dd>{{ protectionLabel(backup) }}</dd></div>
         </dl>
         <p v-if="backup.protections.length > 0">
           {{ protectionReasons(backup) }}
@@ -152,25 +152,25 @@
             type="button"
             @click="$emit('restore', backup)"
           >
-            Restore
+            {{ t('backups.restore') }}
           </button>
           <button
             v-if="canProtect(backup)"
             type="button"
             @click="$emit('protect', backup)"
           >
-            Protect
+            {{ t('backups.protect') }}
           </button>
           <button
             v-if="canUnprotect(backup)"
             type="button"
             @click="$emit('unprotect', backup)"
           >
-            Remove manual protection
+            {{ t('backups.removeProtection') }}
           </button>
         </div>
         <p v-else>
-          Evidence only; this backup has no available mutation.
+          {{ t('backups.noMutation') }}
         </p>
       </article>
     </div>
@@ -182,14 +182,18 @@
       :disabled="loading"
       @click="$emit('load-more')"
     >
-      {{ loading ? 'Loading…' : 'Load more backups' }}
+      {{ loading ? t('common.loading') : t('backups.loadMore') }}
     </button>
   </section>
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+
 import type { ConfigBackup } from '../api/types'
 import StatusBadge, { type StatusTone } from './StatusBadge.vue'
+
+const { d, locale, n, t } = useI18n()
 
 defineProps<{
   backups: ConfigBackup[]
@@ -232,11 +236,11 @@ function stateTone(backup: ConfigBackup): StatusTone {
 
 function stateLabel(backup: ConfigBackup): string {
   switch (backup.state) {
-    case 'complete': return backup.body_present ? 'Complete' : 'Missing body'
-    case 'invalid': return 'Invalid'
-    case 'deleting': return 'Deleting'
-    case 'deleted': return 'Deleted'
-    default: return 'Creating'
+    case 'complete': return backup.body_present ? t('backups.states.complete') : t('backups.states.missingBody')
+    case 'invalid': return t('backups.states.invalid')
+    case 'deleting': return t('backups.states.deleting')
+    case 'deleted': return t('backups.states.deleted')
+    default: return t('backups.states.creating')
   }
 }
 
@@ -246,18 +250,27 @@ function protectionTone(backup: ConfigBackup): StatusTone {
 }
 
 function protectionLabel(backup: ConfigBackup): string {
-  if (backup.state === 'deleted') return 'Deleted'
-  if (backup.manually_protected) return 'Manually protected'
-  if (backup.protected) return 'System protected'
-  return 'Unprotected'
+  if (backup.state === 'deleted') return t('backups.states.deleted')
+  if (backup.manually_protected) return t('backups.protections.manuallyProtected')
+  if (backup.protected) return t('backups.protections.systemProtected')
+  return t('backups.protections.unprotected')
 }
 
 function protectionReasons(backup: ConfigBackup): string {
-  return backup.protections.map(({ code }) => code.replaceAll('_', ' ')).join(', ')
+  const labels: Record<string, string> = {
+    manual_protection: t('backups.protections.manualProtection'),
+    minimum_complete: t('backups.protections.minimumComplete'),
+    attention_case: t('backups.protections.attentionCase'),
+    active_restore: t('backups.protections.activeRestore'),
+  }
+  return backup.protections
+    .map(({ code }) => labels[code] ?? code)
+    .join(locale.value === 'zh-CN' ? '、' : ', ')
 }
 
 function sourceLabel(backup: ConfigBackup): string {
-  return `${backup.origin_type === 'release' ? 'Release' : 'Restore'} ${abbreviate(backup.origin_id)}`
+  const key = backup.origin_type === 'release' ? 'backups.releaseSource' : 'backups.restoreSource'
+  return t(key, { id: abbreviate(backup.origin_id) })
 }
 
 function abbreviate(value: string): string {
@@ -265,16 +278,13 @@ function abbreviate(value: string): string {
 }
 
 function formatBytes(value: number): string {
-  if (value < 1024) return `${value} B`
-  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KiB`
-  return `${(value / (1024 * 1024)).toFixed(1)} MiB`
+  if (value < 1024) return `${n(value, 'decimal')} B`
+  if (value < 1024 * 1024) return `${n(value / 1024, 'decimal')} KiB`
+  return `${n(value / (1024 * 1024), 'decimal')} MiB`
 }
 
 function formatTime(value: string): string {
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(new Date(value))
+  return d(new Date(value), 'short')
 }
 </script>
 

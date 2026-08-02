@@ -1867,7 +1867,7 @@ validate_inputs() {
   for required_command in docker curl openssl git go jq sqlite3 tar awk sed grep cmp date uname stat chmod; do
     require_command "${required_command}"
   done
-  [ "${PROJECT_VERSION}" = 1.0.0 ] || fail 'workspace acceptance requires project VERSION 1.0.0'
+  [ "${PROJECT_VERSION}" = 1.1.0 ] || fail 'workspace acceptance requires project VERSION 1.1.0'
   for required_fixture in \
     "${FIXTURE_ROOT}/nginx.conf" \
     "${FIXTURE_ROOT}/conf.d/site.conf" \

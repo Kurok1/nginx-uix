@@ -6,7 +6,7 @@ import { expect, type Locator, type Page, test } from '@playwright/test'
 
 import {
   appOrigin,
-  assertNoApplicationStorage,
+  assertOnlyLocalePreferenceStorage,
   csrfToken,
   installWorkspaceAPIFixture,
   setAuthenticatedCookie,
@@ -27,14 +27,14 @@ test('explicit workspace management flow keeps strict mutable API and ETag bound
 }) => {
   const api = await installWorkspaceAPIFixture(page)
 
-  await page.goto('/config/workspaces')
+  await page.goto('/config/workspaces?lang=en-US')
   await expect(page.getByText('No workspaces yet. Create one to review draft configuration changes.')).toBeVisible()
 
   await page.getByRole('button', { name: 'Create workspace' }).click()
   await page.getByLabel('Workspace name').fill(workspaceName)
   await page.getByRole('button', { name: 'Create', exact: true }).click()
 
-  await expect(page).toHaveURL(`${appOrigin}/config/workspaces/${api.workspaceId}`)
+  await expect(page).toHaveURL(`${appOrigin}/config/workspaces/${api.workspaceId}?lang=en-US`)
   await expect(page.getByRole('heading', { level: 1, name: workspaceName })).toBeVisible()
   await expect(page.getByRole('link', { name: new RegExp(workspaceName) })).toHaveAttribute(
     'aria-current',
@@ -120,12 +120,12 @@ test('explicit workspace management flow keeps strict mutable API and ETag bound
   const editGroup = page.locator('form[aria-label="Edit logical group"]')
   await fillGroup(editGroup, 'Primary entry points', '10', 'nginx.conf')
   await editGroup.getByRole('button', { name: 'Save group' }).click()
-  await expect(page.getByRole('treeitem', { name: /Primary entry points, 1 members/ })).toBeVisible()
+  await expect(page.getByRole('treeitem', { name: /Primary entry points, 1 member/ })).toBeVisible()
   expect(api.currentDraftETag()).toBe(draftBeforeGroups)
   expect(api.currentGroupsETag()).not.toBe(groupsBeforeUpdate)
 
   const groupsBeforeDelete = api.currentGroupsETag()
-  await page.getByRole('treeitem', { name: /Primary entry points, 1 members/ }).click()
+  await page.getByRole('treeitem', { name: /Primary entry points, 1 member/ }).click()
   await page.getByRole('button', { name: 'Delete selected logical group' }).click()
   await confirmNamedDeletion(page, 'Primary entry points')
   await expect(page.getByRole('treeitem', { name: /Primary entry points/ })).toHaveCount(0)
@@ -134,7 +134,7 @@ test('explicit workspace management flow keeps strict mutable API and ETag bound
 
   await page.getByRole('button', { name: `Delete workspace ${workspaceName}` }).click()
   await confirmNamedDeletion(page, workspaceName)
-  await expect(page).toHaveURL(`${appOrigin}/config/workspaces`)
+  await expect(page).toHaveURL(`${appOrigin}/config/workspaces?lang=en-US`)
   await expect(page.getByText('No workspaces yet. Create one to review draft configuration changes.')).toBeVisible()
 
   assertWorkflowRequestContract(api)
@@ -170,11 +170,11 @@ test('conflict preserves local text until the operator copies, reviews, and read
   await expect(page.getByRole('button', { name: 'Save nginx.conf' })).toBeDisabled()
   expectDraftMutationRequest(fileSaveRequests(api, 'nginx.conf').at(-1), conflictIfMatch)
 
-  await page.getByRole('button', { name: '复制本地内容 nginx.conf' }).click()
+  await page.getByRole('button', { name: 'Copy local content for nginx.conf' }).click()
   await expect(page.getByText('Local content for nginx.conf copied.')).toBeVisible()
   expect(await page.evaluate(() => navigator.clipboard.readText())).toContain(marker)
 
-  const reviewTrigger = page.getByRole('button', { name: '查看服务器差异 nginx.conf' })
+  const reviewTrigger = page.getByRole('button', { name: 'View server diff for nginx.conf' })
   await reviewTrigger.focus()
   await reviewTrigger.click()
   const drawer = page.getByRole('dialog', { name: 'Workspace review' })
@@ -185,7 +185,7 @@ test('conflict preserves local text until the operator copies, reviews, and read
   await expect(drawer).toBeHidden()
   await expect(reviewTrigger).toBeFocused()
 
-  await page.getByRole('button', { name: '读取服务器版本 nginx.conf' }).click()
+  await page.getByRole('button', { name: 'Read server version for nginx.conf' }).click()
   await expect(page.getByText('This file changed on the server. Your local text has not been overwritten.')).toHaveCount(0)
   await page.getByRole('button', { name: 'Show editor task' }).click()
   await expect(editor).not.toContainText(marker)
@@ -257,17 +257,18 @@ test('session expiry preserves memory through login and requires a server refres
   await page.getByRole('button', { name: 'Save nginx.conf' }).click()
   await expect(page).toHaveURL((url) =>
     url.pathname === '/login' &&
-      url.searchParams.get('redirect') === `/config/workspaces/${api.workspaceId}`,
+      url.searchParams.get('lang') === 'en-US' &&
+      url.searchParams.get('redirect') === `/config/workspaces/${api.workspaceId}?lang=en-US`,
   )
   await expect(page.getByRole('heading', { level: 2, name: 'Unsaved workspace changes' })).toBeVisible()
   await expect(page.getByText(/Local text remains in this browser session/)).toBeVisible()
   await expect(page.getByText('nginx.conf', { exact: true })).toBeVisible()
   expectDraftMutationRequest(fileSaveRequests(api, 'nginx.conf').at(-1), expiryIfMatch)
 
-  await page.getByLabel('用户名').fill('admin')
-  await page.getByLabel('密码').fill('correct horse battery staple')
-  await page.getByRole('button', { name: '登录' }).click()
-  await expect(page).toHaveURL(`${appOrigin}/config/workspaces/${api.workspaceId}`)
+  await page.getByLabel('Username').fill('admin')
+  await page.getByLabel('Password').fill('correct horse battery staple')
+  await page.getByRole('button', { name: 'Sign in' }).click()
+  await expect(page).toHaveURL(`${appOrigin}/config/workspaces/${api.workspaceId}?lang=en-US`)
   const login = api.requests().find(
     ({ method, path }) => method === 'POST' && path === '/api/v1/auth/session',
   )
@@ -282,7 +283,7 @@ test('session expiry preserves memory through login and requires a server refres
   await expect(page.getByText('This file changed on the server. Your local text has not been overwritten.')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Save nginx.conf' })).toBeDisabled()
 
-  await page.getByRole('button', { name: '读取服务器版本 nginx.conf' }).click()
+  await page.getByRole('button', { name: 'Read server version for nginx.conf' }).click()
   await expect(editor).not.toContainText(marker)
   await appendEditorText(page, editor, 'post-login-refreshed-save-E2E')
   await expect(page.getByRole('button', { name: 'Save nginx.conf' })).toBeEnabled()
@@ -292,7 +293,7 @@ test('session expiry preserves memory through login and requires a server refres
 })
 
 async function openSeededWorkspace(page: Page, api: WorkspaceAPIFixture): Promise<void> {
-  await page.goto(`/config/workspaces/${api.workspaceId}`)
+  await page.goto(`/config/workspaces/${api.workspaceId}?lang=en-US`)
   await expect(page.getByRole('heading', { level: 1, name: 'E2E workspace' })).toBeVisible()
   await expect(page.getByRole('tree', { name: 'Physical configuration files' })).toBeVisible()
 }
@@ -417,7 +418,7 @@ async function assertPrivateMarkerBoundary(page: Page, api: WorkspaceAPIFixture)
     expect(request.query).not.toContain(privateMarker)
     expect(JSON.stringify(request.headers)).not.toContain(privateMarker)
   }
-  await assertNoApplicationStorage(page)
+  await assertOnlyLocalePreferenceStorage(page)
   expect(await page.evaluate(() => navigator.serviceWorker.getRegistrations().then((items) => items.length))).toBe(0)
 }
 

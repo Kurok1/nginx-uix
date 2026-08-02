@@ -12,6 +12,7 @@ import type {
   SystemComponents,
   SystemStatusResponse,
 } from '../api/types'
+import { appI18n } from '../i18n'
 import ComponentHealth from '../components/ComponentHealth.vue'
 import componentHealthSource from '../components/ComponentHealth.vue?raw'
 import processMetricsSource from '../components/ProcessMetrics.vue?raw'
@@ -132,6 +133,10 @@ function componentByName(wrapper: VueWrapper, name: string): VueWrapper {
 }
 
 describe('DashboardView', () => {
+  beforeEach(() => {
+    appI18n.global.locale.value = 'zh-CN'
+  })
+
   afterEach(() => {
     vi.useRealTimers()
     vi.restoreAllMocks()
@@ -173,6 +178,25 @@ describe('DashboardView', () => {
     expect(wrapper.get('time.dashboard__sample-time').attributes('datetime')).toBe(
       healthyStatus.sampled_at,
     )
+  })
+
+  it('renders runtime evidence and status descriptions in English', async () => {
+    appI18n.global.locale.value = 'en-US'
+    const wrapper = mount(DashboardView, {
+      props: {
+        client: createStatusClient(vi.fn().mockResolvedValue(healthyStatus)),
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.get('h1').text()).toBe('Runtime status')
+    expect(componentByName(wrapper, 'UI').text()).toContain('Healthy')
+    expect(componentByName(wrapper, 'Nginx').text()).toContain('Running')
+    expect(wrapper.text()).toContain('Process metrics')
+    expect(wrapper.text()).toContain('Startup validation')
+    expect(wrapper.text()).toContain('Automatic recovery')
+    expect(wrapper.text()).toContain('Recovering')
+    expect(wrapper.text()).not.toContain('运行状态')
   })
 
   it('polls every five seconds', async () => {
@@ -336,13 +360,25 @@ describe('DashboardView', () => {
   it('starts empty after a full remount when no request succeeds', async () => {
     const getSystemStatus = vi
       .fn<(signal?: AbortSignal) => Promise<SystemStatusResponse>>()
-      .mockRejectedValue(new APIRequestError({ kind: 'network', message: 'private network detail' }))
+      .mockRejectedValue(new APIRequestError({
+        kind: 'api',
+        message: 'private dashboard backend detail',
+        status: 503,
+        apiError: {
+          code: 'service_unavailable',
+          message: 'private dashboard backend detail',
+          request_id: 'request-dashboard-unavailable',
+        },
+      }))
     const wrapper = mount(DashboardView, {
       props: { client: createStatusClient(getSystemStatus) },
     })
     await flushPromises()
 
-    expect(wrapper.text()).toContain('暂时无法获取运行状态。')
+    expect(wrapper.text()).toContain(
+      '服务暂时不可用，请稍后重试。请求 ID：request-dashboard-unavailable。',
+    )
+    expect(wrapper.text()).not.toContain('private dashboard backend detail')
     expect(wrapper.text()).not.toContain('旧数据')
     expect(wrapper.text()).not.toContain('1.30.3')
     expect(localStorage.length).toBe(0)

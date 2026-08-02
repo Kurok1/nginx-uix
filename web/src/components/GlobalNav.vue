@@ -9,7 +9,7 @@
   >
     <nav
       class="global-nav__content"
-      aria-label="Global navigation"
+      :aria-label="t('navigation.globalLabel')"
     >
       <button
         class="global-nav__menu-toggle"
@@ -27,14 +27,14 @@
           <span />
         </span>
         <span class="global-nav__visually-hidden">
-          {{ menuOpen ? 'Close navigation' : 'Open navigation' }}
+          {{ menuOpen ? t('navigation.close') : t('navigation.open') }}
         </span>
       </button>
 
       <RouterLink
         class="global-nav__brand"
         to="/"
-        aria-label="Nginx UIX home"
+        :aria-label="t('navigation.homeLabel')"
       >
         Nginx UIX
       </RouterLink>
@@ -42,35 +42,37 @@
       <ul class="global-nav__links">
         <li>
           <RouterLink to="/">
-            Dashboard
+            {{ t('navigation.dashboard') }}
           </RouterLink>
         </li>
         <li>
           <RouterLink to="/configuration">
-            Configuration
+            {{ t('navigation.configuration') }}
           </RouterLink>
         </li>
         <li>
           <RouterLink to="/config/workspaces">
-            Workspaces
+            {{ t('navigation.workspaces') }}
           </RouterLink>
         </li>
         <li>
           <RouterLink to="/config/route-lab">
-            Route Lab
+            {{ t('navigation.routeLab') }}
           </RouterLink>
         </li>
         <li>
           <RouterLink to="/certificates">
-            Certificates
+            {{ t('navigation.certificates') }}
           </RouterLink>
         </li>
         <li>
           <RouterLink to="/config/operations">
-            Recovery &amp; History
+            {{ t('navigation.recoveryHistory') }}
           </RouterLink>
         </li>
       </ul>
+
+      <LanguageSelector class="global-nav__language global-nav__language--desktop" />
 
       <button
         class="global-nav__logout"
@@ -85,7 +87,7 @@
         >
           <path d="M10 4H5v16h5M14 8l4 4-4 4M9 12h9" />
         </svg>
-        <span>{{ logoutPending ? '正在退出…' : '退出登录' }}</span>
+        <span>{{ logoutPending ? t('navigation.signingOut') : t('navigation.signOut') }}</span>
       </button>
 
       <div
@@ -99,7 +101,7 @@
               to="/"
               @click="closeMenu"
             >
-              Dashboard
+              {{ t('navigation.dashboard') }}
             </RouterLink>
           </li>
           <li>
@@ -107,7 +109,7 @@
               to="/configuration"
               @click="closeMenu"
             >
-              Configuration
+              {{ t('navigation.configuration') }}
             </RouterLink>
           </li>
           <li>
@@ -115,7 +117,7 @@
               to="/config/workspaces"
               @click="closeMenu"
             >
-              Workspaces
+              {{ t('navigation.workspaces') }}
             </RouterLink>
           </li>
           <li>
@@ -123,7 +125,7 @@
               to="/config/route-lab"
               @click="closeMenu"
             >
-              Route Lab
+              {{ t('navigation.routeLab') }}
             </RouterLink>
           </li>
           <li>
@@ -131,7 +133,7 @@
               to="/certificates"
               @click="closeMenu"
             >
-              Certificates
+              {{ t('navigation.certificates') }}
             </RouterLink>
           </li>
           <li>
@@ -139,8 +141,11 @@
               to="/config/operations"
               @click="closeMenu"
             >
-              Recovery &amp; History
+              {{ t('navigation.recoveryHistory') }}
             </RouterLink>
+          </li>
+          <li class="global-nav__language-item">
+            <LanguageSelector class="global-nav__language global-nav__language--mobile" />
           </li>
         </ul>
       </div>
@@ -150,13 +155,16 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { RouterLink, useRouter } from 'vue-router'
 
 import { sessionStore } from '../session'
+import LanguageSelector from './LanguageSelector.vue'
 
 const menuOpen = ref(false)
 const logoutPending = ref(false)
 const router = useRouter()
+const { t } = useI18n()
 
 function closeMenu(): void {
   menuOpen.value = false
@@ -259,9 +267,18 @@ async function logout(): Promise<void> {
   margin-inline-start: auto;
 }
 
+.global-nav__language--mobile {
+  display: none;
+}
+
 .global-nav__links a:active,
 .global-nav__mobile-menu a:active {
   color: var(--color-primary-on-dark);
+}
+
+.global-nav__links a {
+  min-width: var(--component-control-min-size);
+  justify-content: center;
 }
 
 .global-nav__links a.router-link-exact-active,
@@ -301,6 +318,10 @@ async function logout(): Promise<void> {
   }
 
   .global-nav__links {
+    display: none;
+  }
+
+  .global-nav__language--desktop {
     display: none;
   }
 
@@ -366,6 +387,15 @@ async function logout(): Promise<void> {
   .global-nav__mobile-menu a {
     width: 100%;
     font-size: var(--font-size-caption);
+  }
+
+  .global-nav__language-item {
+    display: flex;
+    padding-block-start: var(--spacing-xs);
+  }
+
+  .global-nav__language--mobile {
+    display: inline-flex;
   }
 }
 </style>

@@ -10,9 +10,9 @@
     <header class="dashboard__header">
       <div>
         <h1 id="dashboard-title">
-          运行状态
+          {{ t('dashboard.title') }}
         </h1>
-        <p>查看 UI、Agent 与 Nginx 的最新只读运行证据。</p>
+        <p>{{ t('dashboard.description') }}</p>
       </div>
       <button
         type="button"
@@ -28,13 +28,13 @@
           <path d="M20 7v5h-5" />
           <path d="M18.5 16a8 8 0 1 1 .2-8.2L20 12" />
         </svg>
-        {{ pending ? '正在刷新…' : '刷新状态' }}
+        {{ pending ? t('dashboard.refreshing') : t('dashboard.refresh') }}
       </button>
     </header>
 
     <div class="dashboard__meta">
       <p v-if="snapshot !== null">
-        数据采样时间：
+        {{ t('dashboard.sampledAt') }}
         <time
           class="dashboard__sample-time"
           :datetime="snapshot.sampled_at"
@@ -42,11 +42,11 @@
         <StatusBadge
           v-if="stale"
           tone="warning"
-          label="旧数据"
+          :label="t('dashboard.stale')"
         />
       </p>
       <p v-else-if="pending">
-        正在加载运行状态…
+        {{ t('dashboard.loading') }}
       </p>
       <p
         id="dashboard-refresh-feedback"
@@ -64,7 +64,7 @@
     >
       <StatusBadge
         tone="error"
-        :label="stale ? '刷新失败' : '无法获取'"
+        :label="stale ? t('dashboard.refreshFailed') : t('dashboard.unavailable')"
       />
       <p>{{ errorMessage }}</p>
     </div>
@@ -94,17 +94,19 @@
     >
       <StatusBadge
         tone="unknown"
-        label="无法确认"
+        :label="t('common.unableToConfirm')"
       />
-      <p>尚无可显示的运行状态数据。</p>
+      <p>{{ t('dashboard.noData') }}</p>
     </div>
   </section>
 </template>
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue'
+import { useI18n } from 'vue-i18n'
 
-import { apiClient } from '../api/client'
+import { apiClient, APIRequestError } from '../api/client'
+import { formatAPIRequestError, withAPIRequestID } from '../api/error_message'
 import type { SystemStatusResponse } from '../api/types'
 import ProcessMetrics from '../components/ProcessMetrics.vue'
 import RuntimeStatus from '../components/RuntimeStatus.vue'
@@ -125,6 +127,7 @@ const props = withDefaults(
 )
 
 const snapshot = shallowRef<SystemStatusResponse | null>(null)
+const { d, t } = useI18n()
 const pending = ref(false)
 const stale = ref(false)
 const errorMessage = ref('')
@@ -137,10 +140,7 @@ const sampledAt = computed(() => {
   if (snapshot.value === null) {
     return ''
   }
-  return new Intl.DateTimeFormat('zh-CN', {
-    dateStyle: 'medium',
-    timeStyle: 'medium',
-  }).format(new Date(snapshot.value.sampled_at))
+  return d(new Date(snapshot.value.sampled_at), 'short')
 })
 
 function statusSignature(status: SystemStatusResponse): string {
@@ -166,24 +166,29 @@ async function refresh(origin: RefreshOrigin): Promise<void> {
     stale.value = false
     errorMessage.value = ''
     if (origin === 'manual') {
-      liveMessage.value = '已刷新运行状态。'
+      liveMessage.value = t('dashboard.refreshed')
     } else if (
       origin === 'poll' &&
       previous !== null &&
       statusSignature(previous) !== statusSignature(next)
     ) {
-      liveMessage.value = '运行状态已更新。'
+      liveMessage.value = t('dashboard.updated')
     }
-  } catch {
+  } catch (error: unknown) {
     if (unmounted) {
       return
     }
     stale.value = snapshot.value !== null
-    errorMessage.value = stale.value
-      ? '刷新失败，正在显示上一次成功获取的数据。'
-      : '暂时无法获取运行状态。'
+    const fallback = stale.value
+      ? t('dashboard.staleError')
+      : t('dashboard.unavailableError')
+    errorMessage.value = error instanceof APIRequestError
+      ? stale.value
+        ? withAPIRequestID(fallback, error)
+        : formatAPIRequestError(error)
+      : fallback
     if (origin === 'manual') {
-      liveMessage.value = '刷新运行状态失败。'
+      liveMessage.value = t('dashboard.refreshFailed')
     }
   } finally {
     if (activeController === controller) {

@@ -113,6 +113,7 @@ type APIErrorInput = Omit<APIError, 'code'> & { code: string }
 export class APIRequestError extends Error {
   readonly apiError?: APIError
   readonly kind: APIRequestErrorKind
+  readonly requestID?: string
   readonly retryAfterSeconds?: number
   readonly status?: number
 
@@ -121,6 +122,7 @@ export class APIRequestError extends Error {
     message: string
     status?: number
     apiError?: APIErrorInput
+    requestID?: string
     retryAfterSeconds?: number
   }) {
     super(options.message)
@@ -128,6 +130,7 @@ export class APIRequestError extends Error {
     this.kind = options.kind
     this.status = options.status
     this.apiError = normalizeAPIError(options.apiError)
+    this.requestID = options.apiError?.request_id ?? options.requestID
     this.retryAfterSeconds = options.retryAfterSeconds
   }
 }
@@ -2243,8 +2246,9 @@ function parseConfigGroup(value: unknown, status: number): ConfigGroup {
 }
 
 function parseAPIErrorEnvelope(value: unknown, status: number): APIErrorEnvelope {
+  const requestID = safeErrorRequestID(value)
   if (!hasExactKeys(value, ['error']) || !hasExactKeys(value.error, ['code', 'message', 'request_id'], ['details'])) {
-    throw malformedResponse(status)
+    throw malformedResponse(status, requestID)
   }
   const { error } = value
   if (
@@ -2253,9 +2257,9 @@ function parseAPIErrorEnvelope(value: unknown, status: number): APIErrorEnvelope
     typeof error.request_id !== 'string' ||
     !/^[A-Za-z0-9._-]{1,64}$/.test(error.request_id)
   ) {
-    throw malformedResponse(status)
+    throw malformedResponse(status, requestID)
   }
-  const details = parseAPIErrorDetails(error.code, error.details, status)
+  const details = parseAPIErrorDetails(error.code, error.details, status, requestID)
   return {
     error: {
       code: error.code,
@@ -2270,18 +2274,19 @@ function parseAPIErrorDetails(
   code: APIErrorCode,
   value: unknown,
   status: number,
+  requestID?: string,
 ): Readonly<Record<string, string | number>> | undefined {
   if (value === undefined) {
     return undefined
   }
   const allowed = errorDetailKeys(code)
   if (!isRecord(value) || allowed.length === 0 || !hasOnlyAllowedKeys(value, allowed)) {
-    throw malformedResponse(status)
+    throw malformedResponse(status, requestID)
   }
   const details: Record<string, string | number> = {}
   for (const [key, detail] of Object.entries(value)) {
     if (!isSafeErrorDetail(key, detail)) {
-      throw malformedResponse(status)
+      throw malformedResponse(status, requestID)
     }
     details[key] = detail
   }
@@ -2371,11 +2376,20 @@ function isSafeErrorDetail(key: string, value: unknown): value is string | numbe
   }
 }
 
-function malformedResponse(status: number): APIRequestError {
+function safeErrorRequestID(value: unknown): string | undefined {
+  if (!isRecord(value) || !isRecord(value.error)) return undefined
+  const requestID = value.error.request_id
+  return typeof requestID === 'string' && /^[A-Za-z0-9._-]{1,64}$/.test(requestID)
+    ? requestID
+    : undefined
+}
+
+function malformedResponse(status: number, requestID?: string): APIRequestError {
   return new APIRequestError({
     kind: 'malformed_response',
     message: 'API response was malformed',
     status,
+    requestID,
   })
 }
 

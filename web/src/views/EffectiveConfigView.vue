@@ -10,9 +10,9 @@
     <header class="effective-config__header">
       <div>
         <h1 id="effective-config-title">
-          生效配置
+          {{ t('effectiveConfig.title') }}
         </h1>
-        <p>按 Nginx 实际加载顺序查看只读配置内容。</p>
+        <p>{{ t('effectiveConfig.description') }}</p>
       </div>
       <button
         class="effective-config__refresh"
@@ -21,7 +21,7 @@
         aria-describedby="effective-config-refresh-feedback"
         @click="refresh('manual')"
       >
-        {{ pending ? '正在刷新…' : '刷新配置' }}
+        {{ pending ? t('effectiveConfig.refreshing') : t('effectiveConfig.refresh') }}
       </button>
     </header>
 
@@ -31,20 +31,20 @@
     >
       <div class="effective-config__state">
         <p v-if="snapshot !== null">
-          生成时间：
+          {{ t('effectiveConfig.generatedAt') }}
           <time :datetime="snapshot.generated_at">{{ generatedAt }}</time>
           <StatusBadge
             v-if="stale"
             tone="warning"
-            label="旧数据"
+            :label="t('effectiveConfig.stale')"
           />
         </p>
         <p v-else-if="pending">
           <StatusBadge
             tone="unknown"
-            label="加载中"
+            :label="t('effectiveConfig.loadingLabel')"
           />
-          正在加载生效配置…
+          {{ t('effectiveConfig.loading') }}
         </p>
         <p
           id="effective-config-refresh-feedback"
@@ -62,7 +62,7 @@
       >
         <StatusBadge
           tone="error"
-          :label="stale ? '刷新失败' : '无法读取'"
+          :label="stale ? t('effectiveConfig.refreshFailed') : t('effectiveConfig.unableToRead')"
         />
         <p>{{ errorMessage }}</p>
       </div>
@@ -75,30 +75,38 @@
         >
           <StatusBadge
             tone="warning"
-            label="结构未验证"
+            :label="t('effectiveConfig.structureUnverified')"
           />
           <p v-if="snapshot.warnings.includes('NGINX_CONFIG_PATH_OUTSIDE_ALLOWED_ROOTS')">
-            部分配置位于允许读取目录之外，当前显示未经文件拆分的原始输出。若需结构化查看，请通过
+            {{ t('effectiveConfig.outsideRootsBefore') }}
             <code>NGINX_UIX_EFFECTIVE_CONFIG_ROOTS</code>
-            配置只读目录。
+            {{ t('effectiveConfig.outsideRootsAfter') }}
           </p>
           <p v-else>
-            当前无法逐文件验证配置边界，正在显示未经文件拆分的原始输出。
+            {{ t('effectiveConfig.unverifiedWarning') }}
           </p>
         </div>
 
         <dl class="effective-config__summary">
           <div>
-            <dt>Nginx 版本：</dt>
+            <dt>{{ t('effectiveConfig.nginxVersion') }}</dt>
             <dd>{{ snapshot.nginx_version }}</dd>
           </div>
           <div>
-            <dt>入口配置：</dt>
+            <dt>{{ t('effectiveConfig.entryConfiguration') }}</dt>
             <dd>{{ snapshot.entry_config_path }}</dd>
           </div>
           <div>
-            <dt>{{ snapshot.display_mode === 'raw' ? '展示模式：' : '加载项：' }}</dt>
-            <dd>{{ snapshot.display_mode === 'raw' ? '原始输出' : snapshot.occurrence_count }}</dd>
+            <dt>
+              {{ snapshot.display_mode === 'raw'
+                ? t('effectiveConfig.displayMode')
+                : t('effectiveConfig.loadedEntries') }}
+            </dt>
+            <dd>
+              {{ snapshot.display_mode === 'raw'
+                ? t('effectiveConfig.rawOutput')
+                : snapshot.occurrence_count }}
+            </dd>
           </div>
         </dl>
 
@@ -124,9 +132,9 @@
         >
           <StatusBadge
             tone="unknown"
-            label="无加载项"
+            :label="t('effectiveConfig.noEntriesLabel')"
           />
-          <p>当前没有加载到配置文件。</p>
+          <p>{{ t('effectiveConfig.noEntries') }}</p>
         </div>
       </template>
     </div>
@@ -135,8 +143,10 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import { apiClient, APIRequestError } from '../api/client'
+import { formatAPIRequestError } from '../api/error_message'
 import type { EffectiveConfigOccurrence, EffectiveConfigResponse } from '../api/types'
 import ConfigFileList from '../components/ConfigFileList.vue'
 import ReadOnlyCodeViewer from '../components/ReadOnlyCodeViewer.vue'
@@ -156,6 +166,7 @@ const props = withDefaults(
 )
 
 const snapshot = shallowRef<EffectiveConfigResponse | null>(null)
+const { d, t } = useI18n()
 const selectedId = ref('')
 const pending = ref(false)
 const stale = ref(false)
@@ -168,10 +179,7 @@ const generatedAt = computed(() => {
   if (snapshot.value === null) {
     return ''
   }
-  return new Intl.DateTimeFormat('zh-CN', {
-    dateStyle: 'medium',
-    timeStyle: 'medium',
-  }).format(new Date(snapshot.value.generated_at))
+  return d(new Date(snapshot.value.generated_at), 'short')
 })
 
 const selectedOccurrence = computed<EffectiveConfigOccurrence | null>(() => {
@@ -190,21 +198,30 @@ function selectOccurrence(id: string): void {
 }
 
 function initialErrorMessage(error: unknown): string {
-  if (!(error instanceof APIRequestError) || error.kind !== 'api') {
-    return '暂时无法读取生效配置。'
+  if (!(error instanceof APIRequestError)) {
+    return t('effectiveConfig.unavailableError')
   }
+  if (error.kind !== 'api') return formatAPIRequestError(error)
+  let message: string
   switch (error.apiError?.code) {
     case 'NGINX_CONFIG_INVALID':
-      return 'Nginx 配置当前无效，无法读取生效配置。'
+      message = t('effectiveConfig.invalidError')
+      break
     case 'NGINX_COMMAND_TIMEOUT':
-      return '读取生效配置超时，请稍后重试。'
+      message = t('effectiveConfig.timeoutError')
+      break
     case 'NGINX_OUTPUT_TOO_LARGE':
-      return '生效配置超过安全读取限制，无法在此显示。'
+      message = t('effectiveConfig.tooLargeError')
+      break
     case 'AGENT_UNAVAILABLE':
-      return '本地 Agent 暂时不可用，无法读取生效配置。'
+      message = t('effectiveConfig.agentUnavailableError')
+      break
     default:
-      return '暂时无法读取生效配置。'
+      return formatAPIRequestError(error)
   }
+  return error.requestID === undefined
+    ? message
+    : t('errors.withRequestId', { message, requestId: error.requestID })
 }
 
 async function refresh(origin: RefreshOrigin): Promise<void> {
@@ -228,7 +245,7 @@ async function refresh(origin: RefreshOrigin): Promise<void> {
     stale.value = false
     errorMessage.value = ''
     if (origin === 'manual') {
-      liveMessage.value = '已刷新生效配置。'
+      liveMessage.value = t('effectiveConfig.refreshed')
     }
   } catch (error: unknown) {
     if (unmounted) {
@@ -236,10 +253,10 @@ async function refresh(origin: RefreshOrigin): Promise<void> {
     }
     stale.value = snapshot.value !== null
     errorMessage.value = stale.value
-      ? '刷新失败，正在显示上一次成功获取的数据。'
+      ? t('effectiveConfig.staleError')
       : initialErrorMessage(error)
     if (origin === 'manual') {
-      liveMessage.value = '刷新生效配置失败。'
+      liveMessage.value = t('effectiveConfig.refreshError')
     }
   } finally {
     if (activeController === controller) {

@@ -4,7 +4,7 @@
 -->
 <template>
   <main class="workspace-page">
-    <h1>Configuration workspaces</h1>
+    <h1>{{ t('workspace.title') }}</h1>
 
     <div
       v-if="pageError !== ''"
@@ -22,7 +22,7 @@
       aria-live="polite"
     >
       <span aria-hidden="true">◌</span>
-      Loading workspaces…
+      {{ t('workspace.loading') }}
     </section>
 
     <WorkspaceList
@@ -39,7 +39,7 @@
       class="workspace-page__empty"
       role="status"
     >
-      Select or create a workspace to review draft configuration changes.
+      {{ t('workspace.selectOrCreate') }}
     </p>
 
     <template v-if="state.active !== null">
@@ -53,8 +53,7 @@
         class="workspace-page__empty"
         role="status"
       >
-        No managed configuration files are available in this workspace.
-        Create a managed text file to begin this workspace draft.
+        {{ t('workspace.noManagedFiles') }}
       </p>
 
       <InlineBanner
@@ -69,24 +68,24 @@
           >
             <button
               type="button"
-              :aria-label="`复制本地内容 ${document.path}`"
+              :aria-label="t('workspace.banner.copyLocal', { path: document.path })"
               @click="copyLocal(document.path)"
             >
-              复制本地内容
+              {{ t('workspace.banner.copyLocalAction') }}
             </button>
             <button
               type="button"
-              :aria-label="`读取服务器版本 ${document.path}`"
+              :aria-label="t('workspace.banner.readServer', { path: document.path })"
               @click="readServerVersion(document.path)"
             >
-              读取服务器版本
+              {{ t('workspace.banner.readServerAction') }}
             </button>
             <button
               type="button"
-              :aria-label="`查看服务器差异 ${document.path}`"
+              :aria-label="t('workspace.banner.viewServerDiff', { path: document.path })"
               @click="showServerDiff(document.path, $event)"
             >
-              查看服务器差异
+              {{ t('workspace.banner.viewServerDiffAction') }}
             </button>
           </template>
         </template>
@@ -100,10 +99,10 @@
         <template #actions>
           <button
             type="button"
-            aria-label="创建新工作区"
+            :aria-label="t('workspace.banner.createReplacement')"
             @click="replacementFormOpen = true"
           >
-            创建新工作区
+            {{ t('workspace.banner.createReplacement') }}
           </button>
         </template>
       </InlineBanner>
@@ -130,10 +129,10 @@
             v-for="document in dirtyDocuments"
             :key="document.path"
             type="button"
-            :aria-label="`Copy local content ${document.path}`"
+            :aria-label="t('workspace.banner.copyLocal', { path: document.path })"
             @click="copyLocal(document.path)"
           >
-            Copy {{ document.path }}
+            {{ t('workspace.banner.copyLocal', { path: document.path }) }}
           </button>
         </template>
       </InlineBanner>
@@ -141,10 +140,10 @@
       <form
         v-if="replacementFormOpen"
         class="workspace-mutation-form"
-        aria-label="Create replacement workspace"
+        :aria-label="t('workspace.replacementLabel')"
         @submit.prevent="createReplacementWorkspace"
       >
-        <label for="replacement-workspace-name">Workspace name</label>
+        <label for="replacement-workspace-name">{{ t('workspace.name') }}</label>
         <input
           id="replacement-workspace-name"
           v-model="replacementWorkspaceName"
@@ -156,13 +155,13 @@
             type="button"
             @click="closeReplacementForm"
           >
-            Cancel
+            {{ t('common.cancel') }}
           </button>
           <button
             type="submit"
             :disabled="replacementWorkspaceName === '' || state.pendingAction !== null"
           >
-            Create
+            {{ t('common.create') }}
           </button>
         </div>
       </form>
@@ -174,36 +173,36 @@
         aria-live="polite"
       >
         <span aria-hidden="true">◌</span>
-        Loading workspace files…
+        {{ t('workspace.loadingFiles') }}
       </div>
 
       <nav
         class="workspace-task-tabs"
-        aria-label="Workspace tasks"
+        :aria-label="t('workspace.tasksLabel')"
       >
         <button
           type="button"
-          aria-label="Show files task"
+          :aria-label="t('workspace.showFilesTask')"
           :aria-pressed="state.activeTask === 'files'"
           @click="selectTask('files')"
         >
-          Files
+          {{ t('workspace.filesTask') }}
         </button>
         <button
           type="button"
-          aria-label="Show editor task"
+          :aria-label="t('workspace.showEditorTask')"
           :aria-pressed="state.activeTask === 'editor'"
           @click="selectTask('editor')"
         >
-          Edit
+          {{ t('workspace.editTask') }}
         </button>
         <button
           type="button"
-          aria-label="Show review task"
+          :aria-label="t('workspace.showReviewTask')"
           :aria-pressed="state.activeTask === 'review'"
           @click="selectTask('review')"
         >
-          Review
+          {{ t('workspace.reviewTask') }}
         </button>
       </nav>
 
@@ -212,13 +211,13 @@
         :aria-hidden="panelHidden('files')"
         :inert="panelHidden('files') ? true : undefined"
       >
-        <span>Workspace file</span>
+        <span>{{ t('workspace.workspaceFile') }}</span>
         <select
           :value="state.selectedPath ?? ''"
           @change="selectFileFromControl"
         >
           <option value="">
-            Select a managed file
+            {{ t('workspace.selectManagedFile') }}
           </option>
           <option
             v-for="entry in selectableFiles"
@@ -291,15 +290,15 @@
       <button
         type="button"
         class="workspace-review-trigger"
-        aria-label="Open workspace review"
+        :aria-label="t('workspace.openReview')"
         @click="openReviewDrawer"
       >
-        Review changes
+        {{ t('workspace.reviewChanges') }}
       </button>
 
       <ReviewDrawer
         :open="reviewDrawerOpen"
-        title="Workspace review"
+        :title="t('workspace.review.label')"
         :trigger="drawerTrigger"
         @close="reviewDrawerOpen = false"
       >
@@ -320,7 +319,7 @@
         :phase="releaseState.phase"
         :blocked-reason="publishBlockedReason"
         :expired="publishCheckExpired"
-        :error="releaseState.error"
+        :error="releaseErrorMessage"
         @check="startPublishCheck"
         @publish="requestPublish"
       />
@@ -338,14 +337,14 @@
         @submit.prevent="submitFileMutation"
       >
         <template v-if="fileMutation.kind === 'create'">
-          <label for="mutation-path">File path</label>
+          <label for="mutation-path">{{ t('workspace.filePath') }}</label>
           <input
             id="mutation-path"
             v-model="mutationPath"
             name="mutation-path"
             autocomplete="off"
           >
-          <label for="mutation-content">Initial content</label>
+          <label for="mutation-content">{{ t('workspace.initialContent') }}</label>
           <textarea
             id="mutation-content"
             v-model="mutationContent"
@@ -353,8 +352,8 @@
           />
         </template>
         <template v-else>
-          <p>Source: {{ fileMutation.sourcePath }}</p>
-          <label for="mutation-destination">Destination path</label>
+          <p>{{ t('workspace.source', { path: fileMutation.sourcePath }) }}</p>
+          <label for="mutation-destination">{{ t('workspace.destinationPath') }}</label>
           <input
             id="mutation-destination"
             v-model="mutationDestination"
@@ -367,7 +366,7 @@
             type="button"
             @click="closeFileMutation"
           >
-            Cancel
+            {{ t('common.cancel') }}
           </button>
           <button
             type="submit"
@@ -381,24 +380,24 @@
       <form
         v-if="groupMutation !== null"
         class="workspace-mutation-form"
-        :aria-label="groupMutation.kind === 'create' ? 'Create logical group' : 'Edit logical group'"
+        :aria-label="groupMutation.kind === 'create' ? t('workspace.createGroup') : t('workspace.editGroup')"
         @submit.prevent="submitGroupMutation"
       >
-        <label for="group-name">Group name</label>
+        <label for="group-name">{{ t('workspace.groupName') }}</label>
         <input
           id="group-name"
           v-model="groupName"
           name="group-name"
           autocomplete="off"
         >
-        <label for="group-order">Sort order</label>
+        <label for="group-order">{{ t('workspace.sortOrder') }}</label>
         <input
           id="group-order"
           v-model.number="groupSortOrder"
           name="group-order"
           type="number"
         >
-        <label for="group-members">Member paths, one per line</label>
+        <label for="group-members">{{ t('workspace.memberPaths') }}</label>
         <textarea
           id="group-members"
           v-model="groupMembers"
@@ -409,13 +408,13 @@
             type="button"
             @click="groupMutation = null"
           >
-            Cancel
+            {{ t('common.cancel') }}
           </button>
           <button
             type="submit"
             :disabled="groupName === '' || state.pendingAction !== null"
           >
-            Save group
+            {{ t('workspace.saveGroup') }}
           </button>
         </div>
       </form>
@@ -423,7 +422,7 @@
 
     <ConfirmModal
       :open="deleteTarget !== null"
-      :title="deleteTarget?.title ?? 'Confirm deletion'"
+      :title="deleteTarget?.title ?? t('workspace.confirmDeletion')"
       :consequence="deleteTarget?.consequence ?? ''"
       :object-name="deleteTarget?.objectName ?? ''"
       :trigger="deleteTrigger"
@@ -432,10 +431,10 @@
     />
     <ConfirmModal
       :open="releaseModalOpen"
-      title="Publish configuration to production?"
-      consequence="The system will recheck production and the draft, create a complete backup, update production files, validate the full configuration, reload Nginx, and automatically roll back when the result is safely knowable."
+      :title="t('workspace.publishTitle')"
+      :consequence="t('workspace.publishConsequence')"
       :object-name="state.active?.name ?? ''"
-      confirm-label="Publish"
+      :confirm-label="t('workspace.publishAction')"
       :trigger="releaseTrigger"
       @cancel="releaseModalOpen = false"
       @confirm="confirmPublish"
@@ -449,6 +448,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
 import type { ConfigGroup, WorkspaceSummary } from '../api/types'
@@ -506,6 +506,7 @@ const state = store.state
 	const releaseState = releases.state
 const route = useRoute()
 const router = useRouter()
+const { t } = useI18n()
 
 const pageError = ref('')
 const replacementFormOpen = ref(false)
@@ -549,15 +550,15 @@ const workspaceReadOnly = computed(
 const workspaceBannerMessage = computed(() => {
   switch (state.banner?.kind) {
     case 'conflict':
-      return 'This file changed on the server. Your local text has not been overwritten.'
+      return t('workspace.banner.conflict')
     case 'stale':
-      return 'Production configuration changed. Create a new workspace to continue.'
+      return t('workspace.banner.stale')
     case 'needs_attention':
-      return `Workspace consistency cannot be confirmed. Workspace ID: ${state.active?.id ?? ''}`
+      return t('workspace.banner.needsAttention', { id: state.active?.id ?? '' })
     case 'agent_unavailable':
-      return 'Configuration Agent is unavailable. Production configuration and files are unaffected.'
+      return t('workspace.banner.agentUnavailable')
     case 'session_expired':
-      return 'Session expired; local text remains in memory. Copy local content before signing in again.'
+      return t('workspace.banner.sessionExpired')
     default:
       return ''
   }
@@ -572,9 +573,9 @@ const selectableFiles = computed(() =>
   state.tree.filter(({ entry_type, managed }) => entry_type === 'regular' && managed),
 )
 const fileMutationLabel = computed(() => {
-  if (fileMutation.value?.kind === 'copy') return 'Copy file'
-  if (fileMutation.value?.kind === 'rename') return 'Rename file'
-  return 'Create file'
+  if (fileMutation.value?.kind === 'copy') return t('workspace.copyFile')
+  if (fileMutation.value?.kind === 'rename') return t('workspace.renameFile')
+  return t('workspace.createFile')
 })
 const fileMutationReady = computed(() =>
   fileMutation.value?.kind === 'create'
@@ -583,24 +584,33 @@ const fileMutationReady = computed(() =>
 )
 	const publishBlockedReason = computed(() => {
 		const workspace = state.active
-		if (workspace === null) return 'Open a workspace before checking publication.'
+		if (workspace === null) return t('workspace.blockers.openWorkspace')
 		if (workspace.state !== 'ready') {
-			if (workspace.state === 'published') return 'This immutable workspace has already been published.'
-			if (workspace.state === 'stale') return 'Production changed. Create a new workspace before publishing.'
-			if (workspace.state === 'needs_attention') return 'Workspace consistency must be resolved before publishing.'
-			return 'The workspace is not ready for publication.'
+			if (workspace.state === 'published') return t('workspace.blockers.alreadyPublished')
+			if (workspace.state === 'stale') return t('workspace.blockers.stale')
+			if (workspace.state === 'needs_attention') return t('workspace.blockers.needsAttention')
+			return t('workspace.blockers.notReady')
 		}
-		if (state.pendingAction !== null) return 'Wait for the current workspace mutation to finish.'
-		if (store.hasUnsavedChanges()) return 'Save all open documents before checking publication.'
-		if (state.diff === null) return 'Load the complete all-files diff before checking publication.'
-		if (!state.diff.complete) return 'The diff is incomplete. Reduce it until the full review is available.'
-		if (!state.diff.files.some(({ status }) => status !== 'unchanged')) return 'This workspace has no publishable changes.'
-		if (releaseState.release !== null && !isTerminalRelease(releaseState.release)) return 'A release or rollback is already in progress.'
+		if (state.pendingAction !== null) return t('workspace.blockers.pending')
+		if (store.hasUnsavedChanges()) return t('workspace.blockers.unsaved')
+		if (state.diff === null) return t('workspace.blockers.loadDiff')
+		if (!state.diff.complete) return t('workspace.blockers.incompleteDiff')
+		if (!state.diff.files.some(({ status }) => status !== 'unchanged')) return t('workspace.blockers.noChanges')
+		if (releaseState.release !== null && !isTerminalRelease(releaseState.release)) return t('workspace.blockers.releaseActive')
 		return ''
 	})
 	const publishCheckExpired = computed(
 		() => releaseState.check !== null && Date.parse(releaseState.check.expires_at) <= expiryClock.value,
 	)
+	const releaseErrorMessage = computed(() => {
+		switch (releaseState.error) {
+			case 'session_expired': return t('release.errors.sessionExpired')
+			case 'check_failed': return t('release.errors.checkFailed')
+			case 'queue_failed': return t('release.errors.queueFailed')
+			case 'refresh_failed': return t('release.errors.refreshFailed')
+			default: return ''
+		}
+	})
 
 watch(
   () => route.params.workspaceId,
@@ -646,8 +656,8 @@ watch(
 			if (release.workspace_id === state.active?.id && (releaseStatus === 'succeeded' || releaseStatus === 'needs_attention')) {
 				void run(() => store.openWorkspace(release.workspace_id))
 			}
-			if (releaseStatus === 'succeeded') addToast('Configuration published and Nginx health confirmed.')
-			else if (releaseStatus === 'rolled_back') addToast('Release failed; the last valid version was restored and confirmed healthy.')
+			if (releaseStatus === 'succeeded') addToast(t('workspace.toasts.published'))
+			else if (releaseStatus === 'rolled_back') addToast(t('workspace.toasts.rolledBack'))
 		},
 	)
 
@@ -683,7 +693,7 @@ async function createWorkspace(name: string): Promise<void> {
   await run(async () => {
     const created = await store.createWorkspace(name)
     await router.push({ name: 'config-workspaces', params: { workspaceId: created.id } })
-    addToast(`Workspace “${created.name}” created.`)
+    addToast(t('workspace.toasts.created', { name: created.name }))
   })
 }
 
@@ -705,9 +715,8 @@ function requestWorkspaceDelete(workspace: WorkspaceSummary): void {
     kind: 'workspace',
     workspace,
     objectName: workspace.name,
-    title: `Delete workspace “${workspace.name}”?`,
-    consequence:
-      'This removes the workspace draft and its metadata. Production configuration and files are unaffected.',
+    title: t('workspace.deleteWorkspaceTitle', { name: workspace.name }),
+    consequence: t('workspace.deleteWorkspaceConsequence'),
   }
 }
 
@@ -734,14 +743,14 @@ function selectOpenDocument(path: string): void {
 
 function closeFile(path: string): void {
   if (!store.closeFile(path)) {
-    pageError.value = `Save or resolve unsaved changes in ${path} before closing it.`
+    pageError.value = t('workspace.closeUnsavedError', { path })
   }
 }
 
 function saveFile(path: string): void {
   void run(async () => {
     await store.saveFile(path)
-    addToast(`${path} saved to the workspace draft.`)
+    addToast(t('workspace.toasts.saved', { path }))
   })
 }
 
@@ -771,7 +780,7 @@ async function submitFileMutation(): Promise<void> {
     } else {
       await store.renameFile(mutation.sourcePath, mutationDestination.value)
     }
-    addToast(`${fileMutationLabel.value} completed in the workspace draft.`)
+    addToast(t('workspace.toasts.mutationCompleted', { action: fileMutationLabel.value }))
     closeFileMutation()
   })
 }
@@ -783,8 +792,8 @@ function requestFileDelete(path: string): void {
     kind: 'file',
     path,
     objectName: path,
-    title: `Delete file “${path}”?`,
-    consequence: `This deletes '${path}' only from this workspace draft. Production configuration and files are unaffected.`,
+    title: t('workspace.deleteFileTitle', { path }),
+    consequence: t('workspace.deleteFileConsequence', { path }),
   }
 }
 
@@ -820,7 +829,7 @@ async function submitGroupMutation(): Promise<void> {
     } else {
       await store.replaceGroup(mutation.group.id, input)
     }
-    addToast(`Logical group “${input.name}” saved.`)
+    addToast(t('workspace.toasts.groupSaved', { name: input.name }))
     groupMutation.value = null
   })
 }
@@ -832,9 +841,8 @@ function requestGroupDelete(group: ConfigGroup): void {
     kind: 'group',
     group,
     objectName: group.name,
-    title: `Delete logical group “${group.name}”?`,
-    consequence:
-      'This removes only the logical group. It does not delete files, and production configuration is unaffected.',
+    title: t('workspace.deleteGroupTitle', { name: group.name }),
+    consequence: t('workspace.deleteGroupConsequence'),
   }
 }
 
@@ -853,14 +861,18 @@ async function confirmDelete(name: string): Promise<void> {
     } else {
       await store.deleteGroup(target.group.id, name)
     }
-    addToast(`${target.title.replace('?', '')} completed.`)
+    addToast(t('workspace.toasts.deletionCompleted', {
+      title: target.title.replace(/[?？]$/, ''),
+    }))
     deleteTarget.value = null
   })
 }
 
 function copyLocal(path: string): void {
   void run(async () => {
-    if (await store.copyLocalContent(path)) addToast(`Local content for ${path} copied.`)
+    if (await store.copyLocalContent(path)) {
+      addToast(t('workspace.toasts.localCopied', { path }))
+    }
   })
 }
 
@@ -892,7 +904,9 @@ function searchFiles(query: string): void {
 		if (workspace === null || publishBlockedReason.value !== '') return
 		void run(async () => {
 			const check = await releases.check(workspace, state.diff, store.hasUnsavedChanges())
-			addToast(check.state === 'valid' ? 'Complete candidate check passed.' : 'Candidate check found configuration errors.')
+			addToast(check.state === 'valid'
+        ? t('workspace.toasts.checkPassed')
+        : t('workspace.toasts.checkFailed'))
 		})
 	}
 
@@ -937,8 +951,8 @@ async function run(operation: () => Promise<unknown>): Promise<void> {
   } catch (error) {
     pageError.value =
       error instanceof Error
-        ? 'The workspace action could not be completed. Local draft text is unchanged.'
-        : 'The workspace request failed.'
+        ? t('workspace.actionError')
+        : t('workspace.requestError')
   }
 }
 </script>

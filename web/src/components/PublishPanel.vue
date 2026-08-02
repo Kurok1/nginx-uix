@@ -11,9 +11,9 @@
     <header>
       <div>
         <h2 id="publish-panel-title">
-          Publish configuration
+          {{ t('publication.title') }}
         </h2>
-        <p>Validate the complete candidate before production can be changed.</p>
+        <p>{{ t('publication.description') }}</p>
       </div>
       <button
         type="button"
@@ -21,7 +21,7 @@
         :disabled="blockedReason !== '' || phase === 'checking' || phase === 'queuing' || phase === 'tracking'"
         @click="$emit('check')"
       >
-        {{ phase === 'checking' ? 'Checking complete candidate…' : 'Check publication' }}
+        {{ phase === 'checking' ? t('publication.checking') : t('publication.check') }}
       </button>
     </header>
 
@@ -45,8 +45,8 @@
       class="publish-panel__invalid"
       role="alert"
     >
-      <h3>Candidate validation failed</h3>
-      <p>Production configuration has not been changed.</p>
+      <h3>{{ t('publication.validationFailed') }}</h3>
+      <p>{{ t('publication.productionUnchanged') }}</p>
       <ul tabindex="0">
         <li
           v-for="diagnostic in check.details.diagnostics"
@@ -64,22 +64,22 @@
       class="publish-panel__valid"
     >
       <p class="publish-panel__unchanged">
-        ✓ Production configuration has not been changed.
+        ✓ {{ t('publication.productionUnchanged') }}
       </p>
       <dl>
-        <div><dt>Production</dt><dd><code>{{ shortDigest(check.production_digest) }}</code></dd></div>
-        <div><dt>Draft</dt><dd><code>{{ shortDigest(check.draft_digest) }}</code></dd></div>
-        <div><dt>Candidate</dt><dd><code>{{ shortDigest(check.candidate_digest) }}</code></dd></div>
-        <div><dt>Validator</dt><dd>{{ check.validator_build_id }}</dd></div>
-        <div><dt>Checked</dt><dd><time :datetime="check.finished_at">{{ formatTime(check.finished_at) }}</time></dd></div>
-        <div><dt>Expires</dt><dd><time :datetime="check.expires_at">{{ formatTime(check.expires_at) }}</time></dd></div>
+        <div><dt>{{ t('publication.production') }}</dt><dd><code>{{ shortDigest(check.production_digest) }}</code></dd></div>
+        <div><dt>{{ t('publication.draft') }}</dt><dd><code>{{ shortDigest(check.draft_digest) }}</code></dd></div>
+        <div><dt>{{ t('publication.candidate') }}</dt><dd><code>{{ shortDigest(check.candidate_digest) }}</code></dd></div>
+        <div><dt>{{ t('publication.validator') }}</dt><dd>{{ check.validator_build_id }}</dd></div>
+        <div><dt>{{ t('publication.checked') }}</dt><dd><time :datetime="check.finished_at">{{ formatTime(check.finished_at) }}</time></dd></div>
+        <div><dt>{{ t('publication.expires') }}</dt><dd><time :datetime="check.expires_at">{{ formatTime(check.expires_at) }}</time></dd></div>
       </dl>
       <p
         v-if="expired"
         class="publish-panel__error"
         role="alert"
       >
-        This check has expired. Run the complete check again.
+        {{ t('publication.expired') }}
       </p>
       <button
         type="button"
@@ -87,14 +87,18 @@
         :disabled="expired || phase === 'queuing' || phase === 'tracking'"
         @click="$emit('publish')"
       >
-        {{ phase === 'queuing' ? 'Queuing release…' : 'Publish…' }}
+        {{ phase === 'queuing' ? t('publication.queuing') : t('publication.publish') }}
       </button>
     </div>
   </section>
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+
 import type { PublishCheck } from '../api/types'
+
+const { d, t } = useI18n()
 
 defineProps<{
   blockedReason: string
@@ -114,14 +118,16 @@ function shortDigest(digest: string): string {
 }
 
 function diagnosticLocation(path: string, line: number): string {
-  if (path === '') return line > 0 ? `line ${line}` : 'candidate'
+  if (path === '') {
+    return line > 0
+      ? t('publication.diagnosticLine', { line })
+      : t('publication.diagnosticCandidate')
+  }
   return line > 0 ? `${path}:${line}` : path
 }
 
 function formatTime(value: string): string {
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'medium' }).format(
-    new Date(value),
-  )
+  return d(new Date(value), 'short')
 }
 </script>
 

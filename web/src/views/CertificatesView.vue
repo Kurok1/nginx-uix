@@ -10,31 +10,31 @@
     <header class="certificate-page__header">
       <div>
         <p class="certificate-page__eyebrow">
-          TLS lifecycle
+          {{ t('certificates.eyebrow') }}
         </p>
-        <h1>Certificates</h1>
-        <p>Request, bind, renew, and audit Let's Encrypt certificates without exposing secret material.</p>
+        <h1>{{ t('certificates.title') }}</h1>
+        <p>{{ t('certificates.description') }}</p>
       </div>
       <button
         type="button"
         :disabled="loading"
         @click="refreshAll"
       >
-        {{ loading ? 'Refreshing…' : 'Refresh evidence' }}
+        {{ loading ? t('certificates.refreshing') : t('certificates.refresh') }}
       </button>
     </header>
 
     <p
-      v-if="pageError !== ''"
+      v-if="pageError !== null"
       class="certificate-page__error"
       role="alert"
     >
-      {{ pageError }}
+      {{ messageText(pageError) }}
     </p>
 
     <nav
       class="certificate-page__tabs"
-      aria-label="Certificate tasks"
+      :aria-label="t('certificates.tabsLabel')"
     >
       <button
         v-for="tab in tabs"
@@ -56,15 +56,15 @@
         id="certificate-overview-title"
         class="certificate-page__visually-hidden"
       >
-        Certificate overview
+        {{ t('certificates.overview.title') }}
       </h2>
       <div class="certificate-workbench">
         <aside
           class="certificate-list"
-          aria-label="Certificates"
+          :aria-label="t('certificates.overview.listLabel')"
         >
           <p v-if="certificates.length === 0 && !loading">
-            No certificates exist. Create an ACME account, then use the Request panel.
+            {{ t('certificates.overview.empty') }}
           </p>
           <ul v-else>
             <li
@@ -77,9 +77,9 @@
                 @click="openCertificate(item.id)"
               >
                 <strong>{{ item.primary_identifier }}</strong>
-                <span>{{ item.identifiers.length }} SAN · {{ challengeLabel(item.challenge) }}</span>
+                <span>{{ t('certificates.overview.sanCount', { count: item.identifiers.length }) }} · {{ challengeLabel(item.challenge) }}</span>
                 <span>{{ environmentForAccount(item.account_id) }} · {{ stateLabel(item.state) }}</span>
-                <span>Expires {{ formatTime(item.not_after) }}</span>
+                <span>{{ t('certificates.overview.expires', { time: formatTime(item.not_after) }) }}</span>
               </RouterLink>
             </li>
           </ul>
@@ -103,17 +103,17 @@
             />
           </header>
           <dl>
-            <div><dt>Certificate ID</dt><dd><code>{{ selectedCertificate.id }}</code></dd></div>
-            <div><dt>Challenge</dt><dd>{{ challengeLabel(selectedCertificate.challenge) }}</dd></div>
-            <div><dt>Valid from</dt><dd>{{ formatTime(selectedCertificate.not_before) }}</dd></div>
-            <div><dt>Valid until</dt><dd>{{ formatTime(selectedCertificate.not_after) }}</dd></div>
-            <div><dt>Active version</dt><dd><code>{{ abbreviate(selectedCertificate.active_version_id) }}</code></dd></div>
-            <div><dt>Automatic renewal</dt><dd>{{ selectedCertificate.auto_renew ? 'Enabled' : 'Disabled' }}</dd></div>
-            <div><dt>Next attempt</dt><dd>{{ optionalTime(selectedCertificate.next_renewal_at) }}</dd></div>
+            <div><dt>{{ t('certificates.overview.certificateId') }}</dt><dd><code>{{ selectedCertificate.id }}</code></dd></div>
+            <div><dt>{{ t('certificates.overview.challenge') }}</dt><dd>{{ challengeLabel(selectedCertificate.challenge) }}</dd></div>
+            <div><dt>{{ t('certificates.overview.validFrom') }}</dt><dd>{{ formatTime(selectedCertificate.not_before) }}</dd></div>
+            <div><dt>{{ t('certificates.overview.validUntil') }}</dt><dd>{{ formatTime(selectedCertificate.not_after) }}</dd></div>
+            <div><dt>{{ t('certificates.overview.activeVersion') }}</dt><dd><code>{{ abbreviate(selectedCertificate.active_version_id) }}</code></dd></div>
+            <div><dt>{{ t('certificates.overview.automaticRenewal') }}</dt><dd>{{ selectedCertificate.auto_renew ? t('certificates.overview.enabled') : t('certificates.overview.disabled') }}</dd></div>
+            <div><dt>{{ t('certificates.overview.nextAttempt') }}</dt><dd>{{ optionalTime(selectedCertificate.next_renewal_at) }}</dd></div>
           </dl>
           <section aria-labelledby="certificate-san-title">
             <h3 id="certificate-san-title">
-              Subject alternative names
+              {{ t('certificates.overview.sans') }}
             </h3>
             <ul class="certificate-detail__sans">
               <li
@@ -126,10 +126,10 @@
           </section>
           <section aria-labelledby="certificate-binding-title">
             <h3 id="certificate-binding-title">
-              Server bindings
+              {{ t('certificates.overview.bindings') }}
             </h3>
             <p v-if="(selectedCertificate.bindings?.length ?? 0) === 0">
-              Unbound — no Nginx server currently references this certificate.
+              {{ t('certificates.overview.unbound') }}
             </p>
             <ul v-else>
               <li
@@ -145,7 +145,7 @@
             class="certificate-page__blocking"
             role="alert"
           >
-            Certificate or challenge cleanup cannot be confirmed.
+            {{ t('certificates.overview.cleanupWarning') }}
           </p>
 
           <section
@@ -153,13 +153,13 @@
             aria-labelledby="certificate-lifecycle-title"
           >
             <h3 id="certificate-lifecycle-title">
-              Lifecycle controls
+              {{ t('certificates.lifecycle.title') }}
             </h3>
             <form
               data-action="renew-certificate"
               @submit.prevent="renewSelectedCertificate"
             >
-              <label for="renew-confirmation">Type “{{ selectedCertificate.primary_identifier }}” to renew now</label>
+              <label for="renew-confirmation">{{ t('certificates.lifecycle.renewConfirm', { name: selectedCertificate.primary_identifier }) }}</label>
               <input
                 id="renew-confirmation"
                 v-model="renewConfirmation"
@@ -171,7 +171,7 @@
                 type="submit"
                 :disabled="lifecyclePending || renewConfirmation !== selectedCertificate.primary_identifier"
               >
-                Renew now
+                {{ t('certificates.lifecycle.renew') }}
               </button>
             </form>
 
@@ -185,9 +185,9 @@
                   name="auto-renew"
                   type="checkbox"
                 >
-                Enable automatic renewal
+                {{ t('certificates.lifecycle.autoRenew') }}
               </label>
-              <label for="renew-before-days">Renew before expiry (days)</label>
+              <label for="renew-before-days">{{ t('certificates.lifecycle.renewBefore') }}</label>
               <input
                 id="renew-before-days"
                 v-model.number="renewBeforeDays"
@@ -196,7 +196,7 @@
                 min="1"
                 max="89"
               >
-              <label for="renewal-policy-confirmation">Type “{{ selectedCertificate.primary_identifier }}” to save this policy</label>
+              <label for="renewal-policy-confirmation">{{ t('certificates.lifecycle.policyConfirm', { name: selectedCertificate.primary_identifier }) }}</label>
               <input
                 id="renewal-policy-confirmation"
                 v-model="policyConfirmation"
@@ -208,7 +208,7 @@
                 type="submit"
                 :disabled="lifecyclePending || policyConfirmation !== selectedCertificate.primary_identifier || renewBeforeDays < 1 || renewBeforeDays > 89"
               >
-                Save renewal policy
+                {{ t('certificates.lifecycle.savePolicy') }}
               </button>
             </form>
 
@@ -216,7 +216,7 @@
               data-action="unbind-certificate"
               @submit.prevent="unbindSelectedCertificate"
             >
-              <label for="unbind-confirmation">Type “{{ selectedCertificate.primary_identifier }}” to remove its exact Nginx bindings</label>
+              <label for="unbind-confirmation">{{ t('certificates.lifecycle.unbindConfirm', { name: selectedCertificate.primary_identifier }) }}</label>
               <input
                 id="unbind-confirmation"
                 v-model="unbindConfirmation"
@@ -228,7 +228,7 @@
                 type="submit"
                 :disabled="lifecyclePending || (selectedCertificate.bindings?.length ?? 0) === 0 || unbindConfirmation !== selectedCertificate.primary_identifier"
               >
-                Unbind from Nginx
+                {{ t('certificates.lifecycle.unbind') }}
               </button>
             </form>
 
@@ -237,9 +237,9 @@
               aria-labelledby="standalone-binding-title"
             >
               <h4 id="standalone-binding-title">
-                Bind current immutable version
+                {{ t('certificates.lifecycle.bindTitle') }}
               </h4>
-              <p>Selecting servers only prepares a digest-bound configuration review.</p>
+              <p>{{ t('certificates.lifecycle.bindDescription') }}</p>
               <ul class="certificate-request__servers">
                 <li
                   v-for="candidate in serverCandidates"
@@ -254,7 +254,7 @@
                       @change="invalidateBindingPlan"
                     >
                     <span>
-                      <strong>{{ candidate.ref.server_names.join(', ') || '(no server_name)' }}</strong>
+                      <strong>{{ candidate.ref.server_names.join(', ') || t('certificates.lifecycle.noServerName') }}</strong>
                       <small>{{ candidate.ref.listeners.join(', ') }} · {{ candidate.ref.path }}:{{ candidate.start_line }}</small>
                     </span>
                   </label>
@@ -266,14 +266,14 @@
                 :disabled="lifecyclePending || bindingServerKeys.length === 0"
                 @click="reviewBinding"
               >
-                Review binding
+                {{ t('certificates.lifecycle.reviewBinding') }}
               </button>
               <div
                 v-if="bindingPlan !== null"
                 class="certificate-detail__binding-review"
               >
-                <p>No Nginx configuration has been changed by this binding review.</p>
-                <p>Plan expires {{ formatTime(bindingPlan.expires_at) }} · production <code>{{ abbreviate(bindingPlan.production_digest) }}</code></p>
+                <p>{{ t('certificates.lifecycle.bindingUnchanged') }}</p>
+                <p>{{ t('certificates.lifecycle.planExpires', { time: formatTime(bindingPlan.expires_at) }) }} <code>{{ abbreviate(bindingPlan.production_digest) }}</code></p>
                 <article
                   v-for="change in bindingPlan.binding_diff"
                   :key="change.path"
@@ -282,10 +282,10 @@
                   <h4>{{ change.path }} · +{{ change.added_lines }} −{{ change.removed_lines }}</h4>
                   <pre
                     class="workspace-scroll-region"
-                    aria-label="Complete standalone binding diff"
+                    :aria-label="t('certificates.lifecycle.bindingDiffLabel')"
                   >{{ change.patch }}</pre>
                 </article>
-                <label for="binding-confirmation">Type “{{ selectedCertificate.primary_identifier }}” to publish this binding</label>
+                <label for="binding-confirmation">{{ t('certificates.lifecycle.bindingConfirm', { name: selectedCertificate.primary_identifier }) }}</label>
                 <input
                   id="binding-confirmation"
                   v-model="bindingConfirmation"
@@ -299,7 +299,7 @@
                   :disabled="lifecyclePending || bindingConfirmation !== selectedCertificate.primary_identifier"
                   @click="executeBinding"
                 >
-                  Bind certificate
+                  {{ t('certificates.lifecycle.bind') }}
                 </button>
               </div>
             </section>
@@ -311,12 +311,14 @@
                 :disabled="lifecyclePending"
                 @click="openExport($event)"
               >
-                Export certificate
+                {{ t('certificates.lifecycle.export') }}
               </button>
               <p v-if="(selectedCertificate.bindings?.length ?? 0) > 0">
-                Delete is blocked while {{ selectedCertificate.bindings?.length }} Nginx binding remains{{ selectedCertificate.bindings?.length === 1 ? '' : 's' }}.
+                {{ selectedCertificate.bindings?.length === 1
+                  ? t('certificates.lifecycle.deleteBlockedOne')
+                  : t('certificates.lifecycle.deleteBlockedMany', { count: selectedCertificate.bindings?.length ?? 0 }) }}
               </p>
-              <label for="delete-confirmation">Type the full certificate ID to delete unreferenced local material</label>
+              <label for="delete-confirmation">{{ t('certificates.lifecycle.deleteConfirm') }}</label>
               <input
                 id="delete-confirmation"
                 v-model="deleteConfirmation"
@@ -330,21 +332,21 @@
                 :disabled="lifecyclePending || (selectedCertificate.bindings?.length ?? 0) > 0 || deleteConfirmation !== selectedCertificate.id"
                 @click="deleteSelectedCertificate"
               >
-                Delete certificate
+                {{ t('certificates.lifecycle.delete') }}
               </button>
             </div>
             <p
-              v-if="lifecycleMessage !== ''"
+              v-if="lifecycleMessage !== null"
               role="status"
             >
-              {{ lifecycleMessage }}
+              {{ messageText(lifecycleMessage) }}
             </p>
             <p
-              v-if="lifecycleError !== ''"
+              v-if="lifecycleError !== null"
               class="certificate-page__error"
               role="alert"
             >
-              {{ lifecycleError }}
+              {{ messageText(lifecycleError) }}
             </p>
           </section>
 
@@ -362,24 +364,24 @@
               @keydown="handleExportKeydown"
             >
               <h3 id="certificate-export-title">
-                Export certificate
+                {{ t('certificates.export.title') }}
               </h3>
-              <p>The full chain is returned directly to the browser download boundary and is never previewed or retained by this page.</p>
+              <p>{{ t('certificates.export.description') }}</p>
               <label class="certificate-detail__check">
                 <input
                   v-model="includePrivateKey"
                   name="include-private-key"
                   type="checkbox"
                 >
-                Include private key
+                {{ t('certificates.export.includePrivateKey') }}
               </label>
               <p
                 v-if="includePrivateKey"
                 class="certificate-page__blocking"
               >
-                This response contains sensitive private-key material. Store it securely.
+                {{ t('certificates.export.privateKeyWarning') }}
               </p>
-              <label for="export-confirmation">Type the full certificate ID to export</label>
+              <label for="export-confirmation">{{ t('certificates.export.confirm') }}</label>
               <input
                 id="export-confirmation"
                 v-model="exportConfirmation"
@@ -388,7 +390,7 @@
                 autocomplete="off"
               >
               <template v-if="includePrivateKey">
-                <label for="private-key-confirmation">Type “EXPORT PRIVATE KEY” as the second confirmation</label>
+                <label for="private-key-confirmation">{{ t('certificates.export.privateKeyConfirm') }}</label>
                 <input
                   id="private-key-confirmation"
                   v-model="privateKeyConfirmation"
@@ -403,7 +405,7 @@
                   type="button"
                   @click="closeExport"
                 >
-                  Cancel
+                  {{ t('certificates.export.cancel') }}
                 </button>
                 <button
                   type="button"
@@ -411,7 +413,7 @@
                   :disabled="!canExport || lifecyclePending"
                   @click="exportSelectedCertificate"
                 >
-                  Export
+                  {{ t('certificates.export.action') }}
                 </button>
               </div>
             </section>
@@ -427,13 +429,13 @@
     >
       <header>
         <h2 id="certificate-request-title">
-          Request certificate
+          {{ t('certificates.request.title') }}
         </h2>
-        <p>Nothing is issued or written to Nginx until a complete review is exactly confirmed.</p>
+        <p>{{ t('certificates.request.description') }}</p>
       </header>
       <ol
         class="certificate-request__steps"
-        aria-label="Request steps"
+        :aria-label="t('certificates.request.stepsLabel')"
       >
         <li
           v-for="(step, index) in wizardSteps"
@@ -446,14 +448,14 @@
 
       <form @submit.prevent="reviewCertificate">
         <fieldset>
-          <legend>1. Identifiers</legend>
+          <legend>{{ t('certificates.request.identifiersLegend') }}</legend>
           <div class="certificate-request__domains">
             <div
               v-for="(_, index) in identifiers"
               :key="index"
               class="certificate-request__domain"
             >
-              <label :for="`certificate-identifier-${index}`">Domain {{ index + 1 }}</label>
+              <label :for="`certificate-identifier-${index}`">{{ t('certificates.request.domain', { number: index + 1 }) }}</label>
               <input
                 :id="`certificate-identifier-${index}`"
                 v-model="identifiers[index]"
@@ -467,10 +469,10 @@
               <button
                 v-if="identifiers.length > 1"
                 type="button"
-                :aria-label="`Remove domain ${index + 1}`"
+                :aria-label="t('certificates.request.removeDomain', { number: index + 1 })"
                 @click="removeIdentifier(index)"
               >
-                Remove
+                {{ t('certificates.request.remove') }}
               </button>
             </div>
           </div>
@@ -478,13 +480,13 @@
             type="button"
             @click="addIdentifier"
           >
-            Add domain
+            {{ t('certificates.request.addDomain') }}
           </button>
         </fieldset>
 
         <fieldset>
-          <legend>2. Challenge</legend>
-          <label for="certificate-challenge">Validation method</label>
+          <legend>{{ t('certificates.request.challengeLegend') }}</legend>
+          <label for="certificate-challenge">{{ t('certificates.request.validationMethod') }}</label>
           <select
             id="certificate-challenge"
             v-model="challenge"
@@ -499,17 +501,17 @@
             </option>
           </select>
           <p
-            v-if="challengeError !== ''"
+            v-if="challengeError !== null"
             class="certificate-page__error"
             role="alert"
           >
-            {{ challengeError }}
+            {{ messageText(challengeError) }}
           </p>
         </fieldset>
 
         <fieldset>
-          <legend>3. Account</legend>
-          <label for="certificate-account">ACME account</label>
+          <legend>{{ t('certificates.request.accountLegend') }}</legend>
+          <label for="certificate-account">{{ t('certificates.request.account') }}</label>
           <select
             id="certificate-account"
             v-model="accountID"
@@ -517,7 +519,7 @@
             @change="invalidatePlan"
           >
             <option value="">
-              Select an account
+              {{ t('certificates.request.selectAccount') }}
             </option>
             <option
               v-for="account in validAccounts"
@@ -528,7 +530,7 @@
             </option>
           </select>
           <template v-if="selectedEnvironment === 'production'">
-            <label for="staging-account">Staging preflight account</label>
+            <label for="staging-account">{{ t('certificates.request.stagingAccount') }}</label>
             <select
               id="staging-account"
               v-model="stagingAccountID"
@@ -536,7 +538,7 @@
               @change="invalidatePlan"
             >
               <option value="">
-                No matching staging evidence
+                {{ t('certificates.request.noStagingEvidence') }}
               </option>
               <option
                 v-for="account in stagingAccounts"
@@ -548,7 +550,7 @@
             </select>
           </template>
           <template v-if="challenge === 'cloudflare_dns_01'">
-            <label for="dns-credential">Cloudflare Token credential</label>
+            <label for="dns-credential">{{ t('certificates.request.dnsCredential') }}</label>
             <select
               id="dns-credential"
               v-model="dnsCredentialID"
@@ -556,7 +558,7 @@
               @change="invalidatePlan"
             >
               <option value="">
-                Select a verified credential
+                {{ t('certificates.request.selectCredential') }}
               </option>
               <option
                 v-for="item in validCredentials"
@@ -570,8 +572,8 @@
         </fieldset>
 
         <fieldset>
-          <legend>4. Server bindings</legend>
-          <p>Selection only prepares a review; it does not modify Nginx.</p>
+          <legend>{{ t('certificates.request.bindingsLegend') }}</legend>
+          <p>{{ t('certificates.request.bindingsDescription') }}</p>
           <ul class="certificate-request__servers">
             <li
               v-for="candidate in serverCandidates"
@@ -586,9 +588,9 @@
                   @change="invalidatePlan"
                 >
                 <span>
-                  <strong>{{ candidate.ref.server_names.join(', ') || '(no server_name)' }}</strong>
+                  <strong>{{ candidate.ref.server_names.join(', ') || t('certificates.lifecycle.noServerName') }}</strong>
                   <small>{{ candidate.ref.listeners.join(', ') }} · {{ candidate.ref.path }}:{{ candidate.start_line }}</small>
-                  <small>{{ candidate.editable ? 'Editable' : candidate.read_only_reason }}</small>
+                  <small>{{ candidate.editable ? t('certificates.request.editable') : candidate.read_only_reason }}</small>
                 </span>
               </label>
             </li>
@@ -596,11 +598,11 @@
         </fieldset>
 
         <p
-          v-if="wizardError !== '' && wizardError !== challengeError"
+          v-if="wizardError !== null && wizardError.key !== challengeError?.key"
           class="certificate-page__error"
           role="alert"
         >
-          {{ wizardError }}
+          {{ messageText(wizardError) }}
         </p>
         <button
           type="button"
@@ -608,7 +610,7 @@
           :disabled="wizardPending"
           @click="reviewCertificate"
         >
-          {{ wizardPending ? 'Preparing review…' : 'Review certificate request' }}
+          {{ wizardPending ? t('certificates.request.preparing') : t('certificates.request.reviewAction') }}
         </button>
       </form>
 
@@ -618,22 +620,22 @@
         aria-labelledby="certificate-review-title"
       >
         <h3 id="certificate-review-title">
-          5. Review
+          {{ t('certificates.request.reviewTitle') }}
         </h3>
-        <p>No certificate or Nginx configuration has been changed.</p>
+        <p>{{ t('certificates.request.unchanged') }}</p>
         <dl>
-          <div><dt>Environment</dt><dd>{{ environmentLabel(orderPlan.environment) }}</dd></div>
-          <div><dt>Identifiers</dt><dd>{{ orderPlan.identifiers.join(', ') }}</dd></div>
-          <div><dt>Challenge</dt><dd>{{ challengeLabel(orderPlan.challenge) }}</dd></div>
-          <div><dt>Servers</dt><dd>{{ orderPlan.server_refs.length }}</dd></div>
-          <div><dt>Production identity</dt><dd><code>{{ abbreviate(orderPlan.production_digest) }}</code></dd></div>
-          <div><dt>Plan expires</dt><dd>{{ formatTime(orderPlan.expires_at) }}</dd></div>
+          <div><dt>{{ t('certificates.request.environment') }}</dt><dd>{{ environmentLabel(orderPlan.environment) }}</dd></div>
+          <div><dt>{{ t('certificates.request.identifiers') }}</dt><dd>{{ orderPlan.identifiers.join(', ') }}</dd></div>
+          <div><dt>{{ t('certificates.request.challenge') }}</dt><dd>{{ challengeLabel(orderPlan.challenge) }}</dd></div>
+          <div><dt>{{ t('certificates.request.servers') }}</dt><dd>{{ orderPlan.server_refs.length }}</dd></div>
+          <div><dt>{{ t('certificates.request.productionIdentity') }}</dt><dd><code>{{ abbreviate(orderPlan.production_digest) }}</code></dd></div>
+          <div><dt>{{ t('certificates.request.planExpires') }}</dt><dd>{{ formatTime(orderPlan.expires_at) }}</dd></div>
         </dl>
         <p
           v-if="orderPlan.environment === 'production' && !orderPlan.staging_evidence"
           class="certificate-page__blocking"
         >
-          A matching staging preflight is required before production. The explicit production risk phrase is required to proceed without it.
+          {{ t('certificates.request.stagingRequired') }}
         </p>
         <article
           v-for="change in orderPlan.binding_diff"
@@ -643,16 +645,16 @@
           <h4>{{ change.path }} · +{{ change.added_lines }} −{{ change.removed_lines }}</h4>
           <pre
             class="workspace-scroll-region"
-            aria-label="Complete certificate binding diff"
+            :aria-label="t('certificates.request.diffLabel')"
           >{{ change.patch }}</pre>
         </article>
 
         <section aria-labelledby="certificate-confirm-title">
           <h3 id="certificate-confirm-title">
-            6. Confirm
+            {{ t('certificates.request.confirmTitle') }}
           </h3>
-          <p>Issuance may commit certificate files, validate the complete candidate, create a backup, publish, reload, roll back on known failure, and clean up challenge material.</p>
-          <label for="certificate-confirmation">Type “{{ orderPlan.primary_identifier }}” exactly to confirm</label>
+          <p>{{ t('certificates.request.consequence') }}</p>
+          <label for="certificate-confirmation">{{ t('certificates.request.exactConfirm', { name: orderPlan.primary_identifier }) }}</label>
           <input
             id="certificate-confirmation"
             v-model="confirmation"
@@ -662,9 +664,9 @@
           >
           <template v-if="orderPlan.requires_risk_confirmation">
             <p class="certificate-page__blocking">
-              Production issuance is subject to public CA rate limits.
+              {{ t('certificates.request.rateLimitWarning') }}
             </p>
-            <label for="production-risk-confirmation">Type “{{ orderPlan.risk_confirmation_phrase }}” to acknowledge the missing staging evidence</label>
+            <label for="production-risk-confirmation">{{ t('certificates.request.riskConfirm', { phrase: orderPlan.risk_confirmation_phrase }) }}</label>
             <input
               id="production-risk-confirmation"
               v-model="riskConfirmation"
@@ -679,7 +681,7 @@
             :disabled="!canExecutePlan || wizardPending"
             @click="executePlan"
           >
-            {{ wizardPending ? 'Queueing…' : 'Issue certificate' }}
+            {{ wizardPending ? t('certificates.request.queueing') : t('certificates.request.issue') }}
           </button>
         </section>
       </section>
@@ -692,14 +694,14 @@
     >
       <header>
         <h2 id="certificate-accounts-title">
-          Accounts &amp; DNS credentials
+          {{ t('certificates.accounts.title') }}
         </h2>
-        <p>Read responses contain metadata only. Account keys and Tokens cannot be retrieved.</p>
+        <p>{{ t('certificates.accounts.description') }}</p>
       </header>
       <div class="certificate-accounts__grid">
         <section aria-labelledby="acme-accounts-title">
           <h3 id="acme-accounts-title">
-            ACME accounts
+            {{ t('certificates.accounts.acmeTitle') }}
           </h3>
           <ul>
             <li
@@ -707,12 +709,12 @@
               :key="account.id"
             >
               <strong>{{ environmentLabel(account.environment) }}</strong> · {{ account.email }}
-              <span>{{ account.status }} · <code>{{ abbreviate(account.id) }}</code></span>
+              <span>{{ accountStatusLabel(account.status) }} · <code>{{ abbreviate(account.id) }}</code></span>
               <a
                 :href="account.terms_url"
                 target="_blank"
                 rel="noreferrer"
-              >Current Terms</a>
+              >{{ t('certificates.accounts.currentTerms') }}</a>
               <button
                 v-if="account.status === 'valid'"
                 type="button"
@@ -720,32 +722,32 @@
                 :data-id="account.id"
                 @click="openAccountDeactivation(account, $event)"
               >
-                Deactivate account
+                {{ t('certificates.accounts.deactivate') }}
               </button>
             </li>
           </ul>
           <p v-if="accounts.length === 0">
-            Create an ACME account before requesting a certificate.
+            {{ t('certificates.accounts.empty') }}
           </p>
           <form
             data-action="create-acme-account"
             @submit.prevent="createAccount"
           >
-            <h4>Create account</h4>
-            <label for="account-environment">Environment</label>
+            <h4>{{ t('certificates.accounts.createTitle') }}</h4>
+            <label for="account-environment">{{ t('certificates.accounts.environment') }}</label>
             <select
               id="account-environment"
               v-model="accountEnvironment"
               name="account-environment"
             >
               <option value="staging">
-                Staging
+                {{ t('certificates.accounts.staging') }}
               </option>
               <option value="production">
-                Production
+                {{ t('certificates.accounts.production') }}
               </option>
             </select>
-            <label for="account-email">Contact email</label>
+            <label for="account-email">{{ t('certificates.accounts.email') }}</label>
             <input
               id="account-email"
               v-model="accountEmail"
@@ -760,19 +762,19 @@
                 type="checkbox"
               >
               <span>
-                I agree to the
+                {{ t('certificates.accounts.agreeBefore') }}
                 <a
                   :href="termsURL(accountEnvironment)"
                   target="_blank"
                   rel="noreferrer"
-                >current Terms of Service</a>
+                >{{ t('certificates.accounts.terms') }}</a>
               </span>
             </label>
             <button
               type="submit"
               :disabled="accountPending || accountEmail.trim() === '' || !accountTermsAccepted"
             >
-              {{ accountPending ? 'Creating…' : 'Create ACME account' }}
+              {{ accountPending ? t('certificates.accounts.creating') : t('certificates.accounts.create') }}
             </button>
           </form>
 
@@ -780,21 +782,21 @@
             data-action="import-acme-account"
             @submit.prevent="importAccount"
           >
-            <h4>Import existing account</h4>
-            <label for="import-environment">Environment</label>
+            <h4>{{ t('certificates.accounts.importTitle') }}</h4>
+            <label for="import-environment">{{ t('certificates.accounts.environment') }}</label>
             <select
               id="import-environment"
               v-model="importEnvironment"
               name="import-environment"
             >
               <option value="staging">
-                Staging
+                {{ t('certificates.accounts.staging') }}
               </option>
               <option value="production">
-                Production
+                {{ t('certificates.accounts.production') }}
               </option>
             </select>
-            <label for="import-email">Contact email</label>
+            <label for="import-email">{{ t('certificates.accounts.email') }}</label>
             <input
               id="import-email"
               v-model="importEmail"
@@ -802,7 +804,7 @@
               type="email"
               autocomplete="email"
             >
-            <label for="import-account-uri">Exact account URI</label>
+            <label for="import-account-uri">{{ t('certificates.accounts.accountUri') }}</label>
             <input
               id="import-account-uri"
               v-model="importAccountURI"
@@ -811,7 +813,7 @@
               autocomplete="off"
               spellcheck="false"
             >
-            <label for="import-private-key">Account private key PEM</label>
+            <label for="import-private-key">{{ t('certificates.accounts.privateKey') }}</label>
             <textarea
               id="import-private-key"
               v-model="importPrivateKey"
@@ -826,48 +828,48 @@
                 type="checkbox"
               >
               <span>
-                I agree to the
+                {{ t('certificates.accounts.agreeBefore') }}
                 <a
                   :href="termsURL(importEnvironment)"
                   target="_blank"
                   rel="noreferrer"
-                >current Terms of Service</a>
+                >{{ t('certificates.accounts.terms') }}</a>
               </span>
             </label>
             <button
               type="submit"
               :disabled="accountPending || importEmail.trim() === '' || importAccountURI.trim() === '' || importPrivateKey === '' || !importTermsAccepted"
             >
-              {{ accountPending ? 'Importing…' : 'Import ACME account' }}
+              {{ accountPending ? t('certificates.accounts.importing') : t('certificates.accounts.import') }}
             </button>
           </form>
           <p
-            v-if="accountMessage !== ''"
+            v-if="accountMessage !== null"
             role="status"
           >
-            {{ accountMessage }}
+            {{ messageText(accountMessage) }}
           </p>
           <p
-            v-if="accountError !== ''"
+            v-if="accountError !== null"
             class="certificate-page__error"
             role="alert"
           >
-            {{ accountError }}
+            {{ messageText(accountError) }}
           </p>
         </section>
 
         <section aria-labelledby="cloudflare-credentials-title">
           <h3 id="cloudflare-credentials-title">
-            Cloudflare API Token
+            {{ t('certificates.cloudflare.title') }}
           </h3>
           <p class="certificate-accounts__secret-help">
-            Grant only <strong>Zone Read</strong> and <strong>DNS Write</strong>, and restrict resources to the required Zone. Global API Key is unsupported.
+            {{ t('certificates.cloudflare.grantOnly') }} <strong>Zone Read</strong> {{ t('certificates.cloudflare.and') }} <strong>DNS Write</strong>{{ t('certificates.cloudflare.guidance') }}
           </p>
           <form
             data-action="save-cloudflare-token"
             @submit.prevent="saveCloudflareCredential"
           >
-            <label for="credential-name">Credential name</label>
+            <label for="credential-name">{{ t('certificates.cloudflare.name') }}</label>
             <input
               id="credential-name"
               v-model="credentialName"
@@ -876,7 +878,7 @@
               autocomplete="off"
               maxlength="128"
             >
-            <label for="cloudflare-token">Cloudflare API Token</label>
+            <label for="cloudflare-token">{{ t('certificates.cloudflare.token') }}</label>
             <input
               id="cloudflare-token"
               v-model="cloudflareToken"
@@ -889,21 +891,21 @@
               type="submit"
               :disabled="credentialPending || credentialName.trim() === '' || cloudflareToken === ''"
             >
-              {{ credentialPending ? 'Verifying…' : 'Verify and save Token' }}
+              {{ credentialPending ? t('certificates.cloudflare.verifying') : t('certificates.cloudflare.save') }}
             </button>
           </form>
           <p
-            v-if="credentialMessage !== ''"
+            v-if="credentialMessage !== null"
             role="status"
           >
-            {{ credentialMessage }}
+            {{ messageText(credentialMessage) }}
           </p>
           <p
-            v-if="credentialError !== ''"
+            v-if="credentialError !== null"
             class="certificate-page__error"
             role="alert"
           >
-            {{ credentialError }}
+            {{ messageText(credentialError) }}
           </p>
           <ul class="certificate-accounts__credentials">
             <li
@@ -911,8 +913,8 @@
               :key="item.id"
             >
               <strong>{{ item.name }}</strong>
-              <span>{{ item.status }} · fingerprint <code>{{ item.fingerprint }}</code></span>
-              <span>Verified {{ formatTime(item.verified_at) }}</span>
+              <span>{{ t('certificates.cloudflare.fingerprint', { status: credentialStatusLabel(item.status) }) }} <code>{{ item.fingerprint }}</code></span>
+              <span>{{ t('certificates.cloudflare.verified', { time: formatTime(item.verified_at) }) }}</span>
               <button
                 v-if="item.status !== 'deleted'"
                 type="button"
@@ -920,7 +922,7 @@
                 :data-id="item.id"
                 @click="openCredentialDeletion(item, $event)"
               >
-                Delete credential
+                {{ t('certificates.cloudflare.delete') }}
               </button>
             </li>
           </ul>
@@ -935,9 +937,9 @@
     >
       <header>
         <h2 id="certificate-history-title">
-          Task history
+          {{ t('certificates.history.title') }}
         </h2>
-        <p>Leaving this page does not cancel the task. Cancellation is always an explicit server operation.</p>
+        <p>{{ t('certificates.history.description') }}</p>
       </header>
       <div class="certificate-history__layout">
         <ul class="certificate-history__tasks">
@@ -950,7 +952,7 @@
               :aria-pressed="selectedTask?.id === task.id"
               @click="openTask(task.id)"
             >
-              <strong>{{ task.kind }} · {{ task.state }}</strong>
+              <strong>{{ taskKindLabel(task.kind) }} · {{ taskStateLabel(task.state) }}</strong>
               <span><code>{{ abbreviate(task.id) }}</code> · {{ formatTime(task.created_at) }}</span>
             </button>
           </li>
@@ -963,13 +965,13 @@
           <header>
             <div>
               <h3 id="certificate-task-title">
-                {{ selectedTask.kind }} task
+                {{ t('certificates.history.taskTitle', { kind: taskKindLabel(selectedTask.kind) }) }}
               </h3>
               <code>{{ selectedTask.id }}</code>
             </div>
             <StatusBadge
               :tone="taskTone(selectedTask.state)"
-              :label="selectedTask.state"
+              :label="taskStateLabel(selectedTask.state)"
             />
           </header>
           <p
@@ -978,13 +980,13 @@
           >
             {{ currentTaskPhrase }}
           </p>
-          <p>Stream: {{ streamLabel }}</p>
+          <p>{{ t('certificates.history.stream', { state: streamLabel }) }}</p>
           <p
             v-if="selectedTask.state === 'needs_attention'"
             class="certificate-page__blocking"
             role="alert"
           >
-            Certificate or challenge cleanup cannot be confirmed.
+            {{ t('certificates.overview.cleanupWarning') }}
           </p>
           <ol class="certificate-history__timeline">
             <li
@@ -992,7 +994,7 @@
               :key="stage.sequence"
             >
               <span aria-hidden="true">◇</span>
-              <div><strong>{{ stageGroup(stage.stage) }} · {{ stage.stage }}</strong><span>{{ stage.result }} · {{ formatTime(stage.occurred_at) }}</span></div>
+              <div><strong>{{ stageGroup(stage.stage) }} · {{ taskStageLabel(stage.stage) }}</strong><span>{{ taskResultLabel(stage.result) }} · {{ formatTime(stage.occurred_at) }}</span></div>
             </li>
           </ol>
           <button
@@ -1001,7 +1003,7 @@
             :disabled="taskPending"
             @click="cancelTask"
           >
-            {{ selectedTask.state === 'cancelling' ? 'Cancelling…' : 'Cancel task' }}
+            {{ selectedTask.state === 'cancelling' ? t('certificates.history.canceling') : t('certificates.history.cancel') }}
           </button>
         </article>
       </div>
@@ -1009,10 +1011,10 @@
 
     <OperationConfirmModal
       :open="accountDeactivateTarget !== null"
-      title="Deactivate ACME account?"
-      consequence="Existing certificates remain served, but renewals using this account stop. Remote and local state must both confirm deactivation."
+      :title="t('certificates.modals.deactivateTitle')"
+      :consequence="t('certificates.modals.deactivateConsequence')"
       :confirmation-text="accountDeactivateTarget?.id ?? ''"
-      confirm-label="Deactivate account"
+      :confirm-label="t('certificates.modals.deactivateAction')"
       :requires-reason="false"
       :pending="accountPending"
       :trigger="accountModalTrigger"
@@ -1021,10 +1023,10 @@
     />
     <OperationConfirmModal
       :open="credentialDeleteTarget !== null"
-      title="Delete Cloudflare credential?"
-      consequence="Future DNS-01 tasks cannot use this credential. Active tasks and referenced renewal policies block deletion on the server."
+      :title="t('certificates.modals.deleteCredentialTitle')"
+      :consequence="t('certificates.modals.deleteCredentialConsequence')"
       :confirmation-text="credentialDeleteTarget?.id ?? ''"
-      confirm-label="Delete credential"
+      :confirm-label="t('certificates.modals.deleteCredentialAction')"
       :requires-reason="false"
       :pending="credentialPending"
       :trigger="credentialModalTrigger"
@@ -1036,6 +1038,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
 
 import {
@@ -1043,6 +1046,7 @@ import {
   isTerminalCertificateTask,
   parseCertificateTaskStageEvent,
   type ACMEAccount,
+  type ACMEAccountStatus,
   type ACMEDirectory,
   type CertificateChallenge,
   type CertificateBindingPlan,
@@ -1051,15 +1055,21 @@ import {
   type CertificateRecord,
   type CertificateServerCandidate,
   type CertificateState,
+  type CertificateStageResult,
   type CertificateTask,
+  type CertificateTaskKind,
+  type CertificateTaskState,
   type CertificateTaskStageName,
   type DNSCredential,
+  type DNSCredentialStatus,
 } from '../api/certificates'
 import { APIRequestError, apiClient, type APIClient } from '../api/client'
 import OperationConfirmModal from '../components/OperationConfirmModal.vue'
 import StatusBadge, { type StatusTone } from '../components/StatusBadge.vue'
 import { useFocusTrap } from '../composables/useFocusTrap'
 import { sessionStore } from '../session'
+
+const { d, t } = useI18n()
 
 type CertificateViewClient = Pick<
   APIClient,
@@ -1095,6 +1105,13 @@ interface EventSourceLike {
   close: () => void
 }
 
+interface LocalizedMessage {
+  key: string
+  values?: Record<string, string | number>
+  requestId?: string
+  environment?: CertificateEnvironment
+}
+
 const props = withDefaults(defineProps<{
   certificateId?: string
   client?: CertificateViewClient
@@ -1113,17 +1130,24 @@ const csrfToken = computed(
 )
 
 type Tab = 'overview' | 'request' | 'accounts' | 'history'
-const tabs: ReadonlyArray<{ id: Tab; label: string }> = [
-  { id: 'overview', label: 'Overview' },
-  { id: 'request', label: 'Request' },
-  { id: 'accounts', label: 'Accounts' },
-  { id: 'history', label: 'History' },
-]
-const wizardSteps = ['Identifiers', 'Challenge', 'Account', 'Server bindings', 'Review', 'Confirm'] as const
+const tabs = computed<ReadonlyArray<{ id: Tab; label: string }>>(() => [
+  { id: 'overview', label: t('certificates.tabs.overview') },
+  { id: 'request', label: t('certificates.tabs.request') },
+  { id: 'accounts', label: t('certificates.tabs.accounts') },
+  { id: 'history', label: t('certificates.tabs.history') },
+])
+const wizardSteps = computed(() => [
+  t('certificates.request.steps.identifiers'),
+  t('certificates.request.steps.challenge'),
+  t('certificates.request.steps.account'),
+  t('certificates.request.steps.bindings'),
+  t('certificates.request.steps.review'),
+  t('certificates.request.steps.confirm'),
+])
 
 const activeTab = ref<Tab>('overview')
 const loading = ref(true)
-const pageError = ref('')
+const pageError = ref<LocalizedMessage | null>(null)
 const directories = ref<ACMEDirectory[]>([])
 const accounts = ref<ACMEAccount[]>([])
 const credentials = ref<DNSCredential[]>([])
@@ -1143,14 +1167,14 @@ const orderPlan = ref<CertificateOrderPlan | null>(null)
 const confirmation = ref('')
 const riskConfirmation = ref('')
 const wizardStep = ref(1)
-const wizardError = ref('')
+const wizardError = ref<LocalizedMessage | null>(null)
 const wizardPending = ref(false)
 
 const credentialName = ref('')
 const cloudflareToken = ref('')
 const credentialPending = ref(false)
-const credentialError = ref('')
-const credentialMessage = ref('')
+const credentialError = ref<LocalizedMessage | null>(null)
+const credentialMessage = ref<LocalizedMessage | null>(null)
 
 const accountEnvironment = ref<CertificateEnvironment>('staging')
 const accountEmail = ref('')
@@ -1161,8 +1185,8 @@ const importAccountURI = ref('')
 const importPrivateKey = ref('')
 const importTermsAccepted = ref(false)
 const accountPending = ref(false)
-const accountError = ref('')
-const accountMessage = ref('')
+const accountError = ref<LocalizedMessage | null>(null)
+const accountMessage = ref<LocalizedMessage | null>(null)
 const accountDeactivateTarget = ref<ACMEAccount | null>(null)
 const accountModalTrigger = ref<HTMLElement | null>(null)
 const credentialDeleteTarget = ref<DNSCredential | null>(null)
@@ -1175,8 +1199,8 @@ const policyConfirmation = ref('')
 const unbindConfirmation = ref('')
 const deleteConfirmation = ref('')
 const lifecyclePending = ref(false)
-const lifecycleError = ref('')
-const lifecycleMessage = ref('')
+const lifecycleError = ref<LocalizedMessage | null>(null)
+const lifecycleMessage = ref<LocalizedMessage | null>(null)
 const exportOpen = ref(false)
 const exportConfirmation = ref('')
 const includePrivateKey = ref(false)
@@ -1204,8 +1228,8 @@ const normalizedIdentifiers = computed(() => identifiers.value.map((item) => ite
 const hasWildcard = computed(() => normalizedIdentifiers.value.some((item) => item.startsWith('*.')))
 const challengeError = computed(() =>
   hasWildcard.value && challenge.value === 'http_01'
-    ? 'Wildcard certificates require Cloudflare DNS-01'
-    : '',
+    ? localMessage('certificates.validation.wildcard')
+    : null,
 )
 const canExecutePlan = computed(() => {
   const plan = orderPlan.value
@@ -1217,12 +1241,14 @@ const canExport = computed(() => {
   if (item === null || exportConfirmation.value !== item.id) return false
   return !includePrivateKey.value || privateKeyConfirmation.value === 'EXPORT PRIVATE KEY'
 })
-const currentTaskPhrase = computed(() => selectedTask.value === null ? '' : `${selectedTask.value.stage} — ${selectedTask.value.state}`)
+const currentTaskPhrase = computed(() => selectedTask.value === null
+  ? ''
+  : `${taskStageLabel(selectedTask.value.stage)} — ${taskStateLabel(selectedTask.value.state)}`)
 const streamLabel = computed(() => ({
-  closed: 'Closed',
-  connecting: 'Connecting',
-  connected: 'Connected',
-  reconnecting: 'Reconnecting — the server task continues',
+  closed: t('certificates.history.streamStates.closed'),
+  connecting: t('certificates.history.streamStates.connecting'),
+  connected: t('certificates.history.streamStates.connected'),
+  reconnecting: t('certificates.history.streamStates.reconnecting'),
 })[streamState.value])
 
 onMounted(() => void refreshAll())
@@ -1233,7 +1259,7 @@ watch(() => props.certificateId, (id) => {
 
 async function refreshAll(): Promise<void> {
   loading.value = true
-  pageError.value = ''
+  pageError.value = null
   try {
     const [loadedDirectories, loadedAccounts, loadedCredentials, loadedCandidates, loadedCertificates, loadedTasks] = await Promise.all([
       props.client.listACMEDirectories(),
@@ -1258,7 +1284,7 @@ async function refreshAll(): Promise<void> {
       if (!isTerminalCertificateTask(active.state)) startTaskStream(active.id)
     }
   } catch (error) {
-    pageError.value = safeMessage(error, 'Certificate evidence could not be loaded.')
+    pageError.value = safeMessage(error, 'certificates.errors.evidence')
   } finally {
     loading.value = false
   }
@@ -1272,7 +1298,7 @@ async function openCertificate(id: string): Promise<void> {
     renewBeforeDays.value = Math.max(1, Math.round(item.renew_before_seconds / 86_400))
     clearLifecycleConfirmations()
   } catch (error) {
-    pageError.value = safeMessage(error, 'Certificate detail could not be loaded.')
+    pageError.value = safeMessage(error, 'certificates.errors.detail')
   }
 }
 
@@ -1302,13 +1328,13 @@ function invalidatePlan(): void {
   orderPlan.value = null
   confirmation.value = ''
   riskConfirmation.value = ''
-  wizardError.value = ''
+  wizardError.value = null
   wizardStep.value = 1
 }
 
 async function reviewCertificate(): Promise<void> {
   wizardError.value = validateWizard()
-  if (wizardError.value !== '') return
+  if (wizardError.value !== null) return
   wizardPending.value = true
   try {
     const refs = serverCandidates.value
@@ -1326,21 +1352,29 @@ async function reviewCertificate(): Promise<void> {
     riskConfirmation.value = ''
     wizardStep.value = 5
   } catch (error) {
-    wizardError.value = safeMessage(error, 'The certificate review could not be prepared.')
+    wizardError.value = safeMessage(error, 'certificates.errors.review')
   } finally {
     wizardPending.value = false
   }
 }
 
-function validateWizard(): string {
-  if (normalizedIdentifiers.value.length === 0) return 'At least one domain is required.'
-  if (new Set(normalizedIdentifiers.value).size !== normalizedIdentifiers.value.length) return 'Duplicate domains are not allowed.'
-  if (normalizedIdentifiers.value.some((identifier) => !validIdentifier(identifier))) return 'One or more domains are invalid.'
-  if (challengeError.value !== '') return challengeError.value
-  if (accountID.value === '') return 'Select a valid ACME account.'
-  if (challenge.value === 'cloudflare_dns_01' && dnsCredentialID.value === '') return 'Select a verified Cloudflare Token credential.'
-  if (selectedServerFingerprints.value.length === 0) return 'Select at least one editable Nginx server.'
-  return ''
+function validateWizard(): LocalizedMessage | null {
+  if (normalizedIdentifiers.value.length === 0) return localMessage('certificates.validation.domainRequired')
+  if (new Set(normalizedIdentifiers.value).size !== normalizedIdentifiers.value.length) {
+    return localMessage('certificates.validation.duplicateDomains')
+  }
+  if (normalizedIdentifiers.value.some((identifier) => !validIdentifier(identifier))) {
+    return localMessage('certificates.validation.invalidDomains')
+  }
+  if (challengeError.value !== null) return challengeError.value
+  if (accountID.value === '') return localMessage('certificates.validation.accountRequired')
+  if (challenge.value === 'cloudflare_dns_01' && dnsCredentialID.value === '') {
+    return localMessage('certificates.validation.credentialRequired')
+  }
+  if (selectedServerFingerprints.value.length === 0) {
+    return localMessage('certificates.validation.serverRequired')
+  }
+  return null
 }
 
 function validIdentifier(value: string): boolean {
@@ -1366,7 +1400,7 @@ async function executePlan(): Promise<void> {
     activeTab.value = 'history'
     startTaskStream(task.id)
   } catch (error) {
-    wizardError.value = safeMessage(error, 'The certificate task could not be queued.')
+    wizardError.value = safeMessage(error, 'certificates.errors.queue')
   } finally {
     wizardPending.value = false
   }
@@ -1377,17 +1411,17 @@ async function saveCloudflareCredential(): Promise<void> {
   const token = cloudflareToken.value
   if (name === '' || token === '') return
   credentialPending.value = true
-  credentialError.value = ''
-  credentialMessage.value = ''
+  credentialError.value = null
+  credentialMessage.value = null
   try {
     const item = await props.client.createCertificateDNSCredential({ name, api_token: token }, csrfToken.value)
     cloudflareToken.value = ''
     credentialName.value = ''
     credentials.value = [item, ...credentials.value.filter((existing) => existing.id !== item.id)]
     dnsCredentialID.value = item.id
-    credentialMessage.value = 'Cloudflare Token verified and saved. The submitted Token is no longer retained by this page.'
+    credentialMessage.value = localMessage('certificates.messages.credentialSaved')
   } catch (error) {
-    credentialError.value = safeMessage(error, 'The Cloudflare Token could not be verified.')
+    credentialError.value = safeMessage(error, 'certificates.errors.tokenVerify')
   } finally {
     credentialPending.value = false
   }
@@ -1397,8 +1431,8 @@ async function createAccount(): Promise<void> {
   const email = accountEmail.value.trim()
   if (email === '' || !accountTermsAccepted.value) return
   accountPending.value = true
-  accountError.value = ''
-  accountMessage.value = ''
+  accountError.value = null
+  accountMessage.value = null
   try {
     const account = await props.client.createACMEAccount({
       environment: accountEnvironment.value,
@@ -1408,10 +1442,10 @@ async function createAccount(): Promise<void> {
     accounts.value = [account, ...accounts.value.filter((item) => item.id !== account.id)]
     accountEmail.value = ''
     accountTermsAccepted.value = false
-    accountMessage.value = `${environmentLabel(account.environment)} ACME account created.`
+    accountMessage.value = localMessage('certificates.messages.accountCreated', undefined, account.environment)
     setAccountDefaults()
   } catch (error) {
-    accountError.value = safeMessage(error, 'The ACME account could not be created.')
+    accountError.value = safeMessage(error, 'certificates.errors.accountCreate')
   } finally {
     accountPending.value = false
   }
@@ -1423,8 +1457,8 @@ async function importAccount(): Promise<void> {
   const privateKey = importPrivateKey.value
   if (email === '' || accountURI === '' || privateKey === '' || !importTermsAccepted.value) return
   accountPending.value = true
-  accountError.value = ''
-  accountMessage.value = ''
+  accountError.value = null
+  accountMessage.value = null
   try {
     const account = await props.client.importACMEAccount({
       environment: importEnvironment.value,
@@ -1438,10 +1472,10 @@ async function importAccount(): Promise<void> {
     importAccountURI.value = ''
     importTermsAccepted.value = false
     accounts.value = [account, ...accounts.value.filter((item) => item.id !== account.id)]
-    accountMessage.value = `${environmentLabel(account.environment)} ACME account imported. The private key is no longer retained by this page.`
+    accountMessage.value = localMessage('certificates.messages.accountImported', undefined, account.environment)
     setAccountDefaults()
   } catch (error) {
-    accountError.value = safeMessage(error, 'The ACME account could not be imported.')
+    accountError.value = safeMessage(error, 'certificates.errors.accountImport')
   } finally {
     accountPending.value = false
   }
@@ -1450,7 +1484,7 @@ async function importAccount(): Promise<void> {
 function openAccountDeactivation(account: ACMEAccount, event: Event): void {
   accountModalTrigger.value = event.currentTarget instanceof HTMLElement ? event.currentTarget : null
   accountDeactivateTarget.value = account
-  accountError.value = ''
+  accountError.value = null
 }
 
 function closeAccountDeactivation(): void {
@@ -1461,16 +1495,16 @@ async function deactivateAccount(_reason: string, confirmation: string): Promise
   const account = accountDeactivateTarget.value
   if (account === null || confirmation !== account.id) return
   accountPending.value = true
-  accountError.value = ''
-  accountMessage.value = ''
+  accountError.value = null
+  accountMessage.value = null
   try {
     const updated = await props.client.deactivateACMEAccount(account.id, csrfToken.value)
     accounts.value = accounts.value.map((item) => item.id === updated.id ? updated : item)
     closeAccountDeactivation()
-    accountMessage.value = 'ACME account deactivated. Existing certificate files remain unchanged.'
+    accountMessage.value = localMessage('certificates.messages.accountDeactivated')
     setAccountDefaults()
   } catch (error) {
-    accountError.value = safeMessage(error, 'The ACME account could not be deactivated safely.')
+    accountError.value = safeMessage(error, 'certificates.errors.accountDeactivate')
   } finally {
     accountPending.value = false
   }
@@ -1479,7 +1513,7 @@ async function deactivateAccount(_reason: string, confirmation: string): Promise
 function openCredentialDeletion(item: DNSCredential, event: Event): void {
   credentialModalTrigger.value = event.currentTarget instanceof HTMLElement ? event.currentTarget : null
   credentialDeleteTarget.value = item
-  credentialError.value = ''
+  credentialError.value = null
 }
 
 function closeCredentialDeletion(): void {
@@ -1490,16 +1524,16 @@ async function deleteCredential(_reason: string, confirmation: string): Promise<
   const item = credentialDeleteTarget.value
   if (item === null || confirmation !== item.id) return
   credentialPending.value = true
-  credentialError.value = ''
-  credentialMessage.value = ''
+  credentialError.value = null
+  credentialMessage.value = null
   try {
     await props.client.deleteCertificateDNSCredential(item.id, csrfToken.value)
     credentials.value = credentials.value.filter((credential) => credential.id !== item.id)
     closeCredentialDeletion()
-    credentialMessage.value = 'Cloudflare credential deleted; its Token was never returned to the page.'
+    credentialMessage.value = localMessage('certificates.messages.credentialDeleted')
     setAccountDefaults()
   } catch (error) {
-    credentialError.value = safeMessage(error, 'The Cloudflare credential could not be deleted.')
+    credentialError.value = safeMessage(error, 'certificates.errors.credentialDelete')
   } finally {
     credentialPending.value = false
   }
@@ -1519,10 +1553,10 @@ async function renewSelectedCertificate(): Promise<void> {
     renewConfirmation.value = ''
     replaceTask(task)
     selectedTask.value = task
-    lifecycleMessage.value = 'Renewal task queued. Leaving this page will not cancel it.'
+    lifecycleMessage.value = localMessage('certificates.messages.renewalQueued')
     startTaskStream(task.id)
   } catch (error) {
-    lifecycleError.value = safeMessage(error, 'The renewal task could not be queued.')
+    lifecycleError.value = safeMessage(error, 'certificates.errors.renewalQueue')
   } finally {
     lifecyclePending.value = false
   }
@@ -1541,9 +1575,9 @@ async function saveRenewalPolicy(): Promise<void> {
     }, csrfToken.value)
     replaceCertificate(updated)
     policyConfirmation.value = ''
-    lifecycleMessage.value = 'Automatic-renewal policy updated.'
+    lifecycleMessage.value = localMessage('certificates.messages.policyUpdated')
   } catch (error) {
-    lifecycleError.value = safeMessage(error, 'The renewal policy could not be updated.')
+    lifecycleError.value = safeMessage(error, 'certificates.errors.policyUpdate')
   } finally {
     lifecyclePending.value = false
   }
@@ -1558,9 +1592,9 @@ async function unbindSelectedCertificate(): Promise<void> {
     const updated = await props.client.unbindCertificate(item.id, unbindConfirmation.value, csrfToken.value)
     replaceCertificate(updated)
     unbindConfirmation.value = ''
-    lifecycleMessage.value = 'Exact certificate bindings were removed after validated publication.'
+    lifecycleMessage.value = localMessage('certificates.messages.unbound')
   } catch (error) {
-    lifecycleError.value = safeMessage(error, 'The certificate could not be unbound.')
+    lifecycleError.value = safeMessage(error, 'certificates.errors.unbind')
   } finally {
     lifecyclePending.value = false
   }
@@ -1584,7 +1618,7 @@ async function reviewBinding(): Promise<void> {
     bindingPlan.value = await props.client.createCertificateBindingPlan(item.id, refs, csrfToken.value)
     bindingConfirmation.value = ''
   } catch (error) {
-    lifecycleError.value = safeMessage(error, 'The binding review could not be prepared.')
+    lifecycleError.value = safeMessage(error, 'certificates.errors.bindingReview')
   } finally {
     lifecyclePending.value = false
   }
@@ -1603,10 +1637,10 @@ async function executeBinding(): Promise<void> {
     bindingPlan.value = null
     bindingConfirmation.value = ''
     bindingServerKeys.value = []
-    lifecycleMessage.value = 'Binding task queued. The server will validate, publish, reload, and recover if needed.'
+    lifecycleMessage.value = localMessage('certificates.messages.bindingQueued')
     startTaskStream(task.id)
   } catch (error) {
-    lifecycleError.value = safeMessage(error, 'The binding task could not be queued.')
+    lifecycleError.value = safeMessage(error, 'certificates.errors.bindingQueue')
   } finally {
     lifecyclePending.value = false
   }
@@ -1653,9 +1687,9 @@ async function exportSelectedCertificate(): Promise<void> {
     }, csrfToken.value)
     props.saveFile(file)
     closeExport()
-    lifecycleMessage.value = 'Certificate export passed directly to the browser save boundary.'
+    lifecycleMessage.value = localMessage('certificates.messages.exported')
   } catch (error) {
-    lifecycleError.value = safeMessage(error, 'The certificate could not be exported.')
+    lifecycleError.value = safeMessage(error, 'certificates.errors.export')
   } finally {
     lifecyclePending.value = false
   }
@@ -1671,9 +1705,9 @@ async function deleteSelectedCertificate(): Promise<void> {
     certificates.value = certificates.value.filter((candidate) => candidate.id !== item.id)
     selectedCertificate.value = null
     deleteConfirmation.value = ''
-    lifecycleMessage.value = 'Unreferenced certificate material deleted.'
+    lifecycleMessage.value = localMessage('certificates.messages.deleted')
   } catch (error) {
-    lifecycleError.value = safeMessage(error, 'The certificate could not be deleted.')
+    lifecycleError.value = safeMessage(error, 'certificates.errors.delete')
   } finally {
     lifecyclePending.value = false
   }
@@ -1698,8 +1732,8 @@ function clearLifecycleConfirmations(): void {
 }
 
 function clearLifecycleResult(): void {
-  lifecycleError.value = ''
-  lifecycleMessage.value = ''
+  lifecycleError.value = null
+  lifecycleMessage.value = null
 }
 
 async function openTask(id: string): Promise<void> {
@@ -1710,7 +1744,7 @@ async function openTask(id: string): Promise<void> {
     if (isTerminalCertificateTask(task.state)) closeTaskStream()
     else startTaskStream(task.id)
   } catch (error) {
-    pageError.value = safeMessage(error, 'Task evidence could not be loaded.')
+    pageError.value = safeMessage(error, 'certificates.errors.taskEvidence')
   }
 }
 
@@ -1759,7 +1793,7 @@ async function cancelTask(): Promise<void> {
     replaceTask(updated)
     selectedTask.value = updated
   } catch (error) {
-    pageError.value = safeMessage(error, 'Cancellation could not be requested.')
+    pageError.value = safeMessage(error, 'certificates.errors.cancellation')
   } finally {
     taskPending.value = false
   }
@@ -1776,68 +1810,97 @@ function closeTaskStream(): void {
   streamState.value = 'closed'
 }
 
-function safeMessage(error: unknown, fallback: string): string {
-  if (!(error instanceof APIRequestError) || error.kind !== 'api' || error.apiError === undefined) {
-    return fallback
+function localMessage(
+  key: string,
+  values?: Record<string, string | number>,
+  environment?: CertificateEnvironment,
+  requestId?: string,
+): LocalizedMessage {
+  return {
+    key,
+    ...(values === undefined ? {} : { values }),
+    ...(environment === undefined ? {} : { environment }),
+    ...(requestId === undefined ? {} : { requestId }),
   }
-  const guidance = certificateErrorGuidance(error.apiError.code, fallback)
-  return `${guidance} Request ID: ${error.apiError.request_id}.`
 }
 
-function certificateErrorGuidance(code: string, fallback: string): string {
+function messageText(message: LocalizedMessage): string {
+  const values = message.environment === undefined
+    ? message.values
+    : { ...message.values, environment: environmentLabel(message.environment) }
+  const translated = t(message.key, values ?? {})
+  return message.requestId === undefined
+    ? translated
+    : t('errors.withRequestId', { message: translated, requestId: message.requestId })
+}
+
+function safeMessage(error: unknown, fallbackKey: string): LocalizedMessage {
+  if (!(error instanceof APIRequestError)) {
+    return localMessage(fallbackKey)
+  }
+  if (error.kind !== 'api' || error.apiError === undefined) {
+    return localMessage(fallbackKey, undefined, undefined, error.requestID)
+  }
+  const guidanceKey = certificateErrorGuidance(error.apiError.code, fallbackKey)
+  return localMessage(guidanceKey, undefined, undefined, error.apiError.request_id)
+}
+
+function certificateErrorGuidance(code: string, fallbackKey: string): string {
   switch (code) {
     case 'CERTIFICATE_SERVICE_UNAVAILABLE':
     case 'AGENT_UNAVAILABLE':
-      return 'The certificate service is unavailable. Retry after checking the Agent and network.'
+      return 'certificates.errors.unavailable'
     case 'ACME_RATE_LIMITED':
-      return 'The certificate authority rate-limited this operation. Retry after the documented backoff.'
+      return 'certificates.errors.rateLimited'
     case 'ACME_STAGING_PREFLIGHT_REQUIRED':
-      return 'A successful staging preflight is required before this production request.'
+      return 'certificates.errors.stagingRequired'
     case 'ACME_TERMS_REQUIRED':
-      return 'Accept the current ACME Terms of Service before retrying.'
+      return 'certificates.errors.termsRequired'
     case 'ACME_ACCOUNT_DEACTIVATED':
-      return 'The selected ACME account is deactivated. Select or create a valid account.'
+      return 'certificates.errors.accountDeactivated'
     case 'CERTIFICATE_PLAN_EXPIRED':
-      return 'This certificate review expired. Prepare and confirm a new review.'
+      return 'certificates.errors.planExpired'
     case 'CERTIFICATE_TASK_ACTIVE':
-      return 'Another certificate task is active. Wait for its persisted terminal state.'
+      return 'certificates.errors.taskActive'
     case 'CERTIFICATE_REFERENCED':
-      return 'The certificate is still referenced by Nginx. Remove its bindings before deletion.'
+      return 'certificates.errors.referenced'
     case 'CERTIFICATE_NEEDS_ATTENTION':
     case 'CHALLENGE_CLEANUP_FAILED':
-      return 'Certificate or challenge cleanup cannot be confirmed. Administrator attention is required.'
+      return 'certificates.errors.cleanup'
     case 'CERTIFICATE_BINDING_CONFLICT':
     case 'CERTIFICATE_SERVER_AMBIGUOUS':
     case 'CERTIFICATE_SERVER_NOT_FOUND':
-      return 'The selected Nginx server evidence changed. Refresh and prepare a new binding review.'
+      return 'certificates.errors.serverChanged'
     case 'CLOUDFLARE_TOKEN_INVALID':
-      return 'The Cloudflare Token is invalid. Submit a new restricted Token.'
+      return 'certificates.errors.tokenInvalid'
     case 'CLOUDFLARE_PERMISSION_DENIED':
-      return 'The Cloudflare Token lacks Zone Read or DNS Write permission for this zone.'
+      return 'certificates.errors.permissionDenied'
     case 'CLOUDFLARE_ZONE_NOT_FOUND':
-      return 'No matching Cloudflare zone was found for the requested identifier.'
+      return 'certificates.errors.zoneNotFound'
     case 'CLOUDFLARE_UNAVAILABLE':
-      return 'Cloudflare is unavailable. Retry without changing the current certificate.'
+      return 'certificates.errors.cloudflareUnavailable'
     case 'DNS_PROPAGATION_TIMEOUT':
-      return 'DNS validation timed out. Check propagation before retrying.'
+      return 'certificates.errors.dnsTimeout'
     case 'CERTIFICATE_OPERATION_TIMEOUT':
-      return 'The certificate operation timed out. Refresh task evidence before retrying.'
+      return 'certificates.errors.operationTimeout'
     case 'CERTIFICATE_RESOURCE_NOT_FOUND':
-      return 'The certificate resource no longer exists. Refresh the inventory.'
+      return 'certificates.errors.notFound'
     case 'CERTIFICATE_WILDCARD_REQUIRES_DNS':
-      return 'Wildcard certificates require Cloudflare DNS-01.'
+      return 'certificates.errors.wildcard'
     default:
-      return fallback
+      return fallbackKey
   }
 }
 
 function environmentForAccount(id: string): string {
   const environment = accounts.value.find((account) => account.id === id)?.environment
-  return environment === undefined ? 'Environment unavailable' : environmentLabel(environment)
+  return environment === undefined ? t('certificates.labels.environmentUnavailable') : environmentLabel(environment)
 }
 
 function environmentLabel(value: CertificateEnvironment): string {
-  return value === 'production' ? 'Production' : 'Staging'
+  return value === 'production'
+    ? t('certificates.labels.production')
+    : t('certificates.labels.staging')
 }
 
 function challengeLabel(value: CertificateChallenge): string {
@@ -1845,7 +1908,88 @@ function challengeLabel(value: CertificateChallenge): string {
 }
 
 function stateLabel(value: CertificateState): string {
-  return value.split('_').map((part) => part[0]?.toUpperCase() + part.slice(1)).join(' ')
+  const labels: Record<CertificateState, string> = {
+    pending: t('certificates.labels.certificateStates.pending'),
+    active: t('certificates.labels.certificateStates.active'),
+    expiring: t('certificates.labels.certificateStates.expiring'),
+    expired: t('certificates.labels.certificateStates.expired'),
+    unbound: t('certificates.labels.certificateStates.unbound'),
+    needs_attention: t('certificates.labels.certificateStates.needsAttention'),
+    deleted: t('certificates.labels.certificateStates.deleted'),
+  }
+  return labels[value]
+}
+
+function accountStatusLabel(value: ACMEAccountStatus): string {
+  const labels: Record<ACMEAccountStatus, string> = {
+    valid: t('certificates.accounts.statuses.valid'),
+    deactivating: t('certificates.accounts.statuses.deactivating'),
+    deactivated: t('certificates.accounts.statuses.deactivated'),
+  }
+  return labels[value]
+}
+
+function credentialStatusLabel(value: DNSCredentialStatus): string {
+  const labels: Record<DNSCredentialStatus, string> = {
+    valid: t('certificates.cloudflare.statuses.valid'),
+    needs_attention: t('certificates.cloudflare.statuses.needsAttention'),
+    deleted: t('certificates.cloudflare.statuses.deleted'),
+  }
+  return labels[value]
+}
+
+function taskKindLabel(value: CertificateTaskKind): string {
+  const labels: Record<CertificateTaskKind, string> = {
+    issue: t('certificates.history.kinds.issue'),
+    renew: t('certificates.history.kinds.renew'),
+    bind: t('certificates.history.kinds.bind'),
+    unbind: t('certificates.history.kinds.unbind'),
+  }
+  return labels[value]
+}
+
+function taskStateLabel(value: CertificateTaskState): string {
+  const labels: Record<CertificateTaskState, string> = {
+    queued: t('certificates.history.states.queued'),
+    running: t('certificates.history.states.running'),
+    cancelling: t('certificates.history.states.cancelling'),
+    succeeded: t('certificates.history.states.succeeded'),
+    failed: t('certificates.history.states.failed'),
+    cancelled: t('certificates.history.states.cancelled'),
+    needs_attention: t('certificates.history.states.needsAttention'),
+  }
+  return labels[value]
+}
+
+function taskStageLabel(value: CertificateTaskStageName): string {
+  const labels: Record<CertificateTaskStageName, string> = {
+    queued: t('certificates.history.stages.queued'),
+    preparing: t('certificates.history.stages.preparing'),
+    ordering: t('certificates.history.stages.ordering'),
+    provisioning: t('certificates.history.stages.provisioning'),
+    propagating: t('certificates.history.stages.propagating'),
+    authorizing: t('certificates.history.stages.authorizing'),
+    finalizing: t('certificates.history.stages.finalizing'),
+    validating: t('certificates.history.stages.validating'),
+    deploying: t('certificates.history.stages.deploying'),
+    cleaning: t('certificates.history.stages.cleaning'),
+    completed: t('certificates.history.stages.completed'),
+    failed: t('certificates.history.stages.failed'),
+    cancelled: t('certificates.history.stages.cancelled'),
+    needs_attention: t('certificates.history.stages.needsAttention'),
+  }
+  return labels[value]
+}
+
+function taskResultLabel(value: CertificateStageResult): string {
+  const labels: Record<CertificateStageResult, string> = {
+    pending: t('certificates.history.results.pending'),
+    running: t('certificates.history.results.running'),
+    success: t('certificates.history.results.success'),
+    failed: t('certificates.history.results.failed'),
+    warning: t('certificates.history.results.warning'),
+  }
+  return labels[value]
 }
 
 function certificateTone(value: CertificateState): StatusTone {
@@ -1863,11 +2007,15 @@ function taskTone(value: CertificateTask['state']): StatusTone {
 }
 
 function stageGroup(value: CertificateTaskStageName): string {
-  if (value === 'provisioning' || value === 'propagating' || value === 'authorizing') return 'Domain validation'
-  if (value === 'finalizing' || value === 'validating') return 'Certificate validation'
-  if (value === 'deploying') return 'Nginx deployment'
-  if (value === 'cleaning') return 'Challenge cleanup'
-  return 'Task'
+  if (value === 'provisioning' || value === 'propagating' || value === 'authorizing') {
+    return t('certificates.history.groups.domainValidation')
+  }
+  if (value === 'finalizing' || value === 'validating') {
+    return t('certificates.history.groups.certificateValidation')
+  }
+  if (value === 'deploying') return t('certificates.history.groups.deployment')
+  if (value === 'cleaning') return t('certificates.history.groups.cleanup')
+  return t('certificates.history.groups.task')
 }
 
 function abbreviate(value: string): string {
@@ -1875,11 +2023,11 @@ function abbreviate(value: string): string {
 }
 
 function formatTime(value: string): string {
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
+  return d(new Date(value), 'short')
 }
 
 function optionalTime(value: string | undefined): string {
-  return value === undefined ? 'Not scheduled' : formatTime(value)
+  return value === undefined ? t('certificates.labels.notScheduled') : formatTime(value)
 }
 </script>
 

@@ -4,12 +4,14 @@
  */
 import { flushPromises, mount } from '@vue/test-utils'
 
+import { APIRequestError } from '../api/client'
 import type {
   StructuredChangePreview,
   StructuredChangeResult,
   StructuredConfig,
 } from '../api/structured'
 import type { WorkspaceDetail } from '../api/types'
+import { appI18n } from '../i18n'
 import StructuredConfigView from './StructuredConfigView.vue'
 
 const workspaceID = '0123456789abcdef0123456789abcdef'
@@ -144,6 +146,40 @@ function result(): StructuredChangeResult {
 }
 
 describe('StructuredConfigView', () => {
+  it('renders structured workspace controls in Simplified Chinese', async () => {
+    appI18n.global.locale.value = 'zh-CN'
+    const client = {
+      getWorkspace: vi.fn().mockResolvedValue(workspace()),
+      getStructuredConfig: vi.fn().mockResolvedValue(catalog()),
+      previewStructuredChange: vi.fn(),
+      applyStructuredChange: vi.fn(),
+    }
+    const wrapper = mount(StructuredConfigView, {
+      props: {
+        workspaceId: workspaceID,
+        mode: 'upstreams',
+        client,
+        csrfToken: 'csrf-token',
+      },
+      global: {
+        stubs: {
+          RouterLink: {
+            props: ['to'],
+            template: '<a :href="typeof to === \'string\' ? to : to.path"><slot /></a>',
+          },
+        },
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.get('h1').text()).toBe('上游')
+    expect(wrapper.text()).toContain('仅修改草稿')
+    expect(wrapper.text()).toContain('刷新结构')
+    expect(wrapper.get('.structured-page__navigation').attributes('aria-label')).toBe('工作区配置模式')
+    expect(wrapper.text()).toContain('浏览')
+    expect(wrapper.text()).toContain('创建上游')
+  })
+
   it('loads an ETag-consistent workspace and keeps the raw editor fallback visible', async () => {
     const client = {
       getWorkspace: vi.fn().mockResolvedValue(workspace()),
@@ -277,6 +313,54 @@ describe('StructuredConfigView', () => {
     expect(wrapper.find('.structured-change-review__diff').exists()).toBe(false)
     expect(wrapper.text()).toContain('Choose an edit and generate a preview before applying it.')
     expect(client.applyStructuredChange).not.toHaveBeenCalled()
+  })
+
+  it('localizes a structured API error and preserves its request ID', async () => {
+    appI18n.global.locale.value = 'zh-CN'
+    const client = {
+      getWorkspace: vi.fn().mockResolvedValue(workspace()),
+      getStructuredConfig: vi.fn().mockResolvedValue(catalog()),
+      previewStructuredChange: vi.fn().mockResolvedValue(preview),
+      applyStructuredChange: vi.fn().mockRejectedValue(new APIRequestError({
+        kind: 'api',
+        message: 'private workspace conflict detail',
+        status: 409,
+        apiError: {
+          code: 'CONFIG_WORKSPACE_CONFLICT',
+          message: 'private workspace conflict detail',
+          request_id: 'request-structured-conflict',
+        },
+      })),
+    }
+    const wrapper = mount(StructuredConfigView, {
+      props: {
+        workspaceId: workspaceID,
+        mode: 'upstreams',
+        client,
+        csrfToken: 'csrf-token',
+      },
+      global: {
+        stubs: {
+          RouterLink: {
+            props: ['to'],
+            template: '<a :href="typeof to === \'string\' ? to : to.path"><slot /></a>',
+          },
+        },
+      },
+    })
+    await flushPromises()
+
+    await wrapper.get('[name="upstream-name"]').setValue('application')
+    await wrapper.get('[data-action="review-upstream"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('.structured-change-review__confirmation input').setValue('application')
+    await wrapper.get('[data-action="apply"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain(
+      '工作区修订已变化。表单内容和预览已保留，请刷新后重试。请求 ID：request-structured-conflict。',
+    )
+    expect(wrapper.text()).not.toContain('private workspace conflict detail')
   })
 
   it('keeps both server and location selectors available for compact layouts', async () => {

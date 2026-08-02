@@ -7,7 +7,7 @@ import { expect, test } from '@playwright/test'
 import {
   apiError,
   appOrigin,
-  assertNoApplicationStorage,
+  assertOnlyLocalePreferenceStorage,
   assertNoAxeViolations,
   authenticatedSession,
   expectSameOriginCookie,
@@ -64,7 +64,7 @@ test('healthy Dashboard exposes complete read-only runtime evidence', async ({ p
     status: { status: 200, body: healthyStatus },
   })
 
-  await page.goto('/')
+  await page.goto('/?lang=zh-CN')
 
   await expect(page.getByRole('heading', { level: 1, name: '运行状态' })).toBeVisible()
   await expect(page.getByRole('heading', { level: 2, name: '组件健康' })).toBeVisible()
@@ -81,8 +81,8 @@ test('healthy Dashboard exposes complete read-only runtime evidence', async ({ p
   await expect(page.locator('.status-badge svg[aria-hidden="true"][data-shape]')).toHaveCount(5)
   await expect(page.locator('#dashboard-refresh-feedback')).toHaveAttribute('aria-live', 'polite')
   await expect(page.getByRole('main')).toHaveCount(1)
-  await expect(page.getByRole('navigation', { name: 'Global navigation' })).toBeVisible()
-  await expect(page.getByRole('navigation', { name: 'Section navigation' })).toBeVisible()
+  await expect(page.getByRole('navigation', { name: '全局导航' })).toBeVisible()
+  await expect(page.getByRole('navigation', { name: '分区导航' })).toBeVisible()
   await expect(
     page.getByRole('button', { name: /^(启动|停止|重新加载|重启|start|stop|reload|restart)$/i }),
   ).toHaveCount(0)
@@ -94,7 +94,7 @@ test('healthy Dashboard exposes complete read-only runtime evidence', async ({ p
   if (statusCall !== undefined) {
     expectSameOriginCookie(statusCall)
   }
-  await assertNoApplicationStorage(page)
+  await assertOnlyLocalePreferenceStorage(page)
   await assertNoAxeViolations(page)
   api.assertContract()
 })
@@ -116,7 +116,7 @@ for (const variant of [
       status: { status: 200, body: variant.status },
     })
 
-    await page.goto('/')
+    await page.goto('/?lang=zh-CN')
 
     await expect(page.getByText(variant.label, { exact: true }).first()).toBeVisible()
     const labelledStatus = page.locator('.status-badge', { hasText: variant.label }).first()
@@ -141,17 +141,19 @@ test('failed manual refresh retains and labels the last successful sample', asyn
     ],
   })
 
-  await page.goto('/')
+  await page.goto('/?lang=zh-CN')
   await expect(page.getByText('nginx/1.30.3', { exact: true })).toBeVisible()
   await page.getByRole('button', { name: '刷新状态' }).click()
 
   await expect(page.getByText('旧数据', { exact: true })).toBeVisible()
-  await expect(page.getByText('刷新失败', { exact: true })).toBeVisible()
+  await expect(
+    page.locator('.status-badge', { hasText: '刷新运行状态失败。' }),
+  ).toBeVisible()
   await expect(page.getByText('刷新失败，正在显示上一次成功获取的数据。')).toBeVisible()
   await expect(page.locator('#dashboard-refresh-feedback')).toHaveText('刷新运行状态失败。')
   await expect(page.getByText('nginx/1.30.3', { exact: true })).toBeVisible()
   expect(api.callsFor('status')).toHaveLength(2)
-  await assertNoApplicationStorage(page)
+  await assertOnlyLocalePreferenceStorage(page)
   await assertNoAxeViolations(page)
   api.assertContract()
 })

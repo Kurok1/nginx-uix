@@ -39,7 +39,7 @@ describe('WorkspaceHeader', () => {
     expect(wrapper.text()).toContain('Ready')
     expect(wrapper.text()).toContain('Matches production snapshot')
     expect(wrapper.text()).toContain('3 draft changes')
-    expect(wrapper.text()).toContain('尚未执行 Nginx 校验')
+    expect(wrapper.text()).toContain('Nginx validation has not run')
     expect(wrapper.get('[data-structured-link="upstreams"]').attributes('href')).toBe(
       '/config/workspaces/workspace-id/upstreams',
     )
@@ -77,7 +77,8 @@ describe('WorkspaceHeader', () => {
 		})
 		expect(wrapper.text()).toContain('Published')
 		expect(wrapper.text()).toContain('22222222222222222222222222222222')
-		expect(wrapper.text()).toContain('发布校验与运行确认已完成')
+		expect(wrapper.findAll('dd')[2]?.text()).toBe('1 draft change')
+		expect(wrapper.text()).toContain('Publication validation and runtime confirmation completed')
 	})
 
   it('contains no production operation action or forbidden business CSS', () => {

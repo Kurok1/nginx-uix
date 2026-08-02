@@ -3,11 +3,13 @@
  * @since 0.4.0
  */
 import { flushPromises, mount } from '@vue/test-utils'
-import { reactive } from 'vue'
+import { nextTick, reactive } from 'vue'
 import { createMemoryHistory, createRouter } from 'vue-router'
 
 import type { RouteAnalysis, RouteTestRun } from '../api/route_lab'
 import type { WorkspaceDetail } from '../api/types'
+import { APIRequestError } from '../api/client'
+import { appI18n } from '../i18n'
 import {
   ROUTE_SIDE_EFFECT_CONFIRMATION,
   type RouteLabState,
@@ -191,7 +193,9 @@ function storeFixture(): RouteLabStore {
     historyLoading: false,
     historyWorkspaceId: '',
     error: '',
+    errorRequestID: '',
     historyError: '',
+    historyErrorRequestID: '',
   })
   return {
     state,
@@ -208,10 +212,17 @@ function storeFixture(): RouteLabStore {
   }
 }
 
-async function mountView(store = storeFixture()) {
+async function mountView(
+  store = storeFixture(),
+  clientOverrides: Partial<{
+    listWorkspaces: () => Promise<WorkspaceDetail[]>
+    getWorkspace: (id: string) => Promise<WorkspaceDetail>
+  }> = {},
+) {
   const client = {
     listWorkspaces: vi.fn(async () => [workspace]),
     getWorkspace: vi.fn(async () => workspace),
+    ...clientOverrides,
   }
   const router = createRouter({
     history: createMemoryHistory(),
@@ -232,6 +243,70 @@ async function mountView(store = storeFixture()) {
 }
 
 describe('RouteLabView', () => {
+  beforeEach(() => {
+    appI18n.global.locale.value = 'en-US'
+  })
+
+  it('localizes a route failure while preserving its request ID', async () => {
+    const store = storeFixture()
+    store.state.error = 'analysis_failed'
+    store.state.errorRequestID = 'request-route-view'
+    const { wrapper } = await mountView(store)
+
+    expect(wrapper.text()).toContain(
+      'Static route analysis could not be completed. Request ID: request-route-view.',
+    )
+    wrapper.unmount()
+  })
+
+  it('preserves request evidence when ready workspaces cannot be loaded', async () => {
+    const { wrapper } = await mountView(storeFixture(), {
+      listWorkspaces: vi.fn().mockRejectedValue(new APIRequestError({
+        kind: 'malformed_response',
+        message: 'private malformed workspace response',
+        requestID: 'request-route-workspaces',
+      })),
+    })
+
+    expect(wrapper.text()).toContain(
+      'Ready workspaces could not be loaded. Request ID: request-route-workspaces.',
+    )
+    expect(wrapper.text()).not.toContain('private malformed workspace response')
+    wrapper.unmount()
+  })
+
+  it('renders Route Lab controls in Simplified Chinese', async () => {
+    appI18n.global.locale.value = 'zh-CN'
+    const { wrapper } = await mountView()
+
+    expect(wrapper.get('h1').text()).toBe('路由实验室')
+    expect(wrapper.text()).toContain('仅草稿隔离验证')
+    expect(wrapper.text()).toContain('刷新工作区')
+    expect(wrapper.text()).toContain('静态分析——仅预测')
+    expect(wrapper.text()).toContain('隔离运行结果——未 reload 生产 Nginx')
+    wrapper.unmount()
+  })
+
+  it('updates every Route Lab work area immediately when the locale changes', async () => {
+    const { wrapper } = await mountView()
+
+    appI18n.global.locale.value = 'zh-CN'
+    await nextTick()
+
+    expect(wrapper.text()).toContain('请求参数')
+    expect(wrapper.text()).toContain('连接语义')
+    expect(wrapper.text()).toContain('候选解释')
+    expect(wrapper.text()).toContain('Server 候选')
+    expect(wrapper.text()).toContain('运行证据')
+    expect(wrapper.text()).toContain('预测值')
+    expect(wrapper.text()).toContain('观测值')
+    expect(wrapper.text()).toContain('已确认沙箱清理')
+    expect(wrapper.text()).toContain('路由测试历史')
+    expect(wrapper.text()).toContain('查看证据')
+    expect(wrapper.get('[aria-label="可滚动的路由测试历史表格"]')).toBeTruthy()
+    wrapper.unmount()
+  })
+
   it('keeps static prediction and isolated runtime evidence visibly distinct', async () => {
     const { wrapper } = await mountView()
 

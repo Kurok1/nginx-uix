@@ -4,9 +4,11 @@
 -->
 <script setup lang="ts">
 import { computed, inject, onUnmounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { routerKey } from 'vue-router'
 
 import { APIRequestError } from '../api/client'
+import { formatAPIRequestError } from '../api/error_message'
 import { sessionStore, type SessionStore } from '../session'
 import FormField from './FormField.vue'
 
@@ -16,6 +18,7 @@ interface Props {
 
 const props = defineProps<Props>()
 const router = inject(routerKey, null)
+const { t } = useI18n()
 
 const username = ref('')
 const password = ref('')
@@ -73,20 +76,18 @@ async function handleSubmit(): Promise<void> {
   } catch (error: unknown) {
     if (error instanceof APIRequestError && error.apiError?.code === 'invalid_credentials') {
       credentialsInvalid.value = true
-      errorMessage.value = '用户名或密码错误。'
-      return
     }
     if (
       error instanceof APIRequestError &&
       error.apiError?.code === 'rate_limited' &&
       error.retryAfterSeconds !== undefined
     ) {
-      errorMessage.value = '登录尝试过于频繁，请稍后重试。'
+      errorMessage.value = formatAPIRequestError(error)
       startRetryTimer(error.retryAfterSeconds)
       return
     }
     if (error instanceof APIRequestError) {
-      errorMessage.value = '登录服务暂时不可用，请稍后重试。'
+      errorMessage.value = formatAPIRequestError(error)
       return
     }
     throw error
@@ -108,7 +109,7 @@ async function handleSubmit(): Promise<void> {
       autocomplete="username"
       :described-by="describedBy"
       :invalid="credentialsInvalid"
-      label="用户名"
+      :label="t('auth.username')"
       name="username"
       :read-only="submitting"
       type="text"
@@ -119,7 +120,7 @@ async function handleSubmit(): Promise<void> {
       autocomplete="current-password"
       :described-by="describedBy"
       :invalid="credentialsInvalid"
-      label="密码"
+      :label="t('auth.password')"
       name="password"
       :read-only="submitting"
       type="password"
@@ -160,13 +161,17 @@ async function handleSubmit(): Promise<void> {
       class="login-form__retry-status"
       aria-live="off"
     >
-      {{ retryAfterSeconds }} 秒后可重试。
+      {{ t('auth.retryAvailableIn', { seconds: retryAfterSeconds }, retryAfterSeconds) }}
     </p>
     <button
       type="submit"
       :disabled="submitting || retryAfterSeconds > 0"
     >
-      {{ submitting ? '正在登录…' : retryAfterSeconds > 0 ? `${retryAfterSeconds} 秒后重试` : '登录' }}
+      {{ submitting
+        ? t('auth.signingIn')
+        : retryAfterSeconds > 0
+          ? t('auth.retryIn', { seconds: retryAfterSeconds }, retryAfterSeconds)
+          : t('auth.signIn') }}
     </button>
   </form>
 </template>

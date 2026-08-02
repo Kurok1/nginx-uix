@@ -5,47 +5,51 @@
 <template>
   <section
     class="config-editor"
-    aria-label="Workspace editor"
+    :aria-label="t('workspace.editor.label')"
   >
     <p
       v-if="documents.length === 0"
       class="config-editor__empty"
       role="status"
     >
-      Select a managed file to edit.
+      {{ t('workspace.editor.selectManaged') }}
     </p>
     <template v-else>
       <div
         class="config-editor__tabs"
-        role="tablist"
-        aria-label="Open configuration files"
       >
         <div
-          v-for="document in documents"
-          :key="document.path"
-          class="config-editor__tab"
+          ref="tablist"
+          class="config-editor__tab-list"
+          role="tablist"
+          :aria-label="t('workspace.editor.openFiles')"
         >
           <button
+            v-for="document in documents"
             :id="tabId(document.path)"
+            :key="document.path"
             type="button"
             role="tab"
             :aria-controls="panelId(document.path)"
             :aria-selected="document.path === selectedPath"
             :tabindex="document.path === selectedPath ? 0 : -1"
-            :aria-label="`Select ${document.path}`"
+            :aria-label="t('workspace.editor.selectFile', { path: document.path })"
             @click="emit('select', document.path)"
+            @keydown="handleTabKeydown($event, document.path)"
           >
             {{ basename(document.path) }}
-            <span v-if="document.dirty">— Unsaved changes</span>
-          </button>
-          <button
-            type="button"
-            :aria-label="`Close ${document.path}`"
-            @click="emit('close', document.path)"
-          >
-            <span aria-hidden="true">×</span>
+            <span v-if="document.dirty">— {{ t('workspace.editor.unsaved') }}</span>
           </button>
         </div>
+        <button
+          v-if="selectedDocument !== undefined"
+          type="button"
+          class="config-editor__close-selected"
+          :aria-label="t('workspace.editor.closeFile', { path: selectedDocument.path })"
+          @click="emit('close', selectedDocument.path)"
+        >
+          <span aria-hidden="true">×</span>
+        </button>
       </div>
 
       <div
@@ -61,25 +65,25 @@
           <div>
             <h2>{{ document.path }}</h2>
             <p v-if="document.dirty">
-              Unsaved changes
+              {{ t('workspace.editor.unsaved') }}
             </p>
           </div>
           <div class="config-editor__actions">
             <button
               type="button"
-              :aria-label="`Find in ${document.path}`"
+              :aria-label="t('workspace.editor.findIn', { path: document.path })"
               @click="openFind(document.path)"
             >
-              Find
+              {{ t('common.find') }}
             </button>
             <button
               type="button"
-              :aria-label="`Save ${document.path}`"
+              :aria-label="t('workspace.editor.saveFile', { path: document.path })"
               :disabled="!canSave || document.path !== selectedPath"
               :aria-describedby="saveReason === '' ? undefined : saveReasonId"
               @click="emit('save', document.path)"
             >
-              Save
+              {{ t('common.save') }}
             </button>
           </div>
         </header>
@@ -92,7 +96,7 @@
         </p>
         <CodeEditor
           :ref="(component) => setEditor(document.path, component)"
-          v-bind="{ ariaLabel: `${document.path} editor` }"
+          v-bind="{ ariaLabel: t('workspace.editor.editorLabel', { path: document.path }) }"
           :model-value="document.content"
           :read-only="readOnly"
           @update:model-value="emitDocumentUpdate(document, $event)"
@@ -105,7 +109,8 @@
 <script setup lang="ts">
 import type { EditorView } from '@codemirror/view'
 import { openSearchPanel } from '@codemirror/search'
-import { computed, useId } from 'vue'
+import { computed, ref, useId } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import type { OpenDocument } from '../workspace'
 import CodeEditor from './CodeEditor.vue'
@@ -129,17 +134,19 @@ const emit = defineEmits<{
 }>()
 
 const instanceId = useId()
+const { t } = useI18n()
 const saveReasonId = useId()
 const editors = new Map<string, CodeEditorExpose>()
+const tablist = ref<HTMLElement | null>(null)
 const selectedDocument = computed(() =>
   props.documents.find(({ path }) => path === props.selectedPath),
 )
 const saveReason = computed(() => {
-  if (props.readOnly) return 'This workspace is read-only.'
-  if (props.pending) return 'A workspace change is in progress.'
-  if (selectedDocument.value?.requiresRefresh) return 'Read the server version before saving.'
-  if (!selectedDocument.value?.dirty) return 'No unsaved changes.'
-  if (!props.canSave) return 'Saving is unavailable.'
+  if (props.readOnly) return t('workspace.editor.readOnlyReason')
+  if (props.pending) return t('workspace.editor.pendingReason')
+  if (selectedDocument.value?.requiresRefresh) return t('workspace.editor.refreshReason')
+  if (!selectedDocument.value?.dirty) return t('workspace.editor.noChangesReason')
+  if (!props.canSave) return t('workspace.editor.unavailableReason')
   return ''
 })
 
@@ -161,6 +168,37 @@ function openFind(path: string): void {
   if (editor !== undefined) {
     openSearchPanel(editor.editorViewForTest())
   }
+}
+
+function handleTabKeydown(event: KeyboardEvent, currentPath: string): void {
+  const index = props.documents.findIndex(({ path }) => path === currentPath)
+  if (index < 0 || props.documents.length === 0) return
+
+  let next: number
+  switch (event.key) {
+    case 'ArrowRight':
+    case 'ArrowDown':
+      next = (index + 1) % props.documents.length
+      break
+    case 'ArrowLeft':
+    case 'ArrowUp':
+      next = (index - 1 + props.documents.length) % props.documents.length
+      break
+    case 'Home':
+      next = 0
+      break
+    case 'End':
+      next = props.documents.length - 1
+      break
+    default:
+      return
+  }
+
+  event.preventDefault()
+  const selected = props.documents[next]
+  if (selected === undefined) return
+  emit('select', selected.path)
+  tablist.value?.querySelectorAll<HTMLButtonElement>('[role="tab"]').item(next).focus()
 }
 
 function emitDocumentUpdate(document: OpenDocument, content: string): void {
@@ -207,7 +245,7 @@ function panelId(path: string): string {
 }
 
 .config-editor__tabs,
-.config-editor__tab,
+.config-editor__tab-list,
 .config-editor__panel header,
 .config-editor__actions {
   display: flex;
@@ -216,12 +254,13 @@ function panelId(path: string): string {
 }
 
 .config-editor__tabs {
-  overflow-x: auto;
   gap: var(--spacing-xs);
 }
 
-.config-editor__tab {
-  flex: none;
+.config-editor__tab-list {
+  flex: 1;
+  gap: var(--spacing-xs);
+  overflow-x: auto;
 }
 
 .config-editor button {
@@ -234,12 +273,10 @@ function panelId(path: string): string {
   cursor: pointer;
 }
 
-.config-editor__tab button:first-child {
-  border-radius: var(--rounded-pill) var(--rounded-none) var(--rounded-none) var(--rounded-pill);
-}
-
-.config-editor__tab button:last-child {
-  border-radius: var(--rounded-none) var(--rounded-pill) var(--rounded-pill) var(--rounded-none);
+.config-editor__tab-list button,
+.config-editor__close-selected {
+  flex: none;
+  border-radius: var(--rounded-pill);
 }
 
 .config-editor button[aria-selected='true'] {

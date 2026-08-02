@@ -9,39 +9,39 @@
     :aria-busy="busy ? 'true' : 'false'"
   >
     <h2 id="process-metrics-title">
-      进程指标
+      {{ t('dashboard.processMetrics') }}
     </h2>
     <div class="process-metrics__grid dashboard-grid">
       <MetricCard
-        label="Master PID"
+        :label="t('dashboard.masterPid')"
         :value="master?.pid ?? null"
         format="number"
         :busy="busy"
       />
       <MetricCard
-        label="Worker PID"
+        :label="t('dashboard.workerPid')"
         :value="workerPIDs"
         :busy="busy"
       />
       <MetricCard
-        label="Worker 数量"
+        :label="t('dashboard.workerCount')"
         :value="workerCount"
         format="number"
-        supporting-text="已验证的 Worker 进程"
+        :supporting-text="t('dashboard.verifiedWorkers')"
         :busy="busy"
       />
       <MetricCard
-        label="启动时间"
+        :label="t('dashboard.startedAt')"
         :value="master?.started_at ?? null"
         format="timestamp"
         :busy="busy"
       />
     </div>
 
-    <h3>Nginx 构建信息</h3>
+    <h3>{{ t('dashboard.buildInformation') }}</h3>
     <div class="process-metrics__grid dashboard-grid">
       <MetricCard
-        label="Nginx 版本"
+        :label="t('dashboard.nginxVersion')"
         :value="build?.version ?? null"
         :busy="busy"
       />
@@ -52,7 +52,7 @@
       aria-labelledby="process-metrics-arguments-title"
     >
       <h3 id="process-metrics-arguments-title">
-        编译参数
+        {{ t('dashboard.configureArguments') }}
       </h3>
       <ol
         v-if="build !== null && build.configure_arguments.length > 0"
@@ -66,10 +66,10 @@
         </li>
       </ol>
       <p v-else-if="build !== null">
-        无
+        {{ t('common.none') }}
       </p>
       <p v-else>
-        无法确认
+        {{ t('common.unableToConfirm') }}
       </p>
     </div>
   </section>
@@ -77,6 +77,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import type { NginxBuild, NginxProcess, NginxRuntimeState } from '../api/types'
 import MetricCard from './MetricCard.vue'
@@ -91,6 +92,7 @@ const props = withDefaults(
   }>(),
   { busy: false },
 )
+const { locale, t } = useI18n()
 
 const processesConfirmed = computed(() => props.nginxState !== 'unknown')
 const workerCount = computed(() => (processesConfirmed.value ? props.workers.length : null))
@@ -99,9 +101,11 @@ const workerPIDs = computed(() => {
     return null
   }
   if (props.workers.length === 0) {
-    return '无'
+    return t('common.none')
   }
-  return props.workers.map((worker) => worker.pid).join('、')
+  return props.workers
+    .map((worker) => worker.pid)
+    .join(locale.value === 'zh-CN' ? '、' : ', ')
 })
 </script>
 

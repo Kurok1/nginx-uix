@@ -15,6 +15,7 @@ import type {
 	Release,
   WorkspaceDetail,
 } from '../api/types'
+import { appI18n } from '../i18n'
 import ConfigReview from '../components/ConfigReview.vue'
 import ConfigTree from '../components/ConfigTree.vue'
 import ConfirmModal from '../components/ConfirmModal.vue'
@@ -246,6 +247,17 @@ async function mountView(
 	}
 
 describe('ConfigWorkspaceView', () => {
+	it('renders workspace navigation and empty guidance in Simplified Chinese', async () => {
+		appI18n.global.locale.value = 'zh-CN'
+		const { store } = createStore({ active: null, phase: 'idle' })
+		const { wrapper } = await mountView(store)
+
+		expect(wrapper.get('h1').text()).toBe('配置工作区')
+		expect(wrapper.get('button[aria-label="创建工作区"]').text()).toBe('新建工作区')
+		expect(wrapper.text()).toContain('尚无工作区')
+		expect(wrapper.text()).toContain('选择或创建一个工作区')
+	})
+
 	it('checks, names, queues, and exposes persisted release progress', async () => {
 		const { state, store } = createStore({ documents: [document(false)] })
 		const releases = createReleaseStoreStub()
@@ -457,9 +469,9 @@ describe('ConfigWorkspaceView', () => {
     expect(wrapper.text()).toContain(
       'This file changed on the server. Your local text has not been overwritten.',
     )
-    await wrapper.get('button[aria-label="复制本地内容 nginx.conf"]').trigger('click')
-    await wrapper.get('button[aria-label="读取服务器版本 nginx.conf"]').trigger('click')
-    await wrapper.get('button[aria-label="查看服务器差异 nginx.conf"]').trigger('click')
+    await wrapper.get('button[aria-label="Copy local content for nginx.conf"]').trigger('click')
+    await wrapper.get('button[aria-label="Read server version for nginx.conf"]').trigger('click')
+    await wrapper.get('button[aria-label="View server diff for nginx.conf"]').trigger('click')
     await flushPromises()
     expect(store.copyLocalContent).toHaveBeenCalledWith('nginx.conf')
     expect(store.reloadFile).toHaveBeenCalledWith('nginx.conf')
@@ -475,7 +487,7 @@ describe('ConfigWorkspaceView', () => {
     const { wrapper } = await mountView(store)
 
     expect(wrapper.text()).toContain('Production configuration changed. Create a new workspace to continue.')
-    expect(wrapper.find('button[aria-label="创建新工作区"]').exists()).toBe(true)
+    expect(wrapper.find('button[aria-label="Create a new workspace"]').exists()).toBe(true)
     state.active = workspace('needs_attention')
     state.banner = { kind: 'needs_attention', message: 'Administrator attention is required.' }
     await wrapper.vm.$nextTick()

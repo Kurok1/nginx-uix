@@ -27,7 +27,7 @@
         :aria-pressed="wrapLines"
         @click="wrapLines = !wrapLines"
       >
-        {{ wrapLines ? '关闭自动换行' : '自动换行' }}
+        {{ wrapLines ? t('effectiveConfig.disableWrap') : t('effectiveConfig.wrapLines') }}
       </button>
     </header>
 
@@ -49,6 +49,7 @@
 
 <script setup lang="ts">
 import { computed, ref, useId } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import type { EffectiveConfigOccurrence } from '../api/types'
 
@@ -69,14 +70,19 @@ const props = defineProps<ViewerProps>()
 const wrapLines = ref(false)
 const headingId = useId()
 const sourceId = useId()
+const { t } = useI18n()
 
 const rawMode = computed(() => props.mode === 'raw')
-const heading = computed(() => (rawMode.value ? '原始 Nginx 输出' : '配置内容'))
+const heading = computed(() => (
+  rawMode.value ? t('effectiveConfig.rawHeading') : t('effectiveConfig.contentHeading')
+))
 const sourceLabel = computed(() =>
-	rawMode.value ? 'nginx -T 标准输出' : props.occurrence?.path ?? '',
+	rawMode.value ? t('effectiveConfig.rawSource') : props.occurrence?.path ?? '',
 )
 const metadata = computed(() =>
-	rawMode.value ? '未按文件拆分' : `第 ${props.occurrence?.load_order ?? 0} 项`,
+	rawMode.value
+    ? t('effectiveConfig.unsplit')
+    : t('effectiveConfig.loadEntry', { order: props.occurrence?.load_order ?? 0 }),
 )
 const content = computed(() =>
 	rawMode.value ? props.rawContent ?? '' : props.occurrence?.content ?? '',
