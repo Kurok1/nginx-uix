@@ -72,6 +72,8 @@
         </li>
       </ul>
 
+      <LanguageSelector class="global-nav__language global-nav__language--desktop" />
+
       <button
         class="global-nav__logout"
         type="button"
@@ -142,6 +144,9 @@
               Recovery &amp; History
             </RouterLink>
           </li>
+          <li class="global-nav__language-item">
+            <LanguageSelector class="global-nav__language global-nav__language--mobile" />
+          </li>
         </ul>
       </div>
     </nav>
@@ -153,6 +158,7 @@ import { ref } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 
 import { sessionStore } from '../session'
+import LanguageSelector from './LanguageSelector.vue'
 
 const menuOpen = ref(false)
 const logoutPending = ref(false)
@@ -259,6 +265,10 @@ async function logout(): Promise<void> {
   margin-inline-start: auto;
 }
 
+.global-nav__language--mobile {
+  display: none;
+}
+
 .global-nav__links a:active,
 .global-nav__mobile-menu a:active {
   color: var(--color-primary-on-dark);
@@ -301,6 +311,10 @@ async function logout(): Promise<void> {
   }
 
   .global-nav__links {
+    display: none;
+  }
+
+  .global-nav__language--desktop {
     display: none;
   }
 
@@ -366,6 +380,15 @@ async function logout(): Promise<void> {
   .global-nav__mobile-menu a {
     width: 100%;
     font-size: var(--font-size-caption);
+  }
+
+  .global-nav__language-item {
+    display: flex;
+    padding-block-start: var(--spacing-xs);
+  }
+
+  .global-nav__language--mobile {
+    display: inline-flex;
   }
 }
 </style>

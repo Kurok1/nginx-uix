@@ -689,7 +689,7 @@ validate_inputs() {
   if ! command -v sha256sum >/dev/null 2>&1 && ! command -v shasum >/dev/null 2>&1; then
     fail 'sha256sum or shasum is required'
   fi
-  [ "${PROJECT_VERSION}" = 1.0.0 ] || fail 'upgrade acceptance requires VERSION 1.0.0'
+  [ "${PROJECT_VERSION}" = 1.1.0 ] || fail 'upgrade acceptance requires VERSION 1.1.0'
   docker info >/dev/null 2>&1 || fail 'Docker daemon is unavailable'
   docker buildx version >/dev/null 2>&1 || fail 'Docker Buildx is unavailable'
 }

@@ -6,6 +6,7 @@
 import { computed, inject, onBeforeUnmount } from 'vue'
 import { routerKey, type RouteLocationRaw } from 'vue-router'
 
+import LanguageSelector from '../components/LanguageSelector.vue'
 import LoginForm from '../components/LoginForm.vue'
 import UnsavedRecovery from '../components/UnsavedRecovery.vue'
 import { sessionStore, type SessionStore } from '../session'
@@ -81,6 +82,9 @@ function installWorkspaceReturn(): void {
     aria-labelledby="login-title"
   >
     <section class="login-view__panel">
+      <div class="login-view__language">
+        <LanguageSelector />
+      </div>
       <header class="login-view__header">
         <h1 id="login-title">
           登录 Nginx UIX
@@ -116,6 +120,12 @@ function installWorkspaceReturn(): void {
 
 .login-view__header {
   margin-block-end: var(--spacing-xl);
+}
+
+.login-view__language {
+  display: flex;
+  margin-block-end: var(--spacing-md);
+  justify-content: flex-end;
 }
 
 .login-view__panel :deep(.unsaved-recovery) {

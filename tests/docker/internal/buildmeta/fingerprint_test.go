@@ -24,7 +24,7 @@ func TestV1ReleaseMetadataIsSynchronized(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const want = "1.0.0"
+	const want = "1.1.0"
 	const wantLicense = "Apache-2.0"
 	const wantLicenseDigest = "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
 

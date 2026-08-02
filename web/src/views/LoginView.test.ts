@@ -9,6 +9,7 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import type { LoginRequest, SessionResponse } from '../api/types'
 import LoginForm from '../components/LoginForm.vue'
 import UnsavedRecovery from '../components/UnsavedRecovery.vue'
+import { createAppI18n } from '../i18n'
 import { createSessionStore, type SessionClient } from '../session'
 import type { WorkspaceStateModel, WorkspaceStore } from '../workspace'
 import LoginView from './LoginView.vue'
@@ -110,7 +111,11 @@ describe('LoginView', () => {
       currentSession,
     )
     const store = createSessionStore(createClient(login))
-    const wrapper = mount(LoginView, { props: { store } })
+    const router = await loginRouter()
+    const wrapper = mount(LoginView, {
+      props: { store },
+      global: { plugins: [createAppI18n('zh-CN'), router] },
+    })
 
     const main = wrapper.get('main.login-view')
     expect(main.attributes('aria-labelledby')).toBe('login-title')
@@ -127,6 +132,7 @@ describe('LoginView', () => {
   })
 
   it('uses shared page tokens without storage or direct network access', () => {
+    expect(loginViewSource).toContain('<LanguageSelector')
     expect(loginViewSource).toContain('background: var(--color-canvas-parchment)')
     expect(loginViewSource).toContain('border-radius: var(--rounded-lg)')
     expect(loginViewSource).not.toMatch(/#[\da-f]{3,8}\b/i)
@@ -145,7 +151,7 @@ describe('LoginView', () => {
     const router = await loginRouter()
     const wrapper = mount(LoginView, {
       props: { store, workspace },
-      global: { plugins: [router] },
+      global: { plugins: [createAppI18n('zh-CN'), router] },
     })
 
     const recovery = wrapper.getComponent(UnsavedRecovery)
@@ -174,7 +180,7 @@ describe('LoginView', () => {
     await router.replace('/login?redirect=/config/operations?tab=audit')
     const wrapper = mount(LoginView, {
       props: { store, workspace },
-      global: { plugins: [router] },
+      global: { plugins: [createAppI18n('zh-CN'), router] },
     })
 
     await wrapper.get('input[name="username"]').setValue('operator')

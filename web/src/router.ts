@@ -12,6 +12,7 @@ import {
 import { watch } from 'vue'
 
 import { apiClient, type APIClient } from './api/client'
+import { appI18n, installLocaleRouting, type AppI18n } from './i18n'
 import { sessionStore, type SessionStore } from './session'
 import { workspaceStore, type WorkspaceStore } from './workspace'
 import CertificatesView from './views/CertificatesView.vue'
@@ -102,8 +103,10 @@ const routes: RouteRecordRaw[] = [
 export function createAppRouter(
   store: SessionStore = sessionStore,
   history: RouterHistory = createWebHistory(),
+  i18n: AppI18n = appI18n,
 ): Router {
   const router = createRouter({ history, routes })
+  installLocaleRouting(router, i18n)
   router.beforeEach(async (to) => {
     await store.restore()
     if (store.state.phase === 'authenticated' && to.name === 'login') {

@@ -7,6 +7,7 @@ import { createMemoryHistory } from 'vue-router'
 
 import { APIClient, APIRequestError } from './api/client'
 import type { LoginRequest, SessionResponse } from './api/types'
+import { createAppI18n } from './i18n'
 import {
   createAppRouter,
   installSessionExpiryRedirect,
@@ -179,6 +180,7 @@ describe('application router', () => {
   })
 
   it('adds Workspaces, Route Lab, Certificates and Recovery & History to both navigation levels and bounds overflow', () => {
+    expect(globalNavSource.match(/<LanguageSelector/g)).toHaveLength(2)
     expect(globalNavSource.match(/to="\/config\/workspaces"/g)).toHaveLength(2)
     expect(globalNavSource).toContain('Workspaces')
     expect(globalNavSource).toContain('to="/configuration"')
@@ -237,8 +239,35 @@ describe('application router', () => {
     await router.push('/')
 
     expect(router.currentRoute.value.name).toBe('login')
-    expect(router.currentRoute.value.query.redirect).toBe('/')
+    expect(router.currentRoute.value.query.redirect).toBe('/?lang=en-US')
+    expect(router.currentRoute.value.query.lang).toBe('en-US')
     expect(store.state.phase).toBe('anonymous')
+  })
+
+  it('keeps the selected URL locale through the authentication redirect', async () => {
+    const getSession = vi.fn<() => Promise<SessionResponse>>().mockRejectedValue(
+      new APIRequestError({
+        kind: 'api',
+        message: 'authentication required',
+        status: 401,
+        apiError: {
+          code: 'unauthenticated',
+          message: 'authentication required',
+          request_id: 'request-locale',
+        },
+      }),
+    )
+    const store = createSessionStore(createClient(getSession))
+    const i18n = createAppI18n('en-US')
+    const router = createAppRouter(store, createMemoryHistory(), i18n)
+
+    await router.push('/configuration?lang=zh-CN')
+
+    expect(router.currentRoute.value.name).toBe('login')
+    expect(router.currentRoute.value.query.lang).toBe('zh-CN')
+    expect(router.currentRoute.value.query.redirect).toBe('/configuration?lang=zh-CN')
+    expect(i18n.global.locale.value).toBe('zh-CN')
+    expect(localStorage.getItem('nginx-uix.locale')).toBe('zh-CN')
   })
 
   it('confirms only when leaving a dirty workspace and owns beforeunload while dirty', async () => {
@@ -254,7 +283,7 @@ describe('application router', () => {
     await router.push('/config/workspaces/two')
     expect(confirmLeave).not.toHaveBeenCalled()
     await router.push('/')
-    expect(router.currentRoute.value.fullPath).toBe('/config/workspaces/two')
+    expect(router.currentRoute.value.fullPath).toBe('/config/workspaces/two?lang=en-US')
     expect(confirmLeave).toHaveBeenCalledOnce()
     expect(addEventListener).toHaveBeenCalledWith('beforeunload', expect.any(Function))
 
@@ -294,10 +323,13 @@ describe('application router', () => {
     await vi.waitFor(() => expect(router.currentRoute.value.name).toBe('login'))
 
     expect(store.state).toEqual({ phase: 'anonymous', session: null })
-    expect(localStorage.length).toBe(0)
+    expect(localStorage).toHaveLength(1)
+    expect(localStorage.getItem('nginx-uix.locale')).toBe('en-US')
     expect(sessionStorage.length).toBe(0)
     expect(workspaces.markSessionExpired).toHaveBeenCalledOnce()
-    expect(router.currentRoute.value.query.redirect).toBe('/config/workspaces/workspace-id')
+    expect(router.currentRoute.value.query.redirect).toBe(
+      '/config/workspaces/workspace-id?lang=en-US',
+    )
     uninstall()
   })
 })

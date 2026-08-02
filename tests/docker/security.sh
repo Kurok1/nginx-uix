@@ -313,7 +313,7 @@ validate_inputs() {
   for required_command in docker curl openssl jq awk sed grep tr date git go; do
     require_command "${required_command}"
   done
-  [ "${PROJECT_VERSION}" = 1.0.0 ] || fail 'security acceptance requires VERSION 1.0.0'
+  [ "${PROJECT_VERSION}" = 1.1.0 ] || fail 'security acceptance requires VERSION 1.1.0'
   docker info >/dev/null 2>&1 || fail 'Docker daemon is unavailable'
 }
 
