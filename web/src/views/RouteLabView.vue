@@ -171,6 +171,7 @@ import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
 
 import { APIRequestError, apiClient } from '../api/client'
+import { apiRequestID } from '../api/error_message'
 import { replayRouteRequest, type RouteTestRequest, type RouteTestRun } from '../api/route_lab'
 import type { WorkspaceDetail, WorkspaceState, WorkspaceSummary } from '../api/types'
 import ConfirmModal from '../components/ConfirmModal.vue'
@@ -217,6 +218,7 @@ const workspaces = ref<WorkspaceSummary[]>([])
 const workspace = ref<WorkspaceDetail | null>(null)
 const workspacePhase = ref<'loading' | 'ready' | 'error'>('loading')
 const localError = ref<LocalErrorCode>('')
+const localErrorRequestID = ref('')
 const pendingAction = ref<'' | 'analyze' | 'run'>('')
 const activeTask = ref<Task>('request')
 const confirmationOpen = ref(false)
@@ -227,9 +229,11 @@ const request = ref<RouteTestRequest>(defaultRequest())
 
 const readyWorkspaces = computed(() => workspaces.value.filter(({ state: value }) => value === 'ready'))
 const pageError = computed(() => localError.value !== ''
-  ? localErrorMessage(localError.value)
-  : routeLabErrorMessage(state.error))
-const historyErrorMessage = computed(() => routeLabErrorMessage(state.historyError))
+  ? localErrorMessage(localError.value, localErrorRequestID.value)
+  : routeLabErrorMessage(state.error, state.errorRequestID))
+const historyErrorMessage = computed(() =>
+  routeLabErrorMessage(state.historyError, state.historyErrorRequestID),
+)
 const copyMessageText = computed(() => copyMessage.value === '' ? '' : copyMessageLabel(copyMessage.value))
 
 watch(
@@ -254,6 +258,7 @@ onMounted(() => {
 async function loadWorkspaces(preferredId = workspace.value?.id ?? ''): Promise<void> {
   workspacePhase.value = 'loading'
   localError.value = ''
+  localErrorRequestID.value = ''
   try {
     workspaces.value = await props.client.listWorkspaces()
     const ready = workspaces.value.filter(({ state }) => state === 'ready')
@@ -265,9 +270,10 @@ async function loadWorkspaces(preferredId = workspace.value?.id ?? ''): Promise<
     }
     await openWorkspace(selected.id)
     workspacePhase.value = 'ready'
-  } catch {
+  } catch (error: unknown) {
     workspacePhase.value = 'error'
     localError.value = 'workspaces_failed'
+    localErrorRequestID.value = apiRequestID(error)
   }
 }
 
@@ -291,14 +297,16 @@ function selectWorkspace(event: Event): void {
   const id = (event.currentTarget as HTMLSelectElement).value
   workspacePhase.value = 'loading'
   localError.value = ''
+  localErrorRequestID.value = ''
   void openWorkspace(id)
     .then(() => {
       workspacePhase.value = 'ready'
       activeTask.value = 'request'
     })
-    .catch(() => {
+    .catch((error: unknown) => {
       workspacePhase.value = 'error'
       localError.value = 'workspace_failed'
+      localErrorRequestID.value = apiRequestID(error)
     })
 }
 
@@ -306,12 +314,14 @@ async function analyze(input: RouteTestRequest): Promise<void> {
   if (workspace.value === null || pendingAction.value !== '') return
   pendingAction.value = 'analyze'
   localError.value = ''
+  localErrorRequestID.value = ''
   copyMessage.value = ''
   try {
     await routeStore.analyze(workspace.value, input)
     activeTask.value = 'analysis'
-  } catch {
+  } catch (error: unknown) {
     localError.value = state.error === '' ? 'analysis_failed' : ''
+    localErrorRequestID.value = state.error === '' ? apiRequestID(error) : ''
   } finally {
     pendingAction.value = ''
   }
@@ -332,6 +342,7 @@ async function queueRuntime(input: RouteTestRequest, confirmation: string): Prom
   if (workspace.value === null || pendingAction.value !== '') return
   pendingAction.value = 'run'
   localError.value = ''
+  localErrorRequestID.value = ''
   copyMessage.value = ''
   try {
     await routeStore.queue(workspace.value, input, confirmation)
@@ -347,8 +358,10 @@ async function queueRuntime(input: RouteTestRequest, confirmation: string): Prom
     ) {
       confirmationOpen.value = true
       localError.value = ''
+      localErrorRequestID.value = ''
     } else {
       localError.value = state.error === '' ? 'queue_failed' : ''
+      localErrorRequestID.value = state.error === '' ? apiRequestID(error) : ''
     }
   } finally {
     pendingAction.value = ''
@@ -367,20 +380,24 @@ function closeConfirmation(): void {
 
 async function cancelRun(): Promise<void> {
   localError.value = ''
+  localErrorRequestID.value = ''
   try {
     await routeStore.cancel()
-  } catch {
+  } catch (error: unknown) {
     localError.value = state.error === '' ? 'cancel_failed' : ''
+    localErrorRequestID.value = state.error === '' ? apiRequestID(error) : ''
   }
 }
 
 async function selectHistoryRun(run: RouteTestRun): Promise<void> {
   localError.value = ''
+  localErrorRequestID.value = ''
   try {
     await routeStore.resume(run.id)
     activeTask.value = 'result'
-  } catch {
+  } catch (error: unknown) {
     localError.value = state.error === '' ? 'evidence_failed' : ''
+    localErrorRequestID.value = state.error === '' ? apiRequestID(error) : ''
   }
 }
 
@@ -461,7 +478,7 @@ function workspaceStateLabel(value: WorkspaceState): string {
   return labels[value]
 }
 
-function localErrorMessage(code: Exclude<LocalErrorCode, ''>): string {
+function localErrorMessage(code: Exclude<LocalErrorCode, ''>, requestID = ''): string {
   const labels: Record<Exclude<LocalErrorCode, ''>, string> = {
     workspaces_failed: t('routeLab.errors.workspaces'),
     workspace_failed: t('routeLab.errors.workspace'),
@@ -470,10 +487,13 @@ function localErrorMessage(code: Exclude<LocalErrorCode, ''>): string {
     cancel_failed: t('routeLab.errors.cancel'),
     evidence_failed: t('routeLab.errors.evidence'),
   }
-  return labels[code]
+  const message = labels[code]
+  return requestID === ''
+    ? message
+    : t('errors.withRequestId', { message, requestId: requestID })
 }
 
-function routeLabErrorMessage(code: RouteLabErrorCode): string {
+function routeLabErrorMessage(code: RouteLabErrorCode, requestID = ''): string {
   if (code === '') return ''
   const labels: Record<Exclude<RouteLabErrorCode, ''>, string> = {
     session_expired: t('routeLab.errors.sessionExpired'),
@@ -484,7 +504,10 @@ function routeLabErrorMessage(code: RouteLabErrorCode): string {
     cancellation_failed: t('routeLab.errors.cancellation'),
     history_failed: t('routeLab.errors.history'),
   }
-  return labels[code]
+  const message = labels[code]
+  return requestID === ''
+    ? message
+    : t('errors.withRequestId', { message, requestId: requestID })
 }
 
 function copyMessageLabel(code: Exclude<CopyMessageCode, ''>): string {

@@ -8,6 +8,7 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 
 import type { RouteAnalysis, RouteTestRun } from '../api/route_lab'
 import type { WorkspaceDetail } from '../api/types'
+import { APIRequestError } from '../api/client'
 import { appI18n } from '../i18n'
 import {
   ROUTE_SIDE_EFFECT_CONFIRMATION,
@@ -192,7 +193,9 @@ function storeFixture(): RouteLabStore {
     historyLoading: false,
     historyWorkspaceId: '',
     error: '',
+    errorRequestID: '',
     historyError: '',
+    historyErrorRequestID: '',
   })
   return {
     state,
@@ -209,10 +212,17 @@ function storeFixture(): RouteLabStore {
   }
 }
 
-async function mountView(store = storeFixture()) {
+async function mountView(
+  store = storeFixture(),
+  clientOverrides: Partial<{
+    listWorkspaces: () => Promise<WorkspaceDetail[]>
+    getWorkspace: (id: string) => Promise<WorkspaceDetail>
+  }> = {},
+) {
   const client = {
     listWorkspaces: vi.fn(async () => [workspace]),
     getWorkspace: vi.fn(async () => workspace),
+    ...clientOverrides,
   }
   const router = createRouter({
     history: createMemoryHistory(),
@@ -235,6 +245,34 @@ async function mountView(store = storeFixture()) {
 describe('RouteLabView', () => {
   beforeEach(() => {
     appI18n.global.locale.value = 'en-US'
+  })
+
+  it('localizes a route failure while preserving its request ID', async () => {
+    const store = storeFixture()
+    store.state.error = 'analysis_failed'
+    store.state.errorRequestID = 'request-route-view'
+    const { wrapper } = await mountView(store)
+
+    expect(wrapper.text()).toContain(
+      'Static route analysis could not be completed. Request ID: request-route-view.',
+    )
+    wrapper.unmount()
+  })
+
+  it('preserves request evidence when ready workspaces cannot be loaded', async () => {
+    const { wrapper } = await mountView(storeFixture(), {
+      listWorkspaces: vi.fn().mockRejectedValue(new APIRequestError({
+        kind: 'malformed_response',
+        message: 'private malformed workspace response',
+        requestID: 'request-route-workspaces',
+      })),
+    })
+
+    expect(wrapper.text()).toContain(
+      'Ready workspaces could not be loaded. Request ID: request-route-workspaces.',
+    )
+    expect(wrapper.text()).not.toContain('private malformed workspace response')
+    wrapper.unmount()
   })
 
   it('renders Route Lab controls in Simplified Chinese', async () => {

@@ -6,6 +6,7 @@
 import { reactive } from 'vue'
 
 import { apiClient } from './api/client'
+import { apiRequestID } from './api/error_message'
 import type {
   AttentionCase,
   AuditEvent,
@@ -90,6 +91,7 @@ export interface OperationsState {
   verification: RuntimeVerification | null
   pending: string
   error: OperationsErrorCode
+  errorRequestID: string
 }
 
 export type OperationsErrorCode =
@@ -146,7 +148,7 @@ export function createOperationsStore(
     backups: [], backupsCursor: '', releases: [], releaseCursor: '', restores: [],
     restoreCursor: '', restarts: [], restartCursor: '', audit: [], auditCursor: '',
     retention: null, activeRestore: null, activeRestart: null, verification: null,
-    pending: '', error: '',
+    pending: '', error: '', errorRequestID: '',
   })
   let stream: OperationsEventStream | null = null
   let activeController: AbortController | null = null
@@ -158,6 +160,7 @@ export function createOperationsStore(
     closeStream()
     stopRetentionPolling()
     state.error = 'session_expired'
+    state.errorRequestID = ''
   })
 
   function csrfToken(): string {
@@ -493,7 +496,10 @@ export function createOperationsStore(
   }
 
   function handleError(error: unknown, message: OperationsErrorCode): void {
-    if (!sessions.handleAPIError(error)) state.error = message
+    if (!sessions.handleAPIError(error)) {
+      state.error = message
+      state.errorRequestID = apiRequestID(error)
+    }
   }
 
   function dispose(): void {

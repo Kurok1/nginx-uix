@@ -5,6 +5,7 @@
 import { reactive } from 'vue'
 
 import { apiClient } from './api/client'
+import { apiRequestID } from './api/error_message'
 import {
   isTerminalRouteRun,
   type RouteAnalysis,
@@ -69,7 +70,9 @@ export interface RouteLabState {
   historyLoading: boolean
   historyWorkspaceId: string
   error: RouteLabErrorCode
+  errorRequestID: string
   historyError: RouteLabErrorCode
+  historyErrorRequestID: string
 }
 
 export interface RouteLabStore {
@@ -107,7 +110,9 @@ export function createRouteLabStore(
     historyLoading: false,
     historyWorkspaceId: '',
     error: '',
+    errorRequestID: '',
     historyError: '',
+    historyErrorRequestID: '',
   })
   let stream: RouteLabEventStream | null = null
   let analysisPromise: Promise<RouteAnalysis> | null = null
@@ -119,6 +124,7 @@ export function createRouteLabStore(
   const removeExpiryListener = sessions.onExpired(() => {
     closeStream()
     state.error = 'session_expired'
+    state.errorRequestID = ''
   })
 
   function csrfToken(): string {
@@ -151,9 +157,7 @@ export function createRouteLabStore(
         return result
       })
       .catch((error: unknown) => {
-        if (!sessions.handleAPIError(error)) {
-          state.error = 'analysis_failed'
-        }
+        handleError(error, 'analysis_failed')
         state.phase = state.activeRun === null ? 'idle' : 'tracking'
         throw error
       })
@@ -189,9 +193,7 @@ export function createRouteLabStore(
         return run
       })
       .catch((error: unknown) => {
-        if (!sessions.handleAPIError(error)) {
-          state.error = 'queue_failed'
-        }
+        handleError(error, 'queue_failed')
         state.phase = state.analysis === null ? 'idle' : 'ready'
         throw error
       })
@@ -215,7 +217,7 @@ export function createRouteLabStore(
       else connect(run.id)
       return run
     } catch (error: unknown) {
-      if (!sessions.handleAPIError(error)) state.error = 'run_failed'
+      handleError(error, 'run_failed')
       throw error
     }
   }
@@ -237,9 +239,7 @@ export function createRouteLabStore(
         return run
       })
       .catch((error: unknown) => {
-        if (!sessions.handleAPIError(error)) {
-          state.error = 'progress_failed'
-        }
+        handleError(error, 'progress_failed')
         throw error
       })
       .finally(() => {
@@ -262,9 +262,7 @@ export function createRouteLabStore(
         return updated
       })
       .catch((error: unknown) => {
-        if (!sessions.handleAPIError(error)) {
-          state.error = 'cancellation_failed'
-        }
+        handleError(error, 'cancellation_failed')
         throw error
       })
       .finally(() => {
@@ -293,9 +291,7 @@ export function createRouteLabStore(
         return page
       })
       .catch((error: unknown) => {
-        if (!sessions.handleAPIError(error)) {
-          state.historyError = 'history_failed'
-        }
+        handleHistoryError(error, 'history_failed')
         throw error
       })
       .finally(() => {
@@ -346,6 +342,20 @@ export function createRouteLabStore(
     state.analysisETag = ''
     state.error = ''
     if (state.activeRun === null) state.phase = 'idle'
+  }
+
+  function handleError(error: unknown, code: RouteLabErrorCode): void {
+    if (!sessions.handleAPIError(error)) {
+      state.error = code
+      state.errorRequestID = apiRequestID(error)
+    }
+  }
+
+  function handleHistoryError(error: unknown, code: RouteLabErrorCode): void {
+    if (!sessions.handleAPIError(error)) {
+      state.historyError = code
+      state.historyErrorRequestID = apiRequestID(error)
+    }
   }
 
   function dispose(): void {

@@ -4,7 +4,11 @@
  */
 import { createAppI18n } from '../i18n'
 import { APIClient, APIRequestError } from './client'
-import { formatAPIRequestError } from './error_message'
+import {
+  apiRequestID,
+  formatAPIRequestError,
+  withAPIRequestID,
+} from './error_message'
 
 describe('formatAPIRequestError', () => {
   it('maps a stable API code and request ID without exposing the server message', () => {
@@ -45,6 +49,24 @@ describe('formatAPIRequestError', () => {
   it('uses the unexpected fallback for non-API errors', () => {
     expect(formatAPIRequestError(new Error('secret'), createAppI18n('en-US'))).toBe(
       'Something went wrong. Try again.',
+    )
+  })
+
+  it('adds request evidence to a view-specific safe fallback without retaining raw details', () => {
+    const error = new APIRequestError({
+      kind: 'malformed_response',
+      message: 'private malformed response detail',
+      requestID: 'request-view-fallback',
+    })
+
+    expect(apiRequestID(error)).toBe('request-view-fallback')
+    expect(apiRequestID(new Error('private detail'))).toBe('')
+    expect(withAPIRequestID(
+      'The last successful sample is still displayed.',
+      error,
+      createAppI18n('en-US'),
+    )).toBe(
+      'The last successful sample is still displayed. Request ID: request-view-fallback.',
     )
   })
 

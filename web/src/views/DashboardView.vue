@@ -105,7 +105,8 @@
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import { apiClient } from '../api/client'
+import { apiClient, APIRequestError } from '../api/client'
+import { formatAPIRequestError, withAPIRequestID } from '../api/error_message'
 import type { SystemStatusResponse } from '../api/types'
 import ProcessMetrics from '../components/ProcessMetrics.vue'
 import RuntimeStatus from '../components/RuntimeStatus.vue'
@@ -173,14 +174,19 @@ async function refresh(origin: RefreshOrigin): Promise<void> {
     ) {
       liveMessage.value = t('dashboard.updated')
     }
-  } catch {
+  } catch (error: unknown) {
     if (unmounted) {
       return
     }
     stale.value = snapshot.value !== null
-    errorMessage.value = stale.value
+    const fallback = stale.value
       ? t('dashboard.staleError')
       : t('dashboard.unavailableError')
+    errorMessage.value = error instanceof APIRequestError
+      ? stale.value
+        ? withAPIRequestID(fallback, error)
+        : formatAPIRequestError(error)
+      : fallback
     if (origin === 'manual') {
       liveMessage.value = t('dashboard.refreshFailed')
     }

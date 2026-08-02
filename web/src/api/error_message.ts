@@ -118,6 +118,21 @@ const apiErrorMessageKeys = {
   DNS_PROPAGATION_TIMEOUT: 'dnsTimeout',
 } as const satisfies Record<APIErrorCode, APIErrorMessageKey>
 
+export function apiRequestID(error: unknown): string {
+  return error instanceof APIRequestError ? error.requestID ?? '' : ''
+}
+
+export function withAPIRequestID(
+  message: string,
+  error: unknown,
+  i18n: AppI18n = appI18n,
+): string {
+  const requestId = apiRequestID(error)
+  return requestId === ''
+    ? message
+    : i18n.global.t('errors.withRequestId', { message, requestId })
+}
+
 export function formatAPIRequestError(
   error: unknown,
   i18n: AppI18n = appI18n,
@@ -138,9 +153,5 @@ export function formatAPIRequestError(
     message = i18n.global.t('errors.unexpected')
   }
 
-  if (error.requestID === undefined) return message
-  return i18n.global.t('errors.withRequestId', {
-    message,
-    requestId: error.requestID,
-  })
+  return withAPIRequestID(message, error, i18n)
 }

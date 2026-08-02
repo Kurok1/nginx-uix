@@ -9,6 +9,7 @@ import type {
   RouteTestRun,
 } from './api/route_lab'
 import type { WorkspaceDetail } from './api/types'
+import { APIRequestError } from './api/client'
 import {
   createRouteLabStore,
   ROUTE_SIDE_EFFECT_CONFIRMATION,
@@ -186,6 +187,21 @@ describe('Route Lab store', () => {
 
     await expect(store.analyze(workspace, request)).rejects.toThrow('raw upstream failure')
     expect(store.state.error).toBe('analysis_failed')
+    store.dispose()
+  })
+
+  it('retains request evidence when route analysis receives a malformed response', async () => {
+    const client = clientFixture()
+    client.analyzeRoute = async () => Promise.reject(new APIRequestError({
+      kind: 'malformed_response',
+      message: 'private malformed response detail',
+      requestID: 'request-route-analysis',
+    }))
+    const store = createRouteLabStore(client, sessionFixture(), () => new FakeStream())
+
+    await expect(store.analyze(workspace, request)).rejects.toBeInstanceOf(APIRequestError)
+    expect(store.state.error).toBe('analysis_failed')
+    expect(store.state.errorRequestID).toBe('request-route-analysis')
     store.dispose()
   })
 

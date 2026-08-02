@@ -360,13 +360,25 @@ describe('DashboardView', () => {
   it('starts empty after a full remount when no request succeeds', async () => {
     const getSystemStatus = vi
       .fn<(signal?: AbortSignal) => Promise<SystemStatusResponse>>()
-      .mockRejectedValue(new APIRequestError({ kind: 'network', message: 'private network detail' }))
+      .mockRejectedValue(new APIRequestError({
+        kind: 'api',
+        message: 'private dashboard backend detail',
+        status: 503,
+        apiError: {
+          code: 'service_unavailable',
+          message: 'private dashboard backend detail',
+          request_id: 'request-dashboard-unavailable',
+        },
+      }))
     const wrapper = mount(DashboardView, {
       props: { client: createStatusClient(getSystemStatus) },
     })
     await flushPromises()
 
-    expect(wrapper.text()).toContain('暂时无法获取运行状态。')
+    expect(wrapper.text()).toContain(
+      '服务暂时不可用，请稍后重试。请求 ID：request-dashboard-unavailable。',
+    )
+    expect(wrapper.text()).not.toContain('private dashboard backend detail')
     expect(wrapper.text()).not.toContain('旧数据')
     expect(wrapper.text()).not.toContain('1.30.3')
     expect(localStorage.length).toBe(0)

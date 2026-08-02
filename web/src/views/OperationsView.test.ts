@@ -156,6 +156,7 @@ function storeFixture(): OperationsStore {
     verification: null,
     pending: '',
     error: '',
+    errorRequestID: '',
   })
   return {
     state,
@@ -200,6 +201,19 @@ async function mountView(store: OperationsStore, path = '/config/operations') {
 }
 
 describe('OperationsView', () => {
+  it('localizes a scoped failure while preserving its request ID', async () => {
+    appI18n.global.locale.value = 'en-US'
+    const store = storeFixture()
+    store.state.error = 'backups_failed'
+    store.state.errorRequestID = 'request-operations-view'
+    const { wrapper } = await mountView(store)
+
+    expect(wrapper.text()).toContain(
+      'Backup evidence could not be loaded. Request ID: request-operations-view.',
+    )
+    wrapper.unmount()
+  })
+
   it('renders recovery controls in Simplified Chinese', async () => {
     appI18n.global.locale.value = 'zh-CN'
     const { wrapper } = await mountView(storeFixture())

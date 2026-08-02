@@ -366,6 +366,37 @@ describe('CertificatesView', () => {
     wrapper.unmount()
   })
 
+  it('preserves the request ID from a malformed certificate response', async () => {
+    const client = clientFixture()
+    client.listACMEDirectories.mockRejectedValue(new APIRequestError({
+      kind: 'malformed_response',
+      message: 'private malformed certificate detail',
+      requestID: 'request-certificate-malformed',
+    }))
+    const wrapper = mount(CertificatesView, {
+      props: {
+        client,
+        eventSourceFactory: () => new FakeEventSource(),
+      },
+      global: {
+        stubs: {
+          RouterLink: {
+            props: ['to'],
+            template: '<a :href="typeof to === \'string\' ? to : to.path"><slot /></a>',
+          },
+        },
+      },
+    })
+
+    await flushPromises()
+
+    expect(wrapper.text()).toContain(
+      'Certificate evidence could not be loaded. Request ID: request-certificate-malformed.',
+    )
+    expect(wrapper.text()).not.toContain('private malformed certificate detail')
+    wrapper.unmount()
+  })
+
   it('uses the authenticated session CSRF token when the route does not pass one', async () => {
     const previousPhase = sessionStore.state.phase
     const previousSession = sessionStore.state.session

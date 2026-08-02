@@ -619,7 +619,10 @@ const operationsErrorMessage = computed(() => {
     progress_failed: t('operations.errors.progress'),
     retention_progress_failed: t('operations.errors.retentionProgress'),
   }
-  return labels[state.error] ?? state.error
+  const message = labels[state.error] ?? state.error
+  return state.errorRequestID === ''
+    ? message
+    : t('errors.withRequestId', { message, requestId: state.errorRequestID })
 })
 const runtimeTone = computed<StatusTone>(() => {
   switch (state.runtime?.components.nginx) {

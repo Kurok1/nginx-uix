@@ -1835,8 +1835,11 @@ function messageText(message: LocalizedMessage): string {
 }
 
 function safeMessage(error: unknown, fallbackKey: string): LocalizedMessage {
-  if (!(error instanceof APIRequestError) || error.kind !== 'api' || error.apiError === undefined) {
+  if (!(error instanceof APIRequestError)) {
     return localMessage(fallbackKey)
+  }
+  if (error.kind !== 'api' || error.apiError === undefined) {
+    return localMessage(fallbackKey, undefined, undefined, error.requestID)
   }
   const guidanceKey = certificateErrorGuidance(error.apiError.code, fallbackKey)
   return localMessage(guidanceKey, undefined, undefined, error.apiError.request_id)
