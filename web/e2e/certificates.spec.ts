@@ -136,6 +136,54 @@ test('wildcard issuance requires Cloudflare DNS-01, exact review, risk acknowled
   certificateAPI.assertContract()
 })
 
+test('zh-CN wildcard request wizard keeps domains and risk confirmations exact', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 1100 })
+  const certificateAPI = await installCertificateAPIFixture(page)
+
+  await page.goto('/certificates?lang=zh-CN')
+  await expect(page.getByRole('heading', { level: 1, name: '证书管理' })).toBeVisible()
+  await page.getByRole('button', { name: '申请', exact: true }).click()
+  const request = page.locator('section[aria-labelledby="certificate-request-title"]')
+  await request.getByLabel('域名 1').fill('*.example.test')
+  await request.getByLabel('验证方式').selectOption('cloudflare_dns_01')
+  await request.getByLabel('ACME 账户', { exact: true }).selectOption(productionAccountID)
+  await request.getByLabel('Staging 预检账户').selectOption(stagingAccountID)
+  await request.getByLabel('Cloudflare Token 凭据').selectOption(dnsCredentialID)
+  await request
+    .getByRole('checkbox', { name: /可编辑/u })
+    .check()
+  await page.getByRole('button', { name: '审查证书申请' }).click()
+
+  const review = page.locator('.certificate-request__review')
+  await expect(review.getByRole('heading', { name: '5. 审查' })).toBeVisible()
+  await expect(review).toContainText('*.example.test')
+  await expect(review.getByLabel('完整证书绑定差异')).toContainText('ssl_certificate_key')
+  const issue = review.getByRole('button', { name: '签发证书' })
+  await expect(issue).toBeDisabled()
+  await page.getByLabel('准确输入“*.example.test”以确认').fill('*.example.test')
+  await page
+    .getByLabel(`输入“${productionRiskPhrase}”以确认缺少 staging 证据`)
+    .fill(productionRiskPhrase)
+  await issue.click()
+
+  await expect(page.getByRole('button', { name: '历史', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  )
+  const executions = certificateAPI.callsFor(
+    'POST',
+    `/api/v1/certificate-order-plans/${certificatePlanID}/executions`,
+  )
+  expect(executions).toHaveLength(1)
+  expect(executions[0]?.body).toEqual({
+    confirmation: '*.example.test',
+    production_risk_confirmation: productionRiskPhrase,
+  })
+  await assertOnlyLocalePreferenceStorage(page)
+  await assertNoAxeViolations(page)
+  certificateAPI.assertContract()
+})
+
 test('certificate export and account deactivation dialogs trap focus, escape and restore the trigger', async ({
   page,
 }) => {

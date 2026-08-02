@@ -19,6 +19,83 @@ test.beforeEach(async ({ context }) => {
   await setAuthenticatedCookie(context)
 })
 
+const routeLocaleCases = [
+  {
+    locale: 'zh-CN',
+    title: '路由实验室',
+    uri: 'URI 路径',
+    run: '运行隔离测试',
+    completed: '运行完成',
+  },
+  {
+    locale: 'en-US',
+    title: 'Route Lab',
+    uri: 'URI path',
+    run: 'Run isolated test',
+    completed: 'Runtime completed',
+  },
+] as const
+
+for (const copy of routeLocaleCases) {
+  test(`${copy.locale} safe GET reaches isolated runtime evidence without confirmation`, async ({ page }) => {
+    const workspace = await installWorkspaceAPIFixture(page, { seedWorkspace: true })
+    const routeLab = await installRouteLabAPIFixture(page, workspace)
+
+    await page.goto(`/config/route-lab?lang=${copy.locale}`)
+    await expect(page.getByRole('heading', { level: 1, name: copy.title })).toBeVisible()
+    await page.getByRole('textbox', { name: /^Host/u }).fill('example.test')
+    await page.getByLabel(copy.uri).fill('/api/users')
+    await page.getByRole('button', { name: copy.run }).click()
+
+    await expect(page.getByText(copy.completed, { exact: true })).toBeVisible()
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    expect(routeLab.callsFor(
+      'POST',
+      `/api/v1/config/workspaces/${workspace.workspaceId}/route-tests`,
+    )).toHaveLength(1)
+    routeLab.assertContract()
+    workspace.assertContract()
+  })
+}
+
+test('switching a side-effecting request to zh-CN preserves its exact request semantics', async ({ page }) => {
+  const workspace = await installWorkspaceAPIFixture(page, { seedWorkspace: true })
+  const routeLab = await installRouteLabAPIFixture(page, workspace)
+
+  await page.goto('/config/route-lab?lang=en-US')
+  await page.getByRole('textbox', { name: /^Host/u }).fill('example.test')
+  await page.getByLabel('URI path').fill('/api/users')
+  await page.getByLabel('Method').selectOption('POST')
+  await page.getByLabel('Body').fill('{"private":"value"}')
+  await page.getByRole('combobox', { name: 'Language' }).selectOption('zh-CN')
+
+  await expect(page.getByRole('textbox', { name: /^Host/u })).toHaveValue('example.test')
+  await expect(page.getByLabel('URI 路径')).toHaveValue('/api/users')
+  await expect(page.getByLabel('方法')).toHaveValue('POST')
+  await expect(page.getByLabel('Body')).toHaveValue('{"private":"value"}')
+  await page.getByRole('button', { name: '运行隔离测试' }).click()
+  const dialog = page.getByRole('dialog', { name: '运行可能产生副作用的请求？' })
+  await dialog
+    .getByLabel(`输入与 ${routeSideEffectConfirmation} 完全相同的内容以确认`)
+    .fill(routeSideEffectConfirmation)
+  await dialog.getByRole('button', { name: '运行隔离测试' }).click()
+
+  await expect(page.getByText('运行完成', { exact: true })).toBeVisible()
+  const requests = routeLab.callsFor(
+    'POST',
+    `/api/v1/config/workspaces/${workspace.workspaceId}/route-tests`,
+  )
+  expect(requests).toHaveLength(1)
+  expect(requests[0]?.body).toMatchObject({
+    method: 'POST',
+    uri: '/api/users',
+    body: '{"private":"value"}',
+    confirmation: routeSideEffectConfirmation,
+  })
+  routeLab.assertContract()
+  workspace.assertContract()
+})
+
 test('static prediction, named runtime confirmation, mismatch evidence and safe history copy stay distinct', async ({
   page,
 }) => {

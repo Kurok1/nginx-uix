@@ -106,6 +106,32 @@ test('fixed restart requires exact confirmation, restores focus, and rebuilds te
   api.assertContract()
 })
 
+test('switching to zh-CN preserves loaded recovery state before a fixed restart confirmation', async ({ page }) => {
+  const api = await installOperationsAPIFixture(page)
+  await page.goto('/config/operations?lang=en-US')
+  await expect(page.getByRole('heading', { level: 1, name: 'Recovery & History' })).toBeVisible()
+  await expect(page.locator('[data-attention-case]')).toContainText('Needs attention')
+
+  await page.getByRole('combobox', { name: 'Language' }).selectOption('zh-CN')
+  await expect(page).toHaveURL((url) => url.searchParams.get('lang') === 'zh-CN')
+  await expect(page.getByRole('heading', { level: 1, name: '恢复与历史' })).toBeVisible()
+  await expect(page.locator('[data-attention-case]')).toContainText('需要处理')
+  await expect(page.locator('[data-runtime-control]')).toContainText('Nginx 运行中')
+
+  await page.locator('[data-runtime-control] [data-action="restart-nginx"]').click()
+  const dialog = page.getByRole('dialog', { name: '重启 Nginx？' })
+  await dialog.getByLabel('原因').fill('replace unhealthy master')
+  await dialog.getByLabel('输入与 RESTART NGINX 完全相同的内容以确认').fill('RESTART NGINX')
+  await dialog.getByRole('button', { name: '重启 Nginx', exact: true }).click()
+
+  const timeline = page.getByLabel('重启进度')
+  await expect(timeline.getByText('操作成功', { exact: true })).toBeVisible()
+  expect(api.callsFor('POST', '/api/v1/nginx/restarts')).toHaveLength(1)
+  await assertOnlyLocalePreferenceStorage(page)
+  await assertNoAxeViolations(page)
+  api.assertContract()
+})
+
 test('verified restore, retention dry-run, and attention verification keep exact evidence links', async ({
   page,
 }) => {
