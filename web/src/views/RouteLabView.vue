@@ -7,17 +7,17 @@
     <header class="route-lab-page__header">
       <div>
         <p class="route-lab-page__eyebrow">
-          Draft-only isolated verification
+          {{ t('routeLab.eyebrow') }}
         </p>
-        <h1>Route Lab</h1>
-        <p>Predict a workspace route, then optionally confirm it in a second isolated Nginx master. Production is never reloaded.</p>
+        <h1>{{ t('routeLab.title') }}</h1>
+        <p>{{ t('routeLab.description') }}</p>
       </div>
       <button
         type="button"
         :disabled="workspacePhase === 'loading' || pendingAction !== ''"
         @click="refreshWorkspaces"
       >
-        {{ workspacePhase === 'loading' ? 'Refreshing…' : 'Refresh workspaces' }}
+        {{ workspacePhase === 'loading' ? t('routeLab.refreshing') : t('routeLab.refresh') }}
       </button>
     </header>
 
@@ -36,12 +36,12 @@
     >
       <div>
         <h2 id="route-workspace-title">
-          Candidate workspace
+          {{ t('routeLab.workspace.title') }}
         </h2>
-        <p>Only a current <code>ready</code> draft can be analyzed or executed.</p>
+        <p>{{ t('routeLab.workspace.readyOnlyBefore') }} <code>ready</code> {{ t('routeLab.workspace.readyOnlyAfter') }}</p>
       </div>
       <label v-if="readyWorkspaces.length > 0">
-        <span>Ready workspace</span>
+        <span>{{ t('routeLab.workspace.select') }}</span>
         <select
           :value="workspace?.id ?? ''"
           :disabled="workspacePhase === 'loading' || pendingAction !== ''"
@@ -55,23 +55,23 @@
         </select>
       </label>
       <dl v-if="workspace !== null">
-        <div><dt>State</dt><dd>{{ workspace.state }}</dd></div>
-        <div><dt>Draft revision</dt><dd><code>{{ abbreviateETag(workspace.draft_etag) }}</code></dd></div>
-        <div><dt>Entries</dt><dd>{{ workspace.entry_count }}</dd></div>
+        <div><dt>{{ t('routeLab.workspace.state') }}</dt><dd>{{ workspaceStateLabel(workspace.state) }}</dd></div>
+        <div><dt>{{ t('routeLab.workspace.draftRevision') }}</dt><dd><code>{{ abbreviateETag(workspace.draft_etag) }}</code></dd></div>
+        <div><dt>{{ t('routeLab.workspace.entries') }}</dt><dd>{{ workspace.entry_count }}</dd></div>
       </dl>
       <p
         v-else-if="workspacePhase === 'ready'"
         class="route-lab-page__empty"
       >
-        No ready workspace is available. <RouterLink to="/config/workspaces">
-          Create or repair a configuration workspace
-        </RouterLink> before using Route Lab.
+        {{ t('routeLab.workspace.emptyBefore') }} <RouterLink to="/config/workspaces">
+          {{ t('routeLab.workspace.emptyLink') }}
+        </RouterLink> {{ t('routeLab.workspace.emptyAfter') }}
       </p>
     </section>
 
     <nav
       class="route-lab-page__tabs"
-      aria-label="Route Lab tasks"
+      :aria-label="t('routeLab.tasks.label')"
     >
       <button
         v-for="task in tasks"
@@ -128,14 +128,14 @@
       aria-live="polite"
       aria-atomic="true"
     >
-      {{ copyMessage }}
+      {{ copyMessageText }}
     </p>
     <p
       v-if="state.historyError !== ''"
       class="route-lab-page__error"
       role="alert"
     >
-      {{ state.historyError }}
+      {{ historyErrorMessage }}
     </p>
 
     <div
@@ -154,10 +154,10 @@
 
     <ConfirmModal
       :open="confirmationOpen"
-      title="Run a potentially side-effecting request?"
-      consequence="The request connects only to an isolated loopback Nginx, but its selected route may still reach a configured upstream and cause a real side effect. Closing this dialog after submission does not cancel the server task."
+      :title="t('routeLab.confirmation.title')"
+      :consequence="t('routeLab.confirmation.consequence')"
       :object-name="ROUTE_SIDE_EFFECT_CONFIRMATION"
-      confirm-label="Run isolated test"
+      :confirm-label="t('routeLab.confirmation.action')"
       :trigger="confirmationTrigger"
       @cancel="closeConfirmation"
       @confirm="confirmRuntime"
@@ -167,11 +167,12 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
 
 import { APIRequestError, apiClient } from '../api/client'
 import { replayRouteRequest, type RouteTestRequest, type RouteTestRun } from '../api/route_lab'
-import type { WorkspaceDetail, WorkspaceSummary } from '../api/types'
+import type { WorkspaceDetail, WorkspaceState, WorkspaceSummary } from '../api/types'
 import ConfirmModal from '../components/ConfirmModal.vue'
 import RouteAnalysisPanel from '../components/RouteAnalysisPanel.vue'
 import RouteHistory from '../components/RouteHistory.vue'
@@ -181,6 +182,7 @@ import {
   requiresRouteConfirmation,
   ROUTE_SIDE_EFFECT_CONFIRMATION,
   routeLabStore,
+  type RouteLabErrorCode,
   type RouteLabStore,
 } from '../route_lab'
 
@@ -197,30 +199,38 @@ const props = withDefaults(defineProps<{
   store: () => routeLabStore,
 })
 
-type Task = 'request' | 'analysis' | 'result' | 'history'
+const { t } = useI18n()
 
-const tasks: ReadonlyArray<{ id: Task; label: string }> = [
-  { id: 'request', label: 'Request' },
-  { id: 'analysis', label: 'Analysis' },
-  { id: 'result', label: 'Result' },
-  { id: 'history', label: 'History' },
-]
+type Task = 'request' | 'analysis' | 'result' | 'history'
+type LocalErrorCode = '' | 'workspaces_failed' | 'workspace_failed' | 'analysis_failed' | 'queue_failed' | 'cancel_failed' | 'evidence_failed'
+type CopyMessageCode = '' | 'safe' | 'body_omitted' | 'headers_omitted' | 'body_and_headers_omitted'
+
+const tasks = computed<ReadonlyArray<{ id: Task; label: string }>>(() => [
+  { id: 'request', label: t('routeLab.tasks.request') },
+  { id: 'analysis', label: t('routeLab.tasks.analysis') },
+  { id: 'result', label: t('routeLab.tasks.result') },
+  { id: 'history', label: t('routeLab.tasks.history') },
+])
 const routeStore = props.store
 const state = routeStore.state
 const workspaces = ref<WorkspaceSummary[]>([])
 const workspace = ref<WorkspaceDetail | null>(null)
 const workspacePhase = ref<'loading' | 'ready' | 'error'>('loading')
-const localError = ref('')
+const localError = ref<LocalErrorCode>('')
 const pendingAction = ref<'' | 'analyze' | 'run'>('')
 const activeTask = ref<Task>('request')
 const confirmationOpen = ref(false)
 const confirmationTrigger = ref<HTMLElement | null>(null)
 const pendingRuntimeRequest = ref<RouteTestRequest | null>(null)
-const copyMessage = ref('')
+const copyMessage = ref<CopyMessageCode>('')
 const request = ref<RouteTestRequest>(defaultRequest())
 
 const readyWorkspaces = computed(() => workspaces.value.filter(({ state: value }) => value === 'ready'))
-const pageError = computed(() => localError.value || state.error)
+const pageError = computed(() => localError.value !== ''
+  ? localErrorMessage(localError.value)
+  : routeLabErrorMessage(state.error))
+const historyErrorMessage = computed(() => routeLabErrorMessage(state.historyError))
+const copyMessageText = computed(() => copyMessage.value === '' ? '' : copyMessageLabel(copyMessage.value))
 
 watch(
   () => request.value.scheme,
@@ -257,7 +267,7 @@ async function loadWorkspaces(preferredId = workspace.value?.id ?? ''): Promise<
     workspacePhase.value = 'ready'
   } catch {
     workspacePhase.value = 'error'
-    localError.value = 'Ready workspaces could not be loaded.'
+    localError.value = 'workspaces_failed'
   }
 }
 
@@ -288,7 +298,7 @@ function selectWorkspace(event: Event): void {
     })
     .catch(() => {
       workspacePhase.value = 'error'
-      localError.value = 'The selected ready workspace could not be opened.'
+      localError.value = 'workspace_failed'
     })
 }
 
@@ -301,7 +311,7 @@ async function analyze(input: RouteTestRequest): Promise<void> {
     await routeStore.analyze(workspace.value, input)
     activeTask.value = 'analysis'
   } catch {
-    localError.value = state.error || 'Static route analysis could not be completed.'
+    localError.value = state.error === '' ? 'analysis_failed' : ''
   } finally {
     pendingAction.value = ''
   }
@@ -338,7 +348,7 @@ async function queueRuntime(input: RouteTestRequest, confirmation: string): Prom
       confirmationOpen.value = true
       localError.value = ''
     } else {
-      localError.value = state.error || 'The isolated route test could not be queued.'
+      localError.value = state.error === '' ? 'queue_failed' : ''
     }
   } finally {
     pendingAction.value = ''
@@ -360,7 +370,7 @@ async function cancelRun(): Promise<void> {
   try {
     await routeStore.cancel()
   } catch {
-    localError.value = state.error || 'Cancellation could not be recorded.'
+    localError.value = state.error === '' ? 'cancel_failed' : ''
   }
 }
 
@@ -370,19 +380,22 @@ async function selectHistoryRun(run: RouteTestRun): Promise<void> {
     await routeStore.resume(run.id)
     activeTask.value = 'result'
   } catch {
-    localError.value = state.error || 'The selected route-test evidence could not be loaded.'
+    localError.value = state.error === '' ? 'evidence_failed' : ''
   }
 }
 
 function useHistoryParameters(run: RouteTestRun): void {
   request.value = replayRouteRequest(run)
   activeTask.value = 'request'
-  const omitted: string[] = []
-  if (run.body_bytes > 0) omitted.push('Body')
-  if (run.sensitive_header_names.length > 0) omitted.push('sensitive headers')
-  copyMessage.value = omitted.length === 0
-    ? 'Safe request parameters were copied into the in-memory form.'
-    : `${omitted.join(' and ')} were not copied. Re-enter them before running if they are required.`
+  const bodyOmitted = run.body_bytes > 0
+  const headersOmitted = run.sensitive_header_names.length > 0
+  copyMessage.value = bodyOmitted && headersOmitted
+    ? 'body_and_headers_omitted'
+    : bodyOmitted
+      ? 'body_omitted'
+      : headersOmitted
+        ? 'headers_omitted'
+        : 'safe'
 }
 
 function loadMoreHistory(): void {
@@ -435,6 +448,53 @@ function isSensitiveHeader(name: string): boolean {
     lower.includes('secret') ||
     lower.includes('api-key')
   )
+}
+
+function workspaceStateLabel(value: WorkspaceState): string {
+  const labels: Record<WorkspaceState, string> = {
+    preparing: t('workspace.states.preparing'),
+    ready: t('workspace.states.ready'),
+    stale: t('workspace.states.stale'),
+    published: t('workspace.states.published'),
+    needs_attention: t('workspace.states.needsAttention'),
+  }
+  return labels[value]
+}
+
+function localErrorMessage(code: Exclude<LocalErrorCode, ''>): string {
+  const labels: Record<Exclude<LocalErrorCode, ''>, string> = {
+    workspaces_failed: t('routeLab.errors.workspaces'),
+    workspace_failed: t('routeLab.errors.workspace'),
+    analysis_failed: t('routeLab.errors.analysis'),
+    queue_failed: t('routeLab.errors.queue'),
+    cancel_failed: t('routeLab.errors.cancel'),
+    evidence_failed: t('routeLab.errors.evidence'),
+  }
+  return labels[code]
+}
+
+function routeLabErrorMessage(code: RouteLabErrorCode): string {
+  if (code === '') return ''
+  const labels: Record<Exclude<RouteLabErrorCode, ''>, string> = {
+    session_expired: t('routeLab.errors.sessionExpired'),
+    analysis_failed: t('routeLab.errors.analysis'),
+    queue_failed: t('routeLab.errors.queue'),
+    run_failed: t('routeLab.errors.run'),
+    progress_failed: t('routeLab.errors.progress'),
+    cancellation_failed: t('routeLab.errors.cancellation'),
+    history_failed: t('routeLab.errors.history'),
+  }
+  return labels[code]
+}
+
+function copyMessageLabel(code: Exclude<CopyMessageCode, ''>): string {
+  const labels: Record<Exclude<CopyMessageCode, ''>, string> = {
+    safe: t('routeLab.copy.safe'),
+    body_omitted: t('routeLab.copy.bodyOmitted'),
+    headers_omitted: t('routeLab.copy.headersOmitted'),
+    body_and_headers_omitted: t('routeLab.copy.bodyAndHeadersOmitted'),
+  }
+  return labels[code]
 }
 
 function abbreviateETag(value: string): string {

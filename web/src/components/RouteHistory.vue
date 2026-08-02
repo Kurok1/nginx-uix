@@ -10,26 +10,26 @@
   >
     <header>
       <div>
-        <p>Server-ordered, redacted evidence</p>
+        <p>{{ t('routeLab.history.eyebrow') }}</p>
         <h2 id="route-history-title">
-          Route-test history
+          {{ t('routeLab.history.title') }}
         </h2>
       </div>
-      <span>{{ runs.length }} loaded</span>
+      <span>{{ t('routeLab.history.loaded', { count: runs.length }) }}</span>
     </header>
 
     <p
       v-if="runs.length === 0 && !loading"
       class="route-history__empty"
     >
-      No isolated route tests are available. Running a static analysis does not create history.
+      {{ t('routeLab.history.empty') }}
     </p>
     <p
       v-else-if="runs.length === 0"
       class="route-history__empty"
       aria-live="polite"
     >
-      <span aria-hidden="true">◌</span> Loading route-test history…
+      <span aria-hidden="true">◌</span> {{ t('routeLab.history.loading') }}
     </p>
 
     <ul
@@ -49,13 +49,13 @@
           />
         </div>
         <dl>
-          <div><dt>Request</dt><dd>{{ requestSummary(run) }}</dd></div>
-          <div><dt>Workspace</dt><dd><code>{{ abbreviate(run.workspace_id) }}</code></dd></div>
-          <div><dt>Assertions</dt><dd>{{ assertionSummary(run) }}</dd></div>
-          <div><dt>Created</dt><dd><time :datetime="run.created_at">{{ formatTime(run.created_at) }}</time></dd></div>
+          <div><dt>{{ t('routeLab.history.request') }}</dt><dd>{{ requestSummary(run) }}</dd></div>
+          <div><dt>{{ t('routeLab.history.workspace') }}</dt><dd><code>{{ abbreviate(run.workspace_id) }}</code></dd></div>
+          <div><dt>{{ t('routeLab.history.assertions') }}</dt><dd>{{ assertionSummary(run) }}</dd></div>
+          <div><dt>{{ t('routeLab.history.created') }}</dt><dd><time :datetime="run.created_at">{{ formatTime(run.created_at) }}</time></dd></div>
         </dl>
         <p v-if="!run.replayable">
-          Body or sensitive header values are unavailable; only safe parameters can be copied.
+          {{ t('routeLab.history.unavailable') }}
         </p>
         <div class="route-history__actions">
           <button
@@ -63,14 +63,14 @@
             data-action="view-route-run"
             @click="$emit('select', run)"
           >
-            View evidence
+            {{ t('routeLab.history.view') }}
           </button>
           <button
             type="button"
             data-action="use-route-parameters"
             @click="$emit('use', run)"
           >
-            Use safe parameters
+            {{ t('routeLab.history.use') }}
           </button>
         </div>
       </li>
@@ -80,29 +80,29 @@
       v-else-if="runs.length > 0"
       class="route-history__table-wrap"
       tabindex="0"
-      aria-label="Scrollable route-test history table"
+      :aria-label="t('routeLab.history.tableLabel')"
     >
       <table data-route-history-table>
-        <caption>Bounded isolated Route Lab runs in server order</caption>
+        <caption>{{ t('routeLab.history.caption') }}</caption>
         <thead>
           <tr>
             <th scope="col">
-              Run
+              {{ t('routeLab.history.run') }}
             </th>
             <th scope="col">
-              Request
+              {{ t('routeLab.history.request') }}
             </th>
             <th scope="col">
-              State
+              {{ t('routeLab.history.state') }}
             </th>
             <th scope="col">
-              Assertions
+              {{ t('routeLab.history.assertions') }}
             </th>
             <th scope="col">
-              Created
+              {{ t('routeLab.history.created') }}
             </th>
             <th scope="col">
-              Actions
+              {{ t('routeLab.history.actions') }}
             </th>
           </tr>
         </thead>
@@ -116,8 +116,8 @@
             </th>
             <td>
               <strong>{{ requestSummary(run) }}</strong>
-              <span>Workspace {{ abbreviate(run.workspace_id) }}</span>
-              <span v-if="!run.replayable">Secrets/body omitted</span>
+              <span>{{ t('routeLab.history.workspaceId', { id: abbreviate(run.workspace_id) }) }}</span>
+              <span v-if="!run.replayable">{{ t('routeLab.history.omitted') }}</span>
             </td>
             <td>
               <StatusBadge
@@ -134,14 +134,14 @@
                   data-action="view-route-run"
                   @click="$emit('select', run)"
                 >
-                  View evidence
+                  {{ t('routeLab.history.view') }}
                 </button>
                 <button
                   type="button"
                   data-action="use-route-parameters"
                   @click="$emit('use', run)"
                 >
-                  Use safe parameters
+                  {{ t('routeLab.history.use') }}
                 </button>
               </div>
             </td>
@@ -158,16 +158,19 @@
       :disabled="loading"
       @click="$emit('loadMore')"
     >
-      {{ loading ? 'Loading…' : 'Load more history' }}
+      {{ loading ? t('routeLab.history.loadingMore') : t('routeLab.history.loadMore') }}
     </button>
   </section>
 </template>
 
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import type { RouteTestRun } from '../api/route_lab'
 import StatusBadge, { type StatusTone } from './StatusBadge.vue'
+
+const { d, t } = useI18n()
 
 withDefaults(defineProps<{
   loading?: boolean
@@ -214,15 +217,15 @@ function stateTone(run: RouteTestRun): StatusTone {
 
 function stateLabel(run: RouteTestRun): string {
   if (run.state === 'succeeded' && run.terminal_result?.agent_result.response.assertions.passed === false) {
-    return 'Completed · assertions failed'
+    return t('routeLab.history.states.assertionsFailed')
   }
   const labels: Record<RouteTestRun['state'], string> = {
-    queued: 'Queued',
-    running: 'Running',
-    succeeded: 'Succeeded',
-    failed: 'Failed',
-    cancelled: 'Cancelled',
-    timed_out: 'Timed out',
+    queued: t('routeLab.history.states.queued'),
+    running: t('routeLab.history.states.running'),
+    succeeded: t('routeLab.history.states.succeeded'),
+    failed: t('routeLab.history.states.failed'),
+    cancelled: t('routeLab.history.states.cancelled'),
+    timed_out: t('routeLab.history.states.timedOut'),
   }
   return labels[run.state]
 }
@@ -234,9 +237,11 @@ function requestSummary(run: RouteTestRun): string {
 
 function assertionSummary(run: RouteTestRun): string {
   const outcome = run.terminal_result?.agent_result.response.assertions
-  if (outcome === undefined) return 'Not evaluated'
-  if (!outcome.complete) return 'Indeterminate'
-  return outcome.passed ? 'Passed' : 'Failed'
+  if (outcome === undefined) return t('routeLab.history.assertionStates.notEvaluated')
+  if (!outcome.complete) return t('routeLab.history.assertionStates.indeterminate')
+  return outcome.passed
+    ? t('routeLab.history.assertionStates.passed')
+    : t('routeLab.history.assertionStates.failed')
 }
 
 function abbreviate(value: string): string {
@@ -244,10 +249,7 @@ function abbreviate(value: string): string {
 }
 
 function formatTime(value: string): string {
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(new Date(value))
+  return d(new Date(value), 'short')
 }
 </script>
 

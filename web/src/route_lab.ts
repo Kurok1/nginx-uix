@@ -47,6 +47,16 @@ export interface RouteLabEventStream {
   close: () => void
 }
 
+export type RouteLabErrorCode =
+  | ''
+  | 'session_expired'
+  | 'analysis_failed'
+  | 'queue_failed'
+  | 'run_failed'
+  | 'progress_failed'
+  | 'cancellation_failed'
+  | 'history_failed'
+
 export interface RouteLabState {
   phase: 'idle' | 'analyzing' | 'ready' | 'queuing' | 'tracking'
   stream: 'closed' | 'connecting' | 'live' | 'reconnecting'
@@ -58,8 +68,8 @@ export interface RouteLabState {
   historyCursor: string
   historyLoading: boolean
   historyWorkspaceId: string
-  error: string
-  historyError: string
+  error: RouteLabErrorCode
+  historyError: RouteLabErrorCode
 }
 
 export interface RouteLabStore {
@@ -108,7 +118,7 @@ export function createRouteLabStore(
 
   const removeExpiryListener = sessions.onExpired(() => {
     closeStream()
-    state.error = 'Session expired while tracking the isolated test. Sign in to resume.'
+    state.error = 'session_expired'
   })
 
   function csrfToken(): string {
@@ -142,7 +152,7 @@ export function createRouteLabStore(
       })
       .catch((error: unknown) => {
         if (!sessions.handleAPIError(error)) {
-          state.error = 'Static route analysis could not be completed.'
+          state.error = 'analysis_failed'
         }
         state.phase = state.activeRun === null ? 'idle' : 'tracking'
         throw error
@@ -180,7 +190,7 @@ export function createRouteLabStore(
       })
       .catch((error: unknown) => {
         if (!sessions.handleAPIError(error)) {
-          state.error = 'The isolated route test could not be queued.'
+          state.error = 'queue_failed'
         }
         state.phase = state.analysis === null ? 'idle' : 'ready'
         throw error
@@ -205,7 +215,7 @@ export function createRouteLabStore(
       else connect(run.id)
       return run
     } catch (error: unknown) {
-      if (!sessions.handleAPIError(error)) state.error = 'The route test could not be loaded.'
+      if (!sessions.handleAPIError(error)) state.error = 'run_failed'
       throw error
     }
   }
@@ -228,7 +238,7 @@ export function createRouteLabStore(
       })
       .catch((error: unknown) => {
         if (!sessions.handleAPIError(error)) {
-          state.error = 'Persisted route-test progress could not be refreshed.'
+          state.error = 'progress_failed'
         }
         throw error
       })
@@ -253,7 +263,7 @@ export function createRouteLabStore(
       })
       .catch((error: unknown) => {
         if (!sessions.handleAPIError(error)) {
-          state.error = 'Cancellation could not be recorded. The isolated test may still be running.'
+          state.error = 'cancellation_failed'
         }
         throw error
       })
@@ -284,7 +294,7 @@ export function createRouteLabStore(
       })
       .catch((error: unknown) => {
         if (!sessions.handleAPIError(error)) {
-          state.historyError = 'Route-test history could not be loaded.'
+          state.historyError = 'history_failed'
         }
         throw error
       })

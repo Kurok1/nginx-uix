@@ -11,15 +11,15 @@
     <header>
       <div>
         <p class="route-analysis__eyebrow">
-          Static analysis — prediction only
+          {{ t('routeLab.analysisEyebrow') }}
         </p>
         <h2 id="route-analysis-title">
-          Candidate explanation
+          {{ t('routeLab.analysis.title') }}
         </h2>
       </div>
       <StatusBadge
         :tone="analysis === null ? 'unknown' : analysis.complete ? 'success' : 'warning'"
-        :label="analysis === null ? 'Not analyzed' : analysis.complete ? 'Complete prediction' : 'Indeterminate'"
+        :label="analysis === null ? t('routeLab.analysis.notAnalyzed') : analysis.complete ? t('routeLab.analysis.complete') : t('routeLab.analysis.indeterminate')"
       />
     </header>
 
@@ -28,13 +28,13 @@
       class="route-analysis__empty"
       aria-live="polite"
     >
-      <span aria-hidden="true">◌</span> Analyzing server and location candidates…
+      <span aria-hidden="true">◌</span> {{ t('routeLab.analysis.analyzing') }}
     </p>
     <p
       v-else-if="analysis === null"
       class="route-analysis__empty"
     >
-      Enter request semantics and choose “Analyze route”. No request reaches Nginx during static analysis.
+      {{ t('routeLab.analysis.empty') }}
     </p>
 
     <template v-else>
@@ -43,40 +43,40 @@
         class="route-analysis__warning"
         role="status"
       >
-        <span aria-hidden="true">△</span> Static analysis is indeterminate. Candidate evidence is retained below; no winner is inferred.
+        <span aria-hidden="true">△</span> {{ t('routeLab.analysis.warning') }}
       </p>
       <p
         v-if="analysis.runtime_redirect_possible"
         class="route-analysis__notice"
       >
-        <span aria-hidden="true">◇</span> Runtime URI changes may select a different final location.
+        <span aria-hidden="true">◇</span> {{ t('routeLab.analysis.redirect') }}
       </p>
 
       <dl class="route-analysis__summary">
         <div>
-          <dt>Normalized URI</dt>
+          <dt>{{ t('routeLab.analysis.normalizedUri') }}</dt>
           <dd><code>{{ analysis.normalized_uri }}</code></dd>
         </div>
         <div>
-          <dt>Predicted server</dt>
-          <dd><code>{{ analysis.predicted_server_route_id ?? 'Indeterminate' }}</code></dd>
+          <dt>{{ t('routeLab.analysis.predictedServer') }}</dt>
+          <dd><code>{{ analysis.predicted_server_route_id ?? t('routeLab.analysis.indeterminate') }}</code></dd>
         </div>
         <div>
-          <dt>Predicted location</dt>
-          <dd><code>{{ analysis.predicted_location_route_id ?? 'Server context' }}</code></dd>
+          <dt>{{ t('routeLab.analysis.predictedLocation') }}</dt>
+          <dd><code>{{ analysis.predicted_location_route_id ?? t('routeLab.analysis.serverContext') }}</code></dd>
         </div>
         <div v-if="analysis.predicted_tls_server_route_id !== undefined">
-          <dt>Predicted TLS server</dt>
+          <dt>{{ t('routeLab.analysis.predictedTlsServer') }}</dt>
           <dd><code>{{ analysis.predicted_tls_server_route_id }}</code></dd>
         </div>
       </dl>
 
       <section aria-labelledby="route-server-candidates-title">
         <h3 id="route-server-candidates-title">
-          Server candidates
+          {{ t('routeLab.analysis.serverCandidates') }}
         </h3>
         <p v-if="analysis.servers.length === 0">
-          No server candidate could be projected.
+          {{ t('routeLab.analysis.noServerCandidates') }}
         </p>
         <ol
           v-else
@@ -95,10 +95,9 @@
               <code>{{ candidate.route_id }}</code>
             </div>
             <p><strong>{{ reasonLabel(candidate.reason) }}</strong></p>
-            <p>Names: {{ candidate.server_names.join(', ') }}</p>
+            <p>{{ t('routeLab.analysis.names', { names: candidate.server_names.join(', ') }) }}</p>
             <p>
-              Listener:
-              {{ candidate.listeners.map(listenerLabel).join(', ') }}
+              {{ t('routeLab.analysis.listener', { listeners: candidate.listeners.map(listenerLabel).join(', ') }) }}
             </p>
             <p class="route-analysis__source">
               {{ sourceLabel(candidate.source) }}
@@ -109,10 +108,10 @@
 
       <section aria-labelledby="route-location-candidates-title">
         <h3 id="route-location-candidates-title">
-          Location candidates
+          {{ t('routeLab.analysis.locationCandidates') }}
         </h3>
         <p v-if="analysis.locations.length === 0">
-          The selected server context has no projected location candidate.
+          {{ t('routeLab.analysis.noLocationCandidates') }}
         </p>
         <ol
           v-else
@@ -143,6 +142,8 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+
 import type {
   RouteAnalysis,
   RouteCandidateDisposition,
@@ -152,6 +153,8 @@ import type {
   RouteSource,
 } from '../api/route_lab'
 import StatusBadge, { type StatusTone } from './StatusBadge.vue'
+
+const { t } = useI18n()
 
 withDefaults(defineProps<{
   analysis: RouteAnalysis | null
@@ -170,46 +173,52 @@ function dispositionTone(disposition: RouteCandidateDisposition): StatusTone {
 }
 
 function dispositionLabel(disposition: RouteCandidateDisposition): string {
-  return disposition.charAt(0).toUpperCase() + disposition.slice(1)
+  const labels: Record<RouteCandidateDisposition, string> = {
+    selected: t('routeLab.analysis.dispositions.selected'),
+    matched: t('routeLab.analysis.dispositions.matched'),
+    indeterminate: t('routeLab.analysis.dispositions.indeterminate'),
+    excluded: t('routeLab.analysis.dispositions.excluded'),
+  }
+  return labels[disposition]
 }
 
 function reasonLabel(reason: RouteCandidateReason): string {
   const labels: Record<RouteCandidateReason, string> = {
-    listener_mismatch: 'Listener does not match the requested scheme or port',
-    listener_unsupported: 'Listener syntax cannot be proven statically',
-    listener_default: 'Default server for the selected listener',
-    server_name_exact: 'Exact server name match',
-    server_name_leading_wildcard: 'Leading wildcard server name match',
-    server_name_trailing_wildcard: 'Trailing wildcard server name match',
-    server_name_regex: 'First matching server-name regex',
-    server_name_lower_priority: 'A higher-priority server name matched',
-    server_name_indeterminate: 'Server-name regex result is indeterminate',
-    location_exact: 'Exact location match',
-    location_longest_prefix: 'Longest matching prefix',
-    location_prefix_priority: 'Priority prefix suppresses regex evaluation',
-    location_regex: 'First matching location regex',
-    location_shorter_prefix: 'A longer prefix matched',
-    location_prefix_no_match: 'Prefix does not match the normalized URI',
-    location_regex_no_match: 'Regex did not match under supported semantics',
-    location_earlier_regex_selected: 'An earlier regex matched first',
-    location_named_not_initial: 'Named locations are not initial request candidates',
-    location_parent_matched: 'Parent location context matched',
-    location_parent_not_selected: 'Parent location context was not selected',
-    location_regex_indeterminate: 'PCRE behavior cannot be proven statically',
-    location_uri_normalization_indeterminate: 'Selected server URI normalization is indeterminate',
+    listener_mismatch: t('routeLab.analysis.reasons.listenerMismatch'),
+    listener_unsupported: t('routeLab.analysis.reasons.listenerUnsupported'),
+    listener_default: t('routeLab.analysis.reasons.listenerDefault'),
+    server_name_exact: t('routeLab.analysis.reasons.serverNameExact'),
+    server_name_leading_wildcard: t('routeLab.analysis.reasons.serverNameLeadingWildcard'),
+    server_name_trailing_wildcard: t('routeLab.analysis.reasons.serverNameTrailingWildcard'),
+    server_name_regex: t('routeLab.analysis.reasons.serverNameRegex'),
+    server_name_lower_priority: t('routeLab.analysis.reasons.serverNameLowerPriority'),
+    server_name_indeterminate: t('routeLab.analysis.reasons.serverNameIndeterminate'),
+    location_exact: t('routeLab.analysis.reasons.locationExact'),
+    location_longest_prefix: t('routeLab.analysis.reasons.locationLongestPrefix'),
+    location_prefix_priority: t('routeLab.analysis.reasons.locationPrefixPriority'),
+    location_regex: t('routeLab.analysis.reasons.locationRegex'),
+    location_shorter_prefix: t('routeLab.analysis.reasons.locationShorterPrefix'),
+    location_prefix_no_match: t('routeLab.analysis.reasons.locationPrefixNoMatch'),
+    location_regex_no_match: t('routeLab.analysis.reasons.locationRegexNoMatch'),
+    location_earlier_regex_selected: t('routeLab.analysis.reasons.locationEarlierRegexSelected'),
+    location_named_not_initial: t('routeLab.analysis.reasons.locationNamedNotInitial'),
+    location_parent_matched: t('routeLab.analysis.reasons.locationParentMatched'),
+    location_parent_not_selected: t('routeLab.analysis.reasons.locationParentNotSelected'),
+    location_regex_indeterminate: t('routeLab.analysis.reasons.locationRegexIndeterminate'),
+    location_uri_normalization_indeterminate: t('routeLab.analysis.reasons.locationUriNormalizationIndeterminate'),
   }
   return labels[reason]
 }
 
 function matcherLabel(type: RouteMatcherType, matcher: string): string {
   const typeLabels: Record<RouteMatcherType, string> = {
-    unknown: 'Unknown',
-    exact: 'Exact',
-    prefix: 'Prefix',
-    prefix_priority: 'Priority prefix (^~)',
-    regex: 'Regex',
-    regex_insensitive: 'Case-insensitive regex',
-    named: 'Named location',
+    unknown: t('routeLab.analysis.matcherTypes.unknown'),
+    exact: t('routeLab.analysis.matcherTypes.exact'),
+    prefix: t('routeLab.analysis.matcherTypes.prefix'),
+    prefix_priority: t('routeLab.analysis.matcherTypes.prefixPriority'),
+    regex: t('routeLab.analysis.matcherTypes.regex'),
+    regex_insensitive: t('routeLab.analysis.matcherTypes.regexInsensitive'),
+    named: t('routeLab.analysis.matcherTypes.named'),
   }
   return `${typeLabels[type]} ${matcher}`.trim()
 }
@@ -218,8 +227,8 @@ function listenerLabel(listener: RouteListener): string {
   const address = listener.address === '' ? '*' : listener.address
   const flags = [
     listener.ssl ? 'TLS' : 'HTTP',
-    listener.default_server ? 'default' : '',
-    listener.supported ? '' : 'unsupported',
+    listener.default_server ? t('routeLab.analysis.listenerDefault') : '',
+    listener.supported ? '' : t('routeLab.analysis.listenerUnsupported'),
   ].filter(Boolean)
   return `${address}:${listener.port} (${flags.join(', ')})`
 }

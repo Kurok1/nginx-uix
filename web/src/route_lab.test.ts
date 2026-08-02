@@ -179,6 +179,16 @@ function clientFixture(): RouteLabClient & {
 }
 
 describe('Route Lab store', () => {
+  it('exposes a stable error code when route analysis fails', async () => {
+    const client = clientFixture()
+    client.analyzeRoute = async () => Promise.reject(new Error('raw upstream failure'))
+    const store = createRouteLabStore(client, sessionFixture(), () => new FakeStream())
+
+    await expect(store.analyze(workspace, request)).rejects.toThrow('raw upstream failure')
+    expect(store.state.error).toBe('analysis_failed')
+    store.dispose()
+  })
+
   it('deduplicates analysis and requires exact confirmation for side-effecting input', async () => {
     const client = clientFixture()
     const store = createRouteLabStore(client, sessionFixture(), () => new FakeStream())
