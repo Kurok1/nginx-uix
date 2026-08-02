@@ -7,7 +7,7 @@
     class="toast-region"
     aria-live="polite"
     aria-atomic="false"
-    aria-label="Success notifications"
+    :aria-label="t('common.successNotifications')"
   >
     <div
       v-for="toast in visibleToasts"
@@ -25,6 +25,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 export interface ToastMessage {
   id: string
@@ -34,6 +35,7 @@ export interface ToastMessage {
 const props = defineProps<{
   toasts: readonly ToastMessage[]
 }>()
+const { t } = useI18n()
 const emit = defineEmits<{
   dismiss: [id: string]
 }>()

@@ -9,7 +9,7 @@
       v-if="resources.length === 0"
       role="status"
     >
-      No structured resources were found.
+      {{ t('structured.resources.empty') }}
     </p>
     <ul
       v-else
@@ -41,7 +41,7 @@
             :class="{ 'structured-resource-list__state--problem': resource.problem }"
           >
             <span aria-hidden="true">{{ resource.problem ? '◇!' : resource.editable ? '●' : '◇' }}</span>
-            {{ resource.problem ? 'Attention' : resource.editable ? 'Editable' : 'Read only' }}
+            {{ resource.problem ? t('structured.resources.attention') : resource.editable ? t('structured.resources.editable') : t('structured.resources.readOnly') }}
           </span>
         </button>
       </li>
@@ -51,6 +51,9 @@
 
 <script setup lang="ts">
 import { nextTick, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 export interface StructuredResourceItem {
   id: string

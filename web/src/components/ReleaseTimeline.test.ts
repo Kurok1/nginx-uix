@@ -5,6 +5,7 @@
 import { mount } from '@vue/test-utils'
 
 import type { Release } from '../api/types'
+import { appI18n } from '../i18n'
 import ReleaseTimeline from './ReleaseTimeline.vue'
 import timelineSource from './ReleaseTimeline.vue?raw'
 
@@ -43,6 +44,18 @@ function release(state: Release['state']): Release {
 }
 
 describe('ReleaseTimeline', () => {
+  it('renders persisted release evidence in Simplified Chinese', () => {
+    appI18n.global.locale.value = 'zh-CN'
+    const wrapper = mount(ReleaseTimeline, {
+      props: { release: release('succeeded'), streamState: 'closed' },
+    })
+
+    expect(wrapper.get('h2').text()).toBe('发布进度')
+    expect(wrapper.text()).toContain('已排队')
+    expect(wrapper.text()).toContain('已提交')
+    expect(wrapper.text()).toContain('发布成功')
+  })
+
   it('renders ordered persisted stages with visible status words', () => {
     const wrapper = mount(ReleaseTimeline, { props: { release: release('succeeded'), streamState: 'closed' } })
     const rows = wrapper.findAll('li')

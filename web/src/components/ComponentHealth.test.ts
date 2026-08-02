@@ -4,10 +4,15 @@
  */
 import { mount } from '@vue/test-utils'
 
+import { appI18n } from '../i18n'
 import ComponentHealth from './ComponentHealth.vue'
 import StatusBadge from './StatusBadge.vue'
 
 describe('ComponentHealth', () => {
+  beforeEach(() => {
+    appI18n.global.locale.value = 'zh-CN'
+  })
+
   it.each([
     ['healthy', '正常', 'success'],
     ['running', '运行中', 'success'],

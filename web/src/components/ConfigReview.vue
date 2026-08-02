@@ -5,46 +5,46 @@
 <template>
   <section
     class="config-review"
-    aria-label="Workspace review"
+    :aria-label="t('workspace.review.label')"
   >
     <div
       class="config-review__tabs"
       role="group"
-      aria-label="Review mode"
+      :aria-label="t('workspace.review.mode')"
     >
       <button
         type="button"
-        aria-label="Review current file diff"
+        :aria-label="t('workspace.review.currentFileLabel')"
         :aria-pressed="activeTab === 'current'"
         :disabled="selectedPath === null || pending"
         @click="requestDiff('current')"
       >
-        Current file
+        {{ t('workspace.review.currentFile') }}
       </button>
       <button
         type="button"
-        aria-label="Review all file diffs"
+        :aria-label="t('workspace.review.allLabel')"
         :aria-pressed="activeTab === 'all'"
         :disabled="pending"
         @click="requestDiff('all')"
       >
-        All changes
+        {{ t('workspace.review.all') }}
       </button>
       <button
         type="button"
-        aria-label="Review include dependencies"
+        :aria-label="t('workspace.review.includesLabel')"
         :aria-pressed="activeTab === 'dependencies'"
         @click="activeTab = 'dependencies'"
       >
-        Includes
+        {{ t('workspace.review.includes') }}
       </button>
       <button
         type="button"
-        aria-label="Search workspace files"
+        :aria-label="t('workspace.review.searchLabel')"
         :aria-pressed="activeTab === 'search'"
         @click="activeTab = 'search'"
       >
-        Search
+        {{ t('workspace.review.search') }}
       </button>
     </div>
 
@@ -52,10 +52,10 @@
       <InlineBanner
         v-if="diff?.reason === 'response_limit'"
         kind="info"
-        message="Diff incomplete: response limit reached"
+        :message="t('workspace.review.diffIncomplete')"
       />
       <p v-if="diff === null">
-        Choose a diff scope to review workspace changes.
+        {{ t('workspace.review.chooseScope') }}
       </p>
       <template v-else>
         <ul class="config-review__summaries">
@@ -64,7 +64,7 @@
             :key="file.path"
           >
             <strong>{{ file.path }}</strong>
-            <span>{{ file.status }}</span>
+            <span>{{ diffStatusLabel(file.status) }}</span>
             <span>+{{ file.added_lines }}</span>
             <span>−{{ file.removed_lines }}</span>
           </li>
@@ -73,7 +73,7 @@
           v-if="diff.patch !== ''"
           class="config-review__patch"
           role="region"
-          aria-label="Unified configuration diff"
+          :aria-label="t('workspace.review.unifiedDiff')"
           tabindex="0"
         >
           <div
@@ -97,7 +97,7 @@
 
     <div v-else-if="activeTab === 'dependencies'">
       <p v-if="dependencies.length === 0">
-        No include dependencies were found.
+        {{ t('workspace.review.noDependencies') }}
       </p>
       <ul v-else>
         <li
@@ -114,7 +114,7 @@
 
     <div v-else>
       <form @submit.prevent="submitSearch">
-        <label for="config-review-search">Search workspace text</label>
+        <label for="config-review-search">{{ t('workspace.review.searchText') }}</label>
         <input
           id="config-review-search"
           v-model="query"
@@ -125,14 +125,14 @@
           type="submit"
           :disabled="query === '' || pending"
         >
-          Search
+          {{ t('common.search') }}
         </button>
       </form>
       <p
         v-if="search !== null && !search.complete"
         role="status"
       >
-        Search incomplete: response limit reached
+        {{ t('workspace.review.searchIncomplete') }}
       </p>
       <ul v-if="search !== null">
         <li
@@ -141,7 +141,7 @@
         >
           <button
             type="button"
-            :aria-label="`Open search match ${match.path} line ${match.line}`"
+            :aria-label="t('workspace.review.openMatch', { path: match.path, line: match.line })"
             @click="emit('select', match.path)"
           >
             {{ match.path }}:{{ match.line }}:{{ match.column }}
@@ -155,6 +155,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import type { ConfigDependency, DependencyStatus, DiffResponse, SearchResponse } from '../api/types'
 import InlineBanner from './InlineBanner.vue'
@@ -186,6 +187,7 @@ const emit = defineEmits<{
 
 const activeTab = ref<ReviewTab>('current')
 const query = ref('')
+const { t } = useI18n()
 const patchLines = computed(() => parsePatch(props.diff?.patch ?? ''))
 
 function requestDiff(scope: 'all' | 'current'): void {
@@ -204,7 +206,20 @@ function submitSearch(): void {
 }
 
 function dependencyStatus(status: DependencyStatus): string {
-  return `${status.charAt(0).toUpperCase()}${status.slice(1)}`
+  const labels: Record<DependencyStatus, string> = {
+    resolved: t('workspace.review.resolved'),
+    missing: t('workspace.review.missing'),
+    external: t('workspace.review.external'),
+    unresolved: t('workspace.review.unresolved'),
+    symlink: t('workspace.review.symlink'),
+    special: t('workspace.review.special'),
+    cycle: t('workspace.review.cycle'),
+  }
+  return labels[status]
+}
+
+function diffStatusLabel(status: DiffResponse['files'][number]['status']): string {
+  return t(`workspace.tree.${status}`)
 }
 
 function lineNumbers(line: PatchLine): string {
@@ -222,14 +237,14 @@ function parsePatch(patch: string): PatchLine[] {
     if (range !== null) {
       oldLine = Number(range[1])
       newLine = Number(range[2])
-      lines.push({ kind: 'meta', marker: '@', label: 'Range', content })
+      lines.push({ kind: 'meta', marker: '@', label: t('workspace.review.range'), content })
     } else if (content.startsWith('---') || content.startsWith('+++')) {
-      lines.push({ kind: 'meta', marker: '·', label: 'File', content })
+      lines.push({ kind: 'meta', marker: '·', label: t('workspace.review.file'), content })
     } else if (content.startsWith('-')) {
       lines.push({
         kind: 'removed',
         marker: '−',
-        label: 'Removed',
+        label: t('workspace.review.removed'),
         content: content.slice(1),
         oldLine,
       })
@@ -238,7 +253,7 @@ function parsePatch(patch: string): PatchLine[] {
       lines.push({
         kind: 'added',
         marker: '+',
-        label: 'Added',
+        label: t('workspace.review.added'),
         content: content.slice(1),
         newLine,
       })
@@ -247,7 +262,7 @@ function parsePatch(patch: string): PatchLine[] {
       lines.push({
         kind: 'context',
         marker: '·',
-        label: 'Context',
+        label: t('workspace.review.context'),
         content: content.startsWith(' ') ? content.slice(1) : content,
         oldLine,
         newLine,

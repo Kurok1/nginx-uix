@@ -4,18 +4,18 @@
 -->
 <template>
   <section class="location-tree">
-    <h2>Locations</h2>
+    <h2>{{ t('structured.locationTree.title') }}</h2>
     <p
       v-if="locations.length === 0"
       role="status"
     >
-      This server has no location blocks.
+      {{ t('structured.locationTree.empty') }}
     </p>
     <ul
       v-else
       ref="tree"
       role="tree"
-      aria-label="Location rules"
+      :aria-label="t('structured.locationTree.label')"
     >
       <li
         v-for="(row, index) in visibleRows"
@@ -43,7 +43,7 @@
             <span>{{ row.location.matcher }}</span>
           </span>
           <span class="location-tree__state">
-            {{ row.location.editable ? 'Editable' : 'Read only' }}
+            {{ row.location.editable ? t('structured.locationTree.editable') : t('structured.locationTree.readOnly') }}
           </span>
         </button>
       </li>
@@ -53,8 +53,11 @@
 
 <script setup lang="ts">
 import { computed, nextTick, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import type { StructuredLocation, StructuredMatcherType } from '../api/structured'
+
+const { t } = useI18n()
 
 interface LocationRow {
   location: StructuredLocation
@@ -98,19 +101,22 @@ function flatten(
 
 function matcherLabel(type: StructuredMatcherType): string {
   const labels: Record<StructuredMatcherType, string> = {
-    unknown: 'Raw-only',
-    exact: 'Exact',
-    prefix: 'Prefix',
-    prefix_priority: 'Priority prefix',
-    regex: 'Regex',
-    regex_insensitive: 'Case-insensitive regex',
-    named: 'Named',
+    unknown: t('structured.locationEditor.matcherTypes.unknown'),
+    exact: t('structured.locationEditor.matcherTypes.exact'),
+    prefix: t('structured.locationEditor.matcherTypes.prefix'),
+    prefix_priority: t('structured.locationEditor.matcherTypes.prefixPriority'),
+    regex: t('structured.locationEditor.matcherTypes.regex'),
+    regex_insensitive: t('structured.locationEditor.matcherTypes.regexInsensitive'),
+    named: t('structured.locationEditor.matcherTypes.named'),
   }
   return labels[type]
 }
 
 function accessibleName(location: StructuredLocation): string {
-  return matcherLabel(location.type) + ' location ' + location.matcher
+  return t('structured.locationTree.accessibleName', {
+    type: matcherLabel(location.type),
+    matcher: location.matcher,
+  })
 }
 
 function disclosure(location: StructuredLocation): string {

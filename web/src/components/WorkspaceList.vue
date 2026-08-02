@@ -9,15 +9,15 @@
   >
     <header class="workspace-list__header">
       <h2 id="workspace-list-title">
-        Workspaces
+        {{ t('workspace.listTitle') }}
       </h2>
       <button
         type="button"
-        aria-label="Create workspace"
+        :aria-label="t('workspace.createLabel')"
         :disabled="pendingAction !== null"
         @click="showCreateForm = true"
       >
-        New workspace
+        {{ t('workspace.newWorkspace') }}
       </button>
     </header>
 
@@ -27,7 +27,7 @@
       role="status"
     >
       <span aria-hidden="true">◌</span>
-      Creating workspace…
+      {{ t('workspace.creating') }}
     </p>
 
     <form
@@ -35,27 +35,27 @@
       class="workspace-list__create"
       @submit.prevent="submitCreate"
     >
-      <label for="workspace-list-name">Workspace name</label>
+      <label for="workspace-list-name">{{ t('workspace.name') }}</label>
       <input
         id="workspace-list-name"
         v-model="workspaceName"
         name="workspace-name"
-        aria-label="Workspace name"
+        :aria-label="t('workspace.name')"
         autocomplete="off"
       >
       <div>
         <button
           type="button"
-          aria-label="Cancel workspace creation"
+          :aria-label="t('workspace.cancelCreation')"
           @click="cancelCreate"
         >
-          Cancel
+          {{ t('common.cancel') }}
         </button>
         <button
           type="submit"
           :disabled="workspaceName === '' || pendingAction !== null"
         >
-          Create
+          {{ t('common.create') }}
         </button>
       </div>
     </form>
@@ -64,7 +64,7 @@
       v-if="workspaces.length === 0"
       class="workspace-list__empty"
     >
-      No workspaces yet. Create one to review draft configuration changes.
+      {{ t('workspace.noWorkspaces') }}
     </p>
     <ul v-else>
       <li
@@ -86,7 +86,7 @@
               data-state-icon
               aria-hidden="true"
             >◌</span>
-            Preparing
+            {{ t('workspace.states.preparing') }}
           </span>
           <span
             v-else
@@ -101,10 +101,10 @@
         </a>
         <button
           type="button"
-          :aria-label="`Delete workspace ${workspace.name}`"
+          :aria-label="t('workspace.deleteWorkspace', { name: workspace.name })"
           @click="emit('request-delete', workspace)"
         >
-          Delete
+          {{ t('common.delete') }}
         </button>
       </li>
     </ul>
@@ -113,6 +113,7 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import type { WorkspaceState, WorkspaceSummary } from '../api/types'
 import type { WorkspacePendingAction } from '../workspace'
@@ -130,6 +131,7 @@ const emit = defineEmits<{
 
 const showCreateForm = ref(false)
 const workspaceName = ref('')
+const { t } = useI18n()
 
 function submitCreate(): void {
   if (workspaceName.value !== '') {
@@ -147,7 +149,13 @@ function stateIcon(state: WorkspaceState): string {
 }
 
 function stateLabel(state: WorkspaceState): string {
-  return state === 'ready' ? 'Ready' : state === 'stale' ? 'Stale' : 'Needs attention'
+  switch (state) {
+    case 'preparing': return t('workspace.states.preparing')
+    case 'ready': return t('workspace.states.ready')
+    case 'stale': return t('workspace.states.stale')
+    case 'published': return t('workspace.states.published')
+    case 'needs_attention': return t('workspace.states.needsAttention')
+  }
 }
 </script>
 

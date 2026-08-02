@@ -5,28 +5,28 @@
 <template>
   <section
     class="config-tree"
-    aria-label="Workspace files and logical groups"
+    :aria-label="t('workspace.tree.label')"
   >
     <div
       class="config-tree__mode"
       role="group"
-      aria-label="Tree view"
+      :aria-label="t('workspace.tree.view')"
     >
       <button
         type="button"
-        aria-label="Show physical files"
+        :aria-label="t('workspace.tree.showFiles')"
         :aria-pressed="mode === 'physical'"
         @click="setMode('physical')"
       >
-        Files
+        {{ t('workspace.tree.files') }}
       </button>
       <button
         type="button"
-        aria-label="Show logical groups"
+        :aria-label="t('workspace.tree.showGroups')"
         :aria-pressed="mode === 'groups'"
         @click="setMode('groups')"
       >
-        Groups
+        {{ t('workspace.tree.groups') }}
       </button>
     </div>
 
@@ -34,59 +34,59 @@
       <template v-if="mode === 'physical'">
         <button
           type="button"
-          aria-label="Create file"
+          :aria-label="t('workspace.tree.createFile')"
           :disabled="readOnly"
           @click="emit('create')"
         >
-          New file
+          {{ t('workspace.tree.newFile') }}
         </button>
         <template v-if="selectedWritableNode !== null">
           <button
             type="button"
-            aria-label="Copy selected file"
+            :aria-label="t('workspace.tree.copySelected')"
             @click="emit('copy', selectedWritableNode.path)"
           >
-            Copy
+            {{ t('common.copy') }}
           </button>
           <button
             type="button"
-            aria-label="Rename selected file"
+            :aria-label="t('workspace.tree.renameSelected')"
             @click="emit('rename', selectedWritableNode.path)"
           >
-            Rename
+            {{ t('common.rename') }}
           </button>
           <button
             type="button"
-            aria-label="Delete selected file"
+            :aria-label="t('workspace.tree.deleteSelected')"
             @click="emit('delete', selectedWritableNode.path)"
           >
-            Delete
+            {{ t('common.delete') }}
           </button>
         </template>
       </template>
       <template v-else>
         <button
           type="button"
-          aria-label="Create logical group"
+          :aria-label="t('workspace.tree.createGroup')"
           :disabled="readOnly"
           @click="emit('create-group')"
         >
-          New group
+          {{ t('workspace.tree.newGroup') }}
         </button>
         <template v-if="selectedGroup !== null && !readOnly">
           <button
             type="button"
-            aria-label="Edit selected logical group"
+            :aria-label="t('workspace.tree.editSelectedGroup')"
             @click="emit('replace-group', selectedGroup)"
           >
-            Edit group
+            {{ t('workspace.tree.editGroup') }}
           </button>
           <button
             type="button"
-            aria-label="Delete selected logical group"
+            :aria-label="t('workspace.tree.deleteSelectedGroup')"
             @click="emit('delete-group', selectedGroup)"
           >
-            Delete group
+            {{ t('workspace.tree.deleteGroup') }}
           </button>
         </template>
       </template>
@@ -95,7 +95,7 @@
     <ul
       class="config-tree__items"
       role="tree"
-      :aria-label="mode === 'physical' ? 'Physical configuration files' : 'Logical groups'"
+      :aria-label="mode === 'physical' ? t('workspace.tree.physicalFiles') : t('workspace.tree.logicalGroups')"
       @keydown="handleKeydown"
     >
       <li
@@ -147,6 +147,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, reactive, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import type { ConfigGroup, ConfigTreeNode, DiffStatus } from '../api/types'
 
@@ -190,6 +191,7 @@ const emit = defineEmits<{
 }>()
 
 const mode = ref<TreeMode>('physical')
+const { t } = useI18n()
 const expanded = reactive(new Set<string>())
 const rowElements = new Map<string, HTMLElement>()
 
@@ -357,22 +359,22 @@ function rowAccessibleName(row: TreeRow): string {
 }
 
 function rowStatus(row: TreeRow): string {
-  if (row.missing) return 'Missing'
-  if (row.group !== undefined) return `${row.group.members.length} members`
+  if (row.missing) return t('workspace.tree.missing')
+  if (row.group !== undefined) return t('workspace.tree.members', { count: row.group.members.length })
   const reason = row.node?.status_reason_code
   const labels: Partial<Record<ConfigTreeNode['status_reason_code'], string>> = {
-    directory: 'Directory — no file operation',
-    sensitive_material: 'Sensitive material — Read-only',
-    not_candidate: 'Not a configuration candidate — Read-only',
-    invalid_text: 'Invalid text — Read-only',
-    file_limit: 'File limit exceeded — Read-only',
-    symlink_external: 'External symlink — Read-only',
-    symlink_internal: 'Internal symlink — Read-only',
-    symlink_unavailable: 'Unavailable symlink — Read-only',
-    special: 'Special entry — Read-only',
+    directory: t('workspace.tree.directory'),
+    sensitive_material: t('workspace.tree.sensitive'),
+    not_candidate: t('workspace.tree.notCandidate'),
+    invalid_text: t('workspace.tree.invalidText'),
+    file_limit: t('workspace.tree.fileLimit'),
+    symlink_external: t('workspace.tree.externalSymlink'),
+    symlink_internal: t('workspace.tree.internalSymlink'),
+    symlink_unavailable: t('workspace.tree.unavailableSymlink'),
+    special: t('workspace.tree.special'),
   }
   if (reason !== undefined && labels[reason] !== undefined) return labels[reason] ?? ''
-  return row.node?.read_only ? 'Read-only' : ''
+  return row.node?.read_only ? t('workspace.tree.readOnly') : ''
 }
 
 function rowIcon(row: TreeRow): string {
@@ -391,7 +393,13 @@ function diffIcon(status: DiffStatus): string {
 }
 
 function diffLabel(status: DiffStatus): string {
-  return `${diffIcon(status)} ${status.charAt(0).toUpperCase()}${status.slice(1)}`
+  const labels: Record<DiffStatus, string> = {
+    created: t('workspace.tree.created'),
+    modified: t('workspace.tree.modified'),
+    deleted: t('workspace.tree.deleted'),
+    unchanged: t('workspace.tree.unchanged'),
+  }
+  return `${diffIcon(status)} ${labels[status]}`
 }
 
 function buildPhysicalRows(

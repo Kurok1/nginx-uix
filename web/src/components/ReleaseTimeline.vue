@@ -10,11 +10,11 @@
     <header>
       <div>
         <h2 id="release-timeline-title">
-          Release progress
+          {{ t('release.title') }}
         </h2>
-        <p>Release ID: <code>{{ release.id }}</code></p>
+        <p>{{ t('release.releaseId') }} <code>{{ release.id }}</code></p>
         <p v-if="release.backup_id !== undefined">
-          Backup ID: <code>{{ release.backup_id }}</code>
+          {{ t('release.backupId') }} <code>{{ release.backup_id }}</code>
         </p>
       </div>
       <span data-stream-state>{{ streamLabel }}</span>
@@ -57,69 +57,79 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import type { Release, ReleaseStage } from '../api/types'
+
+const { d, t } = useI18n()
 
 const props = defineProps<{
   release: Release
   streamState: 'closed' | 'connecting' | 'live' | 'reconnecting'
 }>()
 
-const currentStage = computed(() => `Current stage: ${stageLabel(props.release.stage)}`)
+const currentStage = computed(() => t('release.currentStage', { stage: stageLabel(props.release.stage) }))
 const streamLabel = computed(() => {
   switch (props.streamState) {
-    case 'live': return 'Live progress connected'
-    case 'connecting': return 'Connecting to progress…'
-    case 'reconnecting': return 'Reconnecting to progress…'
-    default: return 'Persisted progress'
+    case 'live': return t('release.stream.live')
+    case 'connecting': return t('release.stream.connecting')
+    case 'reconnecting': return t('release.stream.reconnecting')
+    default: return t('release.stream.persisted')
   }
 })
 const terminalTitle = computed(() => {
   switch (props.release.state) {
-    case 'succeeded': return 'Published successfully'
-    case 'rolled_back': return 'Release rolled back'
-    case 'needs_attention': return 'Administrator attention required'
-    case 'cancelled': return 'Release cancelled'
-    default: return 'Release failed'
+    case 'succeeded': return t('release.terminalTitle.succeeded')
+    case 'rolled_back': return t('release.terminalTitle.rolledBack')
+    case 'needs_attention': return t('release.terminalTitle.needsAttention')
+    case 'cancelled': return t('release.terminalTitle.cancelled')
+    default: return t('release.terminalTitle.failed')
   }
 })
 const terminalMessage = computed(() => {
   switch (props.release.state) {
-    case 'succeeded': return 'Published successfully. Nginx is running and the fixed health check passed.'
-    case 'failed': return 'Release failed before production was changed.'
-    case 'rolled_back': return 'The last valid version was restored and confirmed healthy.'
-    case 'needs_attention': return 'Production or runtime state cannot be confirmed. Ordinary changes remain blocked.'
-    case 'cancelled': return 'The release was cancelled before a successful publication was confirmed.'
+    case 'succeeded': return t('release.terminalMessage.succeeded')
+    case 'failed': return t('release.terminalMessage.failed')
+    case 'rolled_back': return t('release.terminalMessage.rolledBack')
+    case 'needs_attention': return t('release.terminalMessage.needsAttention')
+    case 'cancelled': return t('release.terminalMessage.cancelled')
     default: return ''
   }
 })
 
 function stageLabel(stage: Release['stage']): string {
   const labels: Record<Release['stage'], string> = {
-    queued: 'Queued',
-    rechecking: 'Rechecking production and draft',
-    backup_creating: 'Creating complete backup',
-    backup_verified: 'Backup verified',
-    candidate_validated: 'Candidate validated',
-    files_applying: 'Applying production files',
-    files_applied: 'Production files durable',
-    production_validated: 'Production configuration validated',
-    reload_requested: 'Nginx reload requested',
-    runtime_confirmed: 'Nginx runtime confirmed',
-    committed: 'Committed',
-    rollback_applying: 'Restoring backup',
-    rollback_files_restored: 'Backup files restored',
-    rollback_validated: 'Restored configuration validated',
-    rollback_reload_requested: 'Restored configuration reloaded',
-    rolled_back: 'Rolled back',
-    failed: 'Failed',
-    needs_attention: 'Needs attention',
+    queued: t('release.stages.queued'),
+    rechecking: t('release.stages.rechecking'),
+    backup_creating: t('release.stages.backupCreating'),
+    backup_verified: t('release.stages.backupVerified'),
+    candidate_validated: t('release.stages.candidateValidated'),
+    files_applying: t('release.stages.filesApplying'),
+    files_applied: t('release.stages.filesApplied'),
+    production_validated: t('release.stages.productionValidated'),
+    reload_requested: t('release.stages.reloadRequested'),
+    runtime_confirmed: t('release.stages.runtimeConfirmed'),
+    committed: t('release.stages.committed'),
+    rollback_applying: t('release.stages.rollbackApplying'),
+    rollback_files_restored: t('release.stages.rollbackFilesRestored'),
+    rollback_validated: t('release.stages.rollbackValidated'),
+    rollback_reload_requested: t('release.stages.rollbackReloadRequested'),
+    rolled_back: t('release.stages.rolledBack'),
+    failed: t('release.stages.failed'),
+    needs_attention: t('release.stages.needsAttention'),
   }
   return labels[stage]
 }
 
 function resultLabel(result: ReleaseStage['result']): string {
-  return result.charAt(0).toUpperCase() + result.slice(1)
+  const labels: Record<ReleaseStage['result'], string> = {
+    pending: t('release.results.pending'),
+    running: t('release.results.running'),
+    success: t('release.results.success'),
+    failed: t('release.results.failed'),
+    warning: t('release.results.warning'),
+  }
+  return labels[result]
 }
 
 function resultIcon(result: ReleaseStage['result']): string {
@@ -133,7 +143,7 @@ function resultIcon(result: ReleaseStage['result']): string {
 }
 
 function formatTime(value: string): string {
-  return new Intl.DateTimeFormat(undefined, { timeStyle: 'medium' }).format(new Date(value))
+  return d(new Date(value), 'short')
 }
 </script>
 

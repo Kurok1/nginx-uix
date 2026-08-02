@@ -25,14 +25,14 @@
       </p>
       <form @submit.prevent="requestConfirm">
         <label :for="inputId">
-          Type “{{ objectName }}” to confirm
+          {{ t('common.typeToConfirm', { name: objectName }) }}
         </label>
         <input
           :id="inputId"
           v-model="confirmation"
           type="text"
           autocomplete="off"
-          :aria-label="`Type ${objectName} exactly to confirm`"
+          :aria-label="t('common.typeExactly', { name: objectName })"
         >
         <div class="confirm-modal__actions">
           <button
@@ -41,14 +41,14 @@
             data-action="cancel"
             @click="requestCancel"
           >
-            Cancel
+            {{ t('common.cancel') }}
           </button>
           <button
             type="submit"
             data-action="confirm"
             :disabled="!canConfirm"
           >
-            {{ confirmLabel }}
+            {{ confirmText }}
           </button>
         </div>
       </form>
@@ -58,6 +58,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, toRef, useId, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import { useFocusTrap } from '../composables/useFocusTrap'
 
@@ -70,21 +71,21 @@ interface Props {
   trigger: HTMLElement | null
 }
 
-const props = withDefaults(defineProps<Props>(), {
-  confirmLabel: 'Delete',
-})
+const props = defineProps<Props>()
 const emit = defineEmits<{
   cancel: []
   confirm: [objectName: string]
 }>()
 
 const confirmation = ref('')
+const { t } = useI18n()
 const dialog = ref<HTMLElement | null>(null)
 const cancelButton = ref<HTMLButtonElement | null>(null)
 const titleId = useId()
 const consequenceId = useId()
 const inputId = useId()
 const canConfirm = computed(() => confirmation.value === props.objectName)
+const confirmText = computed(() => props.confirmLabel ?? t('common.delete'))
 const trap = useFocusTrap(dialog, toRef(props, 'trigger'))
 
 onMounted(() => {

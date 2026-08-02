@@ -156,6 +156,7 @@ export function installWorkspaceLeaveGuard(
   router: Router,
   store: WorkspaceStore,
   confirmLeave: (message: string) => boolean,
+  i18n: AppI18n = appI18n,
 ): () => void {
   const removeRouteGuard = router.beforeEach((to, from) => {
     if (
@@ -164,9 +165,7 @@ export function installWorkspaceLeaveGuard(
       store.hasUnsavedChanges() &&
       store.state.banner?.kind !== 'session_expired'
     ) {
-      return confirmLeave(
-        'Unsaved workspace text will remain only in this browser session. Leave this page?',
-      )
+      return confirmLeave(i18n.global.t('workspace.leaveConfirm'))
     }
     return true
   })

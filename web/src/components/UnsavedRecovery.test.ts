@@ -9,6 +9,10 @@ import UnsavedRecovery from './UnsavedRecovery.vue'
 import recoverySource from './UnsavedRecovery.vue?raw'
 
 describe('UnsavedRecovery', () => {
+  beforeEach(() => {
+    appI18n.global.locale.value = 'zh-CN'
+  })
+
   it('lists only dirty paths with explicit copy controls and no document content', () => {
     const wrapper = mount(UnsavedRecovery, {
       props: {

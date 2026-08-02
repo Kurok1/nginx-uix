@@ -5,6 +5,7 @@
 import { mount } from '@vue/test-utils'
 
 import type { PublishCheck } from '../api/types'
+import { appI18n } from '../i18n'
 import PublishPanel from './PublishPanel.vue'
 import panelSource from './PublishPanel.vue?raw'
 
@@ -29,6 +30,17 @@ const validCheck: PublishCheck = {
 }
 
 describe('PublishPanel', () => {
+  it('renders publication controls in Simplified Chinese', () => {
+    appI18n.global.locale.value = 'zh-CN'
+    const wrapper = mount(PublishPanel, {
+      props: { check: validCheck, phase: 'checked', blockedReason: '', expired: false, error: '' },
+    })
+
+    expect(wrapper.get('h2').text()).toBe('发布配置')
+    expect(wrapper.text()).toContain('生产配置尚未变化')
+    expect(wrapper.get('button[data-action="publish"]').text()).toBe('发布…')
+  })
+
   it('shows an exact block reason before checking', async () => {
     const wrapper = mount(PublishPanel, {
       props: {

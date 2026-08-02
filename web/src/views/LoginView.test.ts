@@ -102,6 +102,10 @@ async function loginRouter() {
 }
 
 describe('LoginView', () => {
+  beforeEach(() => {
+    appI18n.global.locale.value = 'zh-CN'
+  })
+
   afterEach(() => {
     vi.restoreAllMocks()
   })

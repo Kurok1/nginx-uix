@@ -126,6 +126,17 @@ function clientFixture(): ReleaseClient & { checks: number; releases: number; re
 }
 
 describe('release store', () => {
+  it('keeps failures as locale-independent error codes', async () => {
+    const client = clientFixture()
+    client.createPublishCheck = async () => {
+      throw new Error('network failed')
+    }
+    const store = createReleaseStore(client, sessionFixture(), () => new FakeStream())
+
+    await expect(store.check(workspace, diff, false)).rejects.toThrow('network failed')
+    expect(store.state.error).toBe('check_failed')
+  })
+
   it('blocks checks until the complete saved diff has changes', async () => {
     const client = clientFixture()
     const store = createReleaseStore(client, sessionFixture(), () => new FakeStream())

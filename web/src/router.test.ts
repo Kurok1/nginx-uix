@@ -286,6 +286,9 @@ describe('application router', () => {
     await router.push('/')
     expect(router.currentRoute.value.fullPath).toBe('/config/workspaces/two?lang=en-US')
     expect(confirmLeave).toHaveBeenCalledOnce()
+    expect(confirmLeave).toHaveBeenCalledWith(
+      'Unsaved workspace text will remain only in this browser session. Leave this page?',
+    )
     expect(addEventListener).toHaveBeenCalledWith('beforeunload', expect.any(Function))
 
     workspaces.state.documents = []
@@ -295,6 +298,21 @@ describe('application router', () => {
     expect(confirmLeave).toHaveBeenCalledOnce()
     uninstall()
     expect(removeEventListener).toHaveBeenCalledWith('beforeunload', expect.any(Function))
+  })
+
+  it('uses the active locale for the dirty-workspace leave confirmation', async () => {
+    const sessions = createSessionStore(createClient(vi.fn().mockResolvedValue(currentSession)))
+    const workspaces = workspaceStore(true)
+    const confirmLeave = vi.fn(() => false)
+    const i18n = createAppI18n('zh-CN')
+    const router = createAppRouter(sessions, createMemoryHistory(), i18n)
+    const uninstall = installWorkspaceLeaveGuard(router, workspaces, confirmLeave, i18n)
+
+    await router.push('/config/workspaces/one?lang=zh-CN')
+    await router.push('/?lang=zh-CN')
+
+    expect(confirmLeave).toHaveBeenCalledWith('未保存的工作区文本将仅保留在当前浏览器会话中。是否离开此页面？')
+    uninstall()
   })
 
   it('clears memory and redirects to Login when a later API response expires the session', async () => {

@@ -10,6 +10,7 @@ import type {
   StructuredConfig,
 } from '../api/structured'
 import type { WorkspaceDetail } from '../api/types'
+import { appI18n } from '../i18n'
 import StructuredConfigView from './StructuredConfigView.vue'
 
 const workspaceID = '0123456789abcdef0123456789abcdef'
@@ -144,6 +145,40 @@ function result(): StructuredChangeResult {
 }
 
 describe('StructuredConfigView', () => {
+  it('renders structured workspace controls in Simplified Chinese', async () => {
+    appI18n.global.locale.value = 'zh-CN'
+    const client = {
+      getWorkspace: vi.fn().mockResolvedValue(workspace()),
+      getStructuredConfig: vi.fn().mockResolvedValue(catalog()),
+      previewStructuredChange: vi.fn(),
+      applyStructuredChange: vi.fn(),
+    }
+    const wrapper = mount(StructuredConfigView, {
+      props: {
+        workspaceId: workspaceID,
+        mode: 'upstreams',
+        client,
+        csrfToken: 'csrf-token',
+      },
+      global: {
+        stubs: {
+          RouterLink: {
+            props: ['to'],
+            template: '<a :href="typeof to === \'string\' ? to : to.path"><slot /></a>',
+          },
+        },
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.get('h1').text()).toBe('上游')
+    expect(wrapper.text()).toContain('仅修改草稿')
+    expect(wrapper.text()).toContain('刷新结构')
+    expect(wrapper.get('.structured-page__navigation').attributes('aria-label')).toBe('工作区配置模式')
+    expect(wrapper.text()).toContain('浏览')
+    expect(wrapper.text()).toContain('创建上游')
+  })
+
   it('loads an ETag-consistent workspace and keeps the raw editor fallback visible', async () => {
     const client = {
       getWorkspace: vi.fn().mockResolvedValue(workspace()),

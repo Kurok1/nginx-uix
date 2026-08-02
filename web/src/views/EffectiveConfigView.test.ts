@@ -134,6 +134,10 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 describe('EffectiveConfigView', () => {
+  beforeEach(() => {
+    appI18n.global.locale.value = 'zh-CN'
+  })
+
   afterEach(() => {
     vi.restoreAllMocks()
     vi.unstubAllGlobals()

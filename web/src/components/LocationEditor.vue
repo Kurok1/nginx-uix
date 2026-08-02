@@ -6,7 +6,7 @@
   <section class="location-editor">
     <header>
       <div>
-        <h2>Location details</h2>
+        <h2>{{ t('structured.locationEditor.details') }}</h2>
         <p v-if="location !== null">
           {{ location.source.path }}:{{ location.source.start_line }}
         </p>
@@ -18,7 +18,7 @@
           :disabled="disabled || dirty || server === null || !server.editable"
           @click="beginCreation('root')"
         >
-          Add root location
+          {{ t('structured.locationEditor.addRoot') }}
         </button>
         <button
           v-if="location !== null"
@@ -27,7 +27,7 @@
           :disabled="disabled || dirty || !location.editable"
           @click="beginCreation('child')"
         >
-          Add child
+          {{ t('structured.locationEditor.addChild') }}
         </button>
       </div>
     </header>
@@ -37,14 +37,14 @@
       class="location-editor__empty"
       role="status"
     >
-      Select an HTTP server to manage its locations.
+      {{ t('structured.locationEditor.selectServer') }}
     </p>
     <p
       v-else-if="mode === 'empty'"
       class="location-editor__empty"
       role="status"
     >
-      Select a location or add a root location.
+      {{ t('structured.locationEditor.selectLocation') }}
     </p>
 
     <form
@@ -54,25 +54,25 @@
     >
       <fieldset :disabled="formDisabled">
         <legend>
-          {{ mode === 'edit' ? 'Location matcher' : mode === 'create-child' ? 'New child matcher' : 'New root matcher' }}
+          {{ mode === 'edit' ? t('structured.locationEditor.matcher') : mode === 'create-child' ? t('structured.locationEditor.newChildMatcher') : t('structured.locationEditor.newRootMatcher') }}
         </legend>
         <div class="structured-field-grid">
           <label>
-            <span>Matcher type</span>
+            <span>{{ t('structured.locationEditor.matcherType') }}</span>
             <select
               v-model="matcherType"
               name="location-type"
             >
-              <option value="exact">Exact (=)</option>
-              <option value="prefix">Prefix</option>
-              <option value="prefix_priority">Priority prefix (^~)</option>
-              <option value="regex">Regular expression (~)</option>
-              <option value="regex_insensitive">Case-insensitive regex (~*)</option>
-              <option value="named">Named (@)</option>
+              <option value="exact">{{ t('structured.locationEditor.matcherTypes.exact') }}</option>
+              <option value="prefix">{{ t('structured.locationEditor.matcherTypes.prefix') }}</option>
+              <option value="prefix_priority">{{ t('structured.locationEditor.matcherTypes.prefixPriority') }}</option>
+              <option value="regex">{{ t('structured.locationEditor.matcherTypes.regex') }}</option>
+              <option value="regex_insensitive">{{ t('structured.locationEditor.matcherTypes.regexInsensitive') }}</option>
+              <option value="named">{{ t('structured.locationEditor.matcherTypes.named') }}</option>
             </select>
           </label>
           <label>
-            <span>Matcher</span>
+            <span>{{ t('structured.locationEditor.matcherValue') }}</span>
             <input
               v-model="matcher"
               name="location-matcher"
@@ -83,15 +83,14 @@
         </div>
 
         <p v-if="location !== null && location.unknown_directive_count > 0">
-          {{ location.unknown_directive_count }} preserved directive{{ location.unknown_directive_count === 1 ? '' : 's' }}
-          remain read only and will not be rewritten.
+          {{ t(location.unknown_directive_count === 1 ? 'structured.locationEditor.preservedOne' : 'structured.locationEditor.preservedMany', { count: location.unknown_directive_count }) }}
         </p>
       </fieldset>
 
       <fieldset :disabled="formDisabled || (mode === 'edit' && location?.proxy_pass_editable === false)">
         <legend>proxy_pass</legend>
         <label>
-          <span>Proxy behavior</span>
+          <span>{{ t('structured.locationEditor.proxyBehavior') }}</span>
           <select
             v-model="proxyMode"
             name="proxy-mode"
@@ -100,10 +99,10 @@
               v-if="mode === 'edit'"
               value="preserve"
             >
-              Preserve current directive
+              {{ t('structured.locationEditor.preserveProxy') }}
             </option>
-            <option value="set">Set structured upstream</option>
-            <option value="remove">No proxy_pass</option>
+            <option value="set">{{ t('structured.locationEditor.setProxy') }}</option>
+            <option value="remove">{{ t('structured.locationEditor.removeProxy') }}</option>
           </select>
         </label>
 
@@ -112,12 +111,12 @@
           class="structured-field-grid"
         >
           <label>
-            <span>Upstream</span>
+            <span>{{ t('structured.upstream') }}</span>
             <select
               v-model="proxyUpstreamId"
               name="proxy-upstream"
             >
-              <option value="">Select upstream</option>
+              <option value="">{{ t('structured.locationEditor.selectUpstream') }}</option>
               <option
                 v-for="candidate in upstreams"
                 :key="candidate.id"
@@ -128,7 +127,7 @@
             </select>
           </label>
           <label>
-            <span>Scheme</span>
+            <span>{{ t('structured.locationEditor.scheme') }}</span>
             <select
               v-model="proxyScheme"
               name="proxy-scheme"
@@ -138,7 +137,7 @@
             </select>
           </label>
           <label>
-            <span>Port</span>
+            <span>{{ t('structured.locationEditor.port') }}</span>
             <input
               v-model="proxyPort"
               name="proxy-port"
@@ -148,7 +147,7 @@
             >
           </label>
           <label>
-            <span>URI suffix</span>
+            <span>{{ t('structured.locationEditor.uriSuffix') }}</span>
             <input
               v-model="proxyURI"
               name="proxy-uri"
@@ -160,7 +159,7 @@
         </div>
 
         <p v-if="mode === 'edit' && location !== null && !location.proxy_pass_editable">
-          proxy_pass is read only: {{ location.proxy_pass_read_only_reason ?? 'unsupported syntax' }}.
+          {{ t('structured.locationEditor.proxyReadOnly', { reason: location.proxy_pass_read_only_reason ?? t('structured.locationEditor.unsupportedSyntax') }) }}
         </p>
       </fieldset>
 
@@ -179,7 +178,7 @@
           :disabled="!canReview"
           @click="reviewLocation"
         >
-          {{ mode === 'edit' ? 'Review location update' : 'Review location creation' }}
+          {{ mode === 'edit' ? t('structured.locationEditor.reviewUpdate') : t('structured.locationEditor.reviewCreation') }}
         </button>
         <button
           v-if="mode === 'edit' && location !== null"
@@ -188,7 +187,7 @@
           :disabled="disabled || dirty || !location.editable"
           @click="reviewDeletion"
         >
-          Review location deletion
+          {{ t('structured.locationEditor.reviewDeletion') }}
         </button>
         <button
           v-if="mode === 'edit' && dirty"
@@ -196,14 +195,14 @@
           data-action="reset-location"
           @click="resetEditor"
         >
-          Reset location changes
+          {{ t('structured.locationEditor.reset') }}
         </button>
         <button
           v-if="mode !== 'edit'"
           type="button"
           @click="cancelCreation"
         >
-          Cancel
+          {{ t('common.cancel') }}
         </button>
       </div>
     </form>
@@ -212,6 +211,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import type {
   EditableMatcherType,
@@ -222,6 +222,8 @@ import type {
   StructuredProxyPassInput,
   StructuredUpstream,
 } from '../api/structured'
+
+const { t } = useI18n()
 
 type EditorMode = 'create-child' | 'create-root' | 'edit' | 'empty'
 
@@ -246,9 +248,9 @@ const proxyPort = ref('')
 const proxyURI = ref('')
 const proxyPass = computed(() => parseProxyPass())
 const validationError = computed(() => {
-  if (matcher.value.trim() === '') return 'Location matcher is required.'
+  if (matcher.value.trim() === '') return t('structured.locationEditor.matcherRequired')
   if (proxyMode.value === 'set' && proxyPass.value === null) {
-    return 'Select an upstream and enter a valid optional port.'
+    return t('structured.locationEditor.invalidProxy')
   }
   return ''
 })

@@ -9,6 +9,6 @@ import { appI18n } from '../i18n'
 config.global.plugins = [appI18n]
 
 beforeEach(() => {
-  appI18n.global.locale.value = 'zh-CN'
-  document.documentElement.lang = 'zh-CN'
+  appI18n.global.locale.value = 'en-US'
+  document.documentElement.lang = 'en-US'
 })

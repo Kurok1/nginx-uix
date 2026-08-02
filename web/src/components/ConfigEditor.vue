@@ -5,20 +5,20 @@
 <template>
   <section
     class="config-editor"
-    aria-label="Workspace editor"
+    :aria-label="t('workspace.editor.label')"
   >
     <p
       v-if="documents.length === 0"
       class="config-editor__empty"
       role="status"
     >
-      Select a managed file to edit.
+      {{ t('workspace.editor.selectManaged') }}
     </p>
     <template v-else>
       <div
         class="config-editor__tabs"
         role="tablist"
-        aria-label="Open configuration files"
+        :aria-label="t('workspace.editor.openFiles')"
       >
         <div
           v-for="document in documents"
@@ -32,15 +32,15 @@
             :aria-controls="panelId(document.path)"
             :aria-selected="document.path === selectedPath"
             :tabindex="document.path === selectedPath ? 0 : -1"
-            :aria-label="`Select ${document.path}`"
+            :aria-label="t('workspace.editor.selectFile', { path: document.path })"
             @click="emit('select', document.path)"
           >
             {{ basename(document.path) }}
-            <span v-if="document.dirty">— Unsaved changes</span>
+            <span v-if="document.dirty">— {{ t('workspace.editor.unsaved') }}</span>
           </button>
           <button
             type="button"
-            :aria-label="`Close ${document.path}`"
+            :aria-label="t('workspace.editor.closeFile', { path: document.path })"
             @click="emit('close', document.path)"
           >
             <span aria-hidden="true">×</span>
@@ -61,25 +61,25 @@
           <div>
             <h2>{{ document.path }}</h2>
             <p v-if="document.dirty">
-              Unsaved changes
+              {{ t('workspace.editor.unsaved') }}
             </p>
           </div>
           <div class="config-editor__actions">
             <button
               type="button"
-              :aria-label="`Find in ${document.path}`"
+              :aria-label="t('workspace.editor.findIn', { path: document.path })"
               @click="openFind(document.path)"
             >
-              Find
+              {{ t('common.find') }}
             </button>
             <button
               type="button"
-              :aria-label="`Save ${document.path}`"
+              :aria-label="t('workspace.editor.saveFile', { path: document.path })"
               :disabled="!canSave || document.path !== selectedPath"
               :aria-describedby="saveReason === '' ? undefined : saveReasonId"
               @click="emit('save', document.path)"
             >
-              Save
+              {{ t('common.save') }}
             </button>
           </div>
         </header>
@@ -92,7 +92,7 @@
         </p>
         <CodeEditor
           :ref="(component) => setEditor(document.path, component)"
-          v-bind="{ ariaLabel: `${document.path} editor` }"
+          v-bind="{ ariaLabel: t('workspace.editor.editorLabel', { path: document.path }) }"
           :model-value="document.content"
           :read-only="readOnly"
           @update:model-value="emitDocumentUpdate(document, $event)"
@@ -106,6 +106,7 @@
 import type { EditorView } from '@codemirror/view'
 import { openSearchPanel } from '@codemirror/search'
 import { computed, useId } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import type { OpenDocument } from '../workspace'
 import CodeEditor from './CodeEditor.vue'
@@ -129,17 +130,18 @@ const emit = defineEmits<{
 }>()
 
 const instanceId = useId()
+const { t } = useI18n()
 const saveReasonId = useId()
 const editors = new Map<string, CodeEditorExpose>()
 const selectedDocument = computed(() =>
   props.documents.find(({ path }) => path === props.selectedPath),
 )
 const saveReason = computed(() => {
-  if (props.readOnly) return 'This workspace is read-only.'
-  if (props.pending) return 'A workspace change is in progress.'
-  if (selectedDocument.value?.requiresRefresh) return 'Read the server version before saving.'
-  if (!selectedDocument.value?.dirty) return 'No unsaved changes.'
-  if (!props.canSave) return 'Saving is unavailable.'
+  if (props.readOnly) return t('workspace.editor.readOnlyReason')
+  if (props.pending) return t('workspace.editor.pendingReason')
+  if (selectedDocument.value?.requiresRefresh) return t('workspace.editor.refreshReason')
+  if (!selectedDocument.value?.dirty) return t('workspace.editor.noChangesReason')
+  if (!props.canSave) return t('workspace.editor.unavailableReason')
   return ''
 })
 

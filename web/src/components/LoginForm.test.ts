@@ -73,6 +73,10 @@ async function mountLoginForm(store: SessionStore, router = createTestRouter()) 
 }
 
 describe('LoginForm', () => {
+  beforeEach(() => {
+    appI18n.global.locale.value = 'zh-CN'
+  })
+
   afterEach(() => {
     vi.useRealTimers()
     vi.restoreAllMocks()

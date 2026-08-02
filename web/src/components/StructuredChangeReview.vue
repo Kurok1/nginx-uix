@@ -5,20 +5,20 @@
 <template>
   <section
     class="structured-change-review"
-    aria-label="Structured change review"
+    :aria-label="t('structured.reviewPanel.label')"
   >
     <header>
       <div>
-        <h2>Review draft change</h2>
-        <p>Only the workspace draft will be updated. Production configuration and Nginx are unaffected.</p>
+        <h2>{{ t('structured.reviewPanel.title') }}</h2>
+        <p>{{ t('structured.reviewPanel.description') }}</p>
       </div>
       <button
         v-if="closable"
         type="button"
-        aria-label="Close structured change review"
+        :aria-label="t('structured.reviewPanel.close')"
         @click="emit('close')"
       >
-        Close
+        {{ t('common.close') }}
       </button>
     </header>
 
@@ -27,7 +27,7 @@
       class="structured-change-review__empty"
       role="status"
     >
-      Choose an edit and generate a preview before applying it.
+      {{ t('structured.reviewPanel.empty') }}
     </p>
 
     <template v-else>
@@ -37,7 +37,7 @@
         role="alert"
       >
         <span aria-hidden="true">◇!</span>
-        Preview incomplete: the bounded diff cannot be safely applied.
+        {{ t('structured.reviewPanel.incomplete') }}
       </p>
       <p
         v-if="errorMessage !== ''"
@@ -54,8 +54,8 @@
           :key="file.path"
         >
           <strong>{{ file.path }}</strong>
-          <span>+{{ file.added_lines }} added</span>
-          <span>−{{ file.removed_lines }} removed</span>
+          <span>{{ t('structured.reviewPanel.addedCount', { count: file.added_lines }) }}</span>
+          <span>{{ t('structured.reviewPanel.removedCount', { count: file.removed_lines }) }}</span>
           <span>{{ abbreviate(file.before_digest) }} → {{ abbreviate(file.after_digest) }}</span>
         </li>
       </ul>
@@ -64,7 +64,7 @@
         v-if="preview.complete"
         class="structured-change-review__diff"
         role="region"
-        aria-label="Generated unified diff"
+        :aria-label="t('structured.reviewPanel.diffLabel')"
         tabindex="0"
       >
         <div
@@ -86,12 +86,12 @@
         v-if="confirmationTarget !== ''"
         class="structured-change-review__confirmation"
       >
-        <span>Type “{{ confirmationTarget }}” to confirm this change</span>
+        <span>{{ t('structured.reviewPanel.confirm', { target: confirmationTarget }) }}</span>
         <input
           type="text"
           autocomplete="off"
           :value="confirmation"
-          :aria-label="'Type ' + confirmationTarget + ' exactly to confirm'"
+          :aria-label="t('structured.reviewPanel.confirmAria', { target: confirmationTarget })"
           @input="updateConfirmation"
         >
       </label>
@@ -104,7 +104,7 @@
           :aria-describedby="applyDisabled ? applyReasonId : undefined"
           @click="emit('apply')"
         >
-          {{ pending ? 'Applying to draft…' : 'Apply to draft' }}
+          {{ pending ? t('structured.reviewPanel.applying') : t('structured.reviewPanel.apply') }}
         </button>
       </div>
       <p
@@ -119,8 +119,11 @@
 
 <script setup lang="ts">
 import { computed, useId } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import type { StructuredChangePreview } from '../api/structured'
+
+const { t } = useI18n()
 
 type DiffLineKind = 'added' | 'removed' | 'context' | 'meta'
 
@@ -160,14 +163,14 @@ const applyDisabled = computed(
     (props.confirmationTarget !== '' && props.confirmation !== props.confirmationTarget),
 )
 const applyReason = computed(() => {
-  if (props.preview === null) return 'Generate a preview first.'
-  if (!props.preview.complete) return 'The preview is incomplete.'
-  if (props.errorMessage !== '') return 'Resolve the visible error and generate a fresh preview.'
-  if (props.pending) return 'The draft update is in progress.'
+  if (props.preview === null) return t('structured.reviewPanel.reasons.generate')
+  if (!props.preview.complete) return t('structured.reviewPanel.reasons.incomplete')
+  if (props.errorMessage !== '') return t('structured.reviewPanel.reasons.error')
+  if (props.pending) return t('structured.reviewPanel.reasons.pending')
   if (props.confirmationTarget !== '' && props.confirmation !== props.confirmationTarget) {
-    return 'Enter the exact visible confirmation value.'
+    return t('structured.reviewPanel.reasons.confirmation')
   }
-  return 'Ready to update only this workspace draft.'
+  return t('structured.reviewPanel.reasons.ready')
 })
 
 function updateConfirmation(event: Event): void {
@@ -186,18 +189,18 @@ function parsePatch(patch: string): DiffLine[] {
     .filter((line) => line !== '')
     .map((line) => {
       if (line.startsWith('+++') || line.startsWith('---') || line.startsWith('@@')) {
-        return { kind: 'meta', marker: '·', label: 'Metadata', content: line }
+        return { kind: 'meta', marker: '·', label: t('structured.reviewPanel.diff.metadata'), content: line }
       }
       if (line.startsWith('+')) {
-        return { kind: 'added', marker: '+', label: 'Added', content: line.slice(1) }
+        return { kind: 'added', marker: '+', label: t('structured.reviewPanel.diff.added'), content: line.slice(1) }
       }
       if (line.startsWith('-')) {
-        return { kind: 'removed', marker: '−', label: 'Removed', content: line.slice(1) }
+        return { kind: 'removed', marker: '−', label: t('structured.reviewPanel.diff.removed'), content: line.slice(1) }
       }
       return {
         kind: 'context',
         marker: '·',
-        label: 'Context',
+        label: t('structured.reviewPanel.diff.context'),
         content: line.startsWith(' ') ? line.slice(1) : line,
       }
     })

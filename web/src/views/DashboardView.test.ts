@@ -133,6 +133,10 @@ function componentByName(wrapper: VueWrapper, name: string): VueWrapper {
 }
 
 describe('DashboardView', () => {
+  beforeEach(() => {
+    appI18n.global.locale.value = 'zh-CN'
+  })
+
   afterEach(() => {
     vi.useRealTimers()
     vi.restoreAllMocks()

@@ -5,6 +5,7 @@
 import { mount } from '@vue/test-utils'
 
 import type { EffectiveConfigOccurrence } from '../api/types'
+import { appI18n } from '../i18n'
 import ReadOnlyCodeViewer from './ReadOnlyCodeViewer.vue'
 import viewerSource from './ReadOnlyCodeViewer.vue?raw'
 
@@ -16,6 +17,10 @@ const occurrence: EffectiveConfigOccurrence = {
 }
 
 describe('ReadOnlyCodeViewer', () => {
+  beforeEach(() => {
+    appI18n.global.locale.value = 'zh-CN'
+  })
+
   it('renders selectable escaped content unchanged with a separate hidden line-number pre', () => {
     const wrapper = mount(ReadOnlyCodeViewer, { props: { occurrence } })
     const scrollContainer = wrapper.get('.read-only-code-viewer__scroll')

@@ -9,6 +9,10 @@ import MetricCard from './MetricCard.vue'
 import metricCardSource from './MetricCard.vue?raw'
 
 describe('MetricCard', () => {
+  beforeEach(() => {
+    appI18n.global.locale.value = 'zh-CN'
+  })
+
   it('renders a labelled numeric metric and supporting copy as description data', () => {
     const wrapper = mount(MetricCard, {
       props: {
