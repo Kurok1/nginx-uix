@@ -2,10 +2,10 @@
 
 Nginx UIX 是面向单节点 HTTP/HTTPS Nginx 的 Web 管理界面，后端使用 Go，前端使用 Vue 3 + TypeScript，持久化使用 SQLite。官方部署方式是一体化 Docker 镜像，镜像内同时包含 Nginx UIX 和受管 Nginx。
 
-当前版本为 `1.0.0`，已经正式发布：
+当前版本为 `1.1.0`，已经正式发布：
 
-- [GitHub Release v1.0.0](https://github.com/Kurok1/nginx-uix/releases/tag/v1.0.0)
-- `ghcr.io/kurok1/nginx-uix:1.0.0`
+- [GitHub Release v1.1.0](https://github.com/Kurok1/nginx-uix/releases/tag/v1.1.0)
+- `ghcr.io/kurok1/nginx-uix:1.1.0`
 
 ## 当前能力
 
@@ -18,16 +18,16 @@ Nginx UIX 是面向单节点 HTTP/HTTPS Nginx 的 Web 管理界面，后端使�
 
 v1.0 只面向单节点 Nginx，不包含集群、Kubernetes、WAF、Nginx Plus、Docker Socket 管理或 UI/Nginx 分离容器方案。
 
-## v1.0 发布门禁
+## 发布门禁
 
-v1.0 只要求：
+当前正式发布门禁只要求：
 
 - Go 与前端单元测试、静态类型检查和正常构建通过。
 - native amd64 一体化镜像通过 Docker basic smoke。
 - 成功生成 linux/amd64 与 linux/arm64 的 `nginx-uix`、`nginx-uix-agent` 二进制。
 - 成功生成 linux/amd64 与 linux/arm64 的 OCI 镜像包。
 
-当前发布流水线不运行 Playwright、权限或安全套件、漏洞扫描、SBOM、故障注入、完整升级恢复和长时间稳定性测试。这些问题后续按独立缺陷处理，不阻断 v1.0。
+当前发布流水线不运行 Playwright、权限或安全套件、漏洞扫描、SBOM、故障注入、完整升级恢复和长时间稳定性测试。这些问题后续按独立缺陷处理，不阻断当前版本。
 
 ## 源码验证
 
@@ -52,7 +52,7 @@ npm --prefix web run build
 Docker basic smoke：
 
 ```sh
-IMAGE=nginx-uix:1.0.0-test \
+IMAGE=nginx-uix:1.1.0-test \
 PLATFORM=linux/amd64 \
 BUILD_IMAGE=1 \
 SMOKE_PROFILE=basic \
@@ -69,16 +69,16 @@ GitHub Actions 会把这六个文件保存为可下载的构建 artifact。
 
 ## 正式发布
 
-v1.0.0 已由 [release.yml](.github/workflows/release.yml) 发布。可直接拉取正式多架构镜像：
+v1.1.0 已由 [release.yml](.github/workflows/release.yml) 发布。可直接拉取正式多架构镜像：
 
 ```sh
-docker pull ghcr.io/kurok1/nginx-uix:1.0.0
+docker pull ghcr.io/kurok1/nginx-uix:1.1.0
 ```
 
 后续正式发布仍只在推送与 `VERSION` 完全一致的 `vX.Y.Z` tag 时触发。发布工作流会重复最小门禁，然后：
 
 - 创建 GitHub Release，附带 amd64/arm64 二进制压缩包、OCI 镜像包和 `SHA256SUMS`。
-- 推送 `ghcr.io/kurok1/nginx-uix:1.0.0`、`:v1.0.0` 和 `:latest` 多架构镜像。
+- 推送 `ghcr.io/kurok1/nginx-uix:1.1.0`、`:v1.1.0` 和 `:latest` 多架构镜像。
 
 普通 `main` 分支 push 不会创建 Release；只有显式 tag 才会发布。
 
