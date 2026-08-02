@@ -36,6 +36,8 @@ const localeCases = [
     saved: 'nginx.conf 已保存到工作区草稿。',
     allDiff: '审查全部文件差异',
     unifiedDiff: '统一格式配置差异',
+    showGroups: '显示逻辑分组',
+    checkPublication: '检查发布条件',
     deleteWorkspace: '删除工作区 E2E workspace',
     deleteDialog: '删除工作区“E2E workspace”？',
     confirmation: '准确输入 E2E workspace 以确认',
@@ -59,6 +61,8 @@ const localeCases = [
     saved: 'nginx.conf saved to the workspace draft.',
     allDiff: 'Review all file diffs',
     unifiedDiff: 'Unified configuration diff',
+    showGroups: 'Show logical groups',
+    checkPublication: 'Check publication',
     deleteWorkspace: 'Delete workspace E2E workspace',
     deleteDialog: 'Delete workspace “E2E workspace”?',
     confirmation: 'Type E2E workspace exactly to confirm',
@@ -156,6 +160,14 @@ for (const copy of localeCases) {
     await expect(page.getByText(copy.readOnly, { exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: copy.save })).toBeDisabled()
     await expect(page.getByRole('button', { name: copy.deleteWorkspace })).toBeDisabled()
+    await expect(page.locator('.config-tree__actions button:not(:disabled)')).toHaveCount(0)
+    await page.getByRole('button', { name: copy.showGroups }).click()
+    await expect(page.locator('.config-tree__actions button:not(:disabled)')).toHaveCount(0)
+    await expect(page.getByRole('button', { name: copy.checkPublication })).toBeDisabled()
+
+    const review = page.locator('.workspace-review-panel')
+    await review.getByRole('button', { name: copy.allDiff }).click()
+    await expect(review.getByRole('region', { name: copy.unifiedDiff })).toBeVisible()
     expect(workspace.requests().filter(({ method }) => method !== 'GET')).toHaveLength(0)
     await assertOnlyLocalePreferenceStorage(page)
     await assertNoAxeViolations(page)

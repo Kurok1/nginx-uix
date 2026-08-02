@@ -76,7 +76,7 @@ test('switching a side-effecting request to zh-CN preserves its exact request se
   await page.getByRole('button', { name: '运行隔离测试' }).click()
   const dialog = page.getByRole('dialog', { name: '运行可能产生副作用的请求？' })
   await dialog
-    .getByLabel(`输入与 ${routeSideEffectConfirmation} 完全相同的内容以确认`)
+    .getByLabel(`准确输入 ${routeSideEffectConfirmation} 以确认`)
     .fill(routeSideEffectConfirmation)
   await dialog.getByRole('button', { name: '运行隔离测试' }).click()
 
