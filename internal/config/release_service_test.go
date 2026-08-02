@@ -80,6 +80,18 @@ func TestReleaseServiceCreatesBoundCheckAndPublishesWorkspace(t *testing.T) {
 	}); !errors.Is(err, ErrConflict) {
 		t.Fatalf("ReplaceFile(published) error = %v, want ErrConflict", err)
 	}
+	if err := fixture.service.Delete(
+		context.Background(),
+		Actor{UserID: 7, RequestID: "delete-published"},
+		published.ID,
+		published.ETag(),
+		published.Name,
+	); !errors.Is(err, ErrConflict) {
+		t.Fatalf("Delete(published) error = %v, want ErrConflict", err)
+	}
+	if persisted, err := fixture.repository.Workspace(context.Background(), workspace.ID); err != nil || persisted != published {
+		t.Fatalf("published workspace after rejected delete = %+v, err = %v", persisted, err)
+	}
 }
 
 func TestReleaseServiceBlocksQueueWhileAnyAttentionCaseIsOpen(t *testing.T) {

@@ -391,6 +391,9 @@ func (s *Service) Delete(
 	if err := requireWorkspaceActor(workspace, actor); err != nil {
 		return fmt.Errorf("delete workspace: %w", err)
 	}
+	if workspace.State == StatePublished {
+		return fmt.Errorf("delete workspace: published workspace is immutable: %w", ErrConflict)
+	}
 	wantETag := workspace.ETag()
 	if subtle.ConstantTimeCompare([]byte(ifMatch), []byte(wantETag)) != 1 || confirmName != workspace.Name {
 		return fmt.Errorf("delete workspace: validate confirmation: %w", ErrConflict)
