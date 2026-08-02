@@ -4,7 +4,7 @@
 >
 > 制定日期：2026-07-14
 >
-> 目标版本：v1.0.0
+> 目标版本：v1.1.0
 >
 > 本文是项目唯一的长期路线图，直接记录版本范围、交付物和验收条件；不再维护独立设计文档。
 
@@ -489,6 +489,30 @@ v0.2.1 验收记录中已经执行的 Docker、缓存和多架构步骤继续作
 - linux/amd64 与 linux/arm64 的两个程序二进制和镜像均构建成功。
 - 安全、权限、漏洞扫描、SBOM、完整浏览器与长时间稳定性验证后续按缺陷独立处理，不阻断 v1.0.0。
 
+### v1.1.0：可用性与国际化版
+
+**目标：** 修复 v1.0.0 发布后确认的工作区只读与生产 CSP 缺陷，并完成简体中文、英文全站国际化。
+
+**追踪：** [GitHub v1.1.0 milestone](https://github.com/Kurok1/nginx-uix/milestone/1)
+
+**交付物：**
+
+- [ ] 允许完整性校验通过的 `published` 工作区只读查看文件树、文件内容、diff 和对应 release；全部修改与再次发布入口继续关闭。
+- [ ] 为 SPA 入口 HTML 和 CodeMirror 提供每次响应独立的 CSP nonce，不启用 `unsafe-inline`，并保留现有安全响应头。
+- [ ] 建立 `zh-CN` / `en-US` 类型化消息目录、locale-aware 格式化和稳定 API error code 本地化。
+- [ ] 按 URL `lang`、持久化偏好、浏览器语言、`en-US` 的顺序解析 locale，并在登录前后提供无需刷新即可生效的语言选择器。
+- [ ] 完成全局导航、登录、状态、工作区、结构化配置、运维恢复、Route Lab 和证书管理的全量双语覆盖。
+- [ ] 补齐两种语言下的组件、浏览器、响应式、键盘与可访问性回归，并更新语言选择和回退文档。
+
+**验收条件：**
+
+- 已发布工作区展示 `last_release_id` 对应的历史不可变 draft 快照；生产配置后续变化不会改写该视图。
+- 生产 CSP 下 CodeMirror 行号与正文对齐，控制台无相关 CSP violation，nonce 不复用 request ID、不记录且生成失败时 fail closed。
+- 有效 `?lang=zh-CN` / `?lang=en-US` 具有最高优先级并随站内导航保留；仅非敏感 locale 写入 `localStorage`。
+- 所有第一方用户可见文案、ARIA、Toast、Banner、Modal、错误和格式化内容完整双语；配置、路径、域名、ID、错误码及外部原始诊断保持原样。
+- `go test ./...`、`go mod verify`、前端 lint/typecheck/test/build、双语 Playwright 和 Docker production-CSP 回归通过。
+- Docker basic smoke 通过，linux/amd64 与 linux/arm64 二进制和 OCI 镜像构建成功。
+
 ## 8. UI 页面演进
 
 | 页面 | 首次版本 | 主要内容 |
@@ -551,6 +575,7 @@ v0.2.1 验收记录中已经执行的 Docker、缓存和多架构步骤继续作
 | v0.6.0 | 发布候选 | 已完成 | v0.5.0 |
 | v0.7.0 | Docker 一体化统一验证 | 已完成 | v0.6.0 |
 | v1.0.0 | 稳定版 | 已完成 | v0.7.0 |
+| v1.1.0 | 可用性与国际化 | 进行中 | v1.0.0 |
 
 更新本计划时应同时：
 
@@ -581,11 +606,14 @@ v0.2.1 验收记录中已经执行的 Docker、缓存和多架构步骤继续作
 | 2026-07-23 | v0.7 的 PID 1 门槛固定为真实信号转发、有界优雅停止、零状态退出和同卷重建；不另设强制 `SIGKILL` 场景 |
 | 2026-07-31 | 删除独立设计文档；v1.0 发布门禁收敛为单元测试、basic smoke 和 amd64/arm64 构建，安全与扩展验证后续按缺陷处理 |
 | 2026-07-31 | v1.0.0 已通过 GitHub Release 与 GHCR 正式发布；多架构 OCI index 同时包含 linux/amd64 与 linux/arm64 |
+| 2026-08-02 | v1.1.0 统一修复已发布工作区只读和 CodeMirror CSP 缺陷，并完成 `zh-CN` / `en-US` 全站国际化 |
+| 2026-08-02 | locale 优先级固定为 URL `lang` → `localStorage` → 浏览器语言 → `en-US`；`zh-*` 归一化为 `zh-CN`，站内 URL 始终反映当前语言 |
+| 2026-08-02 | 国际化精确锁定 `vue-i18n@11.4.4`，只翻译第一方 UI；配置、技术标识和外部原始诊断保持原样，Wiki 只补充语言选择规则 |
+| 2026-08-02 | v1.1.0 使用单一 `feat/v1.1.0` 集成分支和多个原子提交，全部门禁通过后通过一个 PR 发布一个正式版本 |
 
 ## 14. 下一步
 
-- [x] 通过 Go 与前端单元测试。
-- [x] 通过 Docker basic smoke。
-- [x] 构建 linux/amd64 与 linux/arm64 二进制和 OCI 镜像包。
-- [x] 验证 tag 驱动的 GitHub Release 与 GHCR 发布工作流。
-- [x] 发布 v1.0.0。
+- [ ] 修复 [#1 已发布工作区无法只读打开](https://github.com/Kurok1/nginx-uix/issues/1)。
+- [ ] 修复 [#2 CodeMirror 生产 CSP 样式阻止](https://github.com/Kurok1/nginx-uix/issues/2)。
+- [ ] 完成 [#3 简体中文与英文国际化](https://github.com/Kurok1/nginx-uix/issues/3) 及其子 Issue。
+- [ ] 通过 v1.1.0 全部门禁并发布正式版本。
