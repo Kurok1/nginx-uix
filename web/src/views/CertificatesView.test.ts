@@ -4,6 +4,7 @@
  */
 
 import { flushPromises, mount } from '@vue/test-utils'
+import { nextTick } from 'vue'
 
 import type {
   ACMEAccount,
@@ -15,6 +16,7 @@ import type {
   DNSCredential,
 } from '../api/certificates'
 import { APIRequestError } from '../api/client'
+import { appI18n } from '../i18n'
 import { sessionStore } from '../session'
 import CertificatesView from './CertificatesView.vue'
 
@@ -294,6 +296,34 @@ async function mountView() {
 }
 
 describe('CertificatesView', () => {
+  beforeEach(() => {
+    appI18n.global.locale.value = 'en-US'
+  })
+
+  it('renders the complete certificate workflow in Simplified Chinese and updates it immediately', async () => {
+    const { wrapper } = await mountView()
+
+    appI18n.global.locale.value = 'zh-CN'
+    await nextTick()
+
+    expect(wrapper.get('h1').text()).toBe('证书管理')
+    expect(wrapper.text()).toContain('TLS 生命周期')
+    expect(wrapper.text()).toContain('刷新证据')
+    expect(wrapper.text()).toContain('证书 ID')
+    expect(wrapper.text()).toContain('生命周期控制')
+    expect(wrapper.text()).toContain('申请证书')
+    expect(wrapper.text()).toContain('账户与 DNS 凭据')
+    expect(wrapper.text()).toContain('仅授予 Zone Read 和 DNS Write')
+    expect(wrapper.text()).toContain('任务历史')
+    expect(wrapper.text()).toContain('离开此页面不会取消任务')
+    expect(wrapper.get('[aria-label="证书任务"]')).toBeTruthy()
+
+    await wrapper.get(`[data-action="deactivate-account"][data-id="${accountStagingID}"]`).trigger('click')
+    expect(wrapper.get('[role="dialog"]').text()).toContain('现有证书会继续提供服务')
+    expect(wrapper.get('[role="dialog"]').text()).toContain('停用账户')
+    wrapper.unmount()
+  })
+
   it('uses stable English guidance and a request ID instead of a backend error message', async () => {
     const client = clientFixture()
     const backendMessage = '内部路径 /var/lib/nginx-uix/private.pem 暂时不可读取'
@@ -326,6 +356,12 @@ describe('CertificatesView', () => {
 
     expect(wrapper.text()).toContain('The certificate service is unavailable. Retry after checking the Agent and network.')
     expect(wrapper.text()).toContain('Request ID: request-certificate-safe')
+    expect(wrapper.text()).not.toContain(backendMessage)
+
+    appI18n.global.locale.value = 'zh-CN'
+    await nextTick()
+    expect(wrapper.text()).toContain('证书服务不可用，请检查 Agent 和网络后重试。')
+    expect(wrapper.text()).toContain('请求 ID：request-certificate-safe')
     expect(wrapper.text()).not.toContain(backendMessage)
     wrapper.unmount()
   })
@@ -401,6 +437,11 @@ describe('CertificatesView', () => {
     expect((wrapper.get('[name="cloudflare-token"]').element as HTMLInputElement).value).toBe('')
     expect(wrapper.html()).not.toContain(token)
     expect(wrapper.text()).toContain('0123456789abcdef')
+
+    appI18n.global.locale.value = 'zh-CN'
+    await nextTick()
+    expect(wrapper.text()).toContain('Cloudflare Token 已验证并保存')
+    expect(wrapper.html()).not.toContain(token)
   })
 
   it('blocks wildcard HTTP-01, then reviews and exactly confirms a Cloudflare DNS-01 plan', async () => {
