@@ -497,12 +497,12 @@ v0.2.1 验收记录中已经执行的 Docker、缓存和多架构步骤继续作
 
 **交付物：**
 
-- [ ] 允许完整性校验通过的 `published` 工作区只读查看文件树、文件内容、diff 和对应 release；全部修改与再次发布入口继续关闭。
-- [ ] 为 SPA 入口 HTML 和 CodeMirror 提供每次响应独立的 CSP nonce，不启用 `unsafe-inline`，并保留现有安全响应头。
-- [ ] 建立 `zh-CN` / `en-US` 类型化消息目录、locale-aware 格式化和稳定 API error code 本地化。
-- [ ] 按 URL `lang`、持久化偏好、浏览器语言、`en-US` 的顺序解析 locale，并在登录前后提供无需刷新即可生效的语言选择器。
-- [ ] 完成全局导航、登录、状态、工作区、结构化配置、运维恢复、Route Lab 和证书管理的全量双语覆盖。
-- [ ] 补齐两种语言下的组件、浏览器、响应式、键盘与可访问性回归，并更新语言选择和回退文档。
+- [x] 允许完整性校验通过的 `published` 工作区只读查看文件树、文件内容、diff 和对应 release；全部修改与再次发布入口继续关闭。
+- [x] 为 SPA 入口 HTML 和 CodeMirror 提供每次响应独立的 CSP nonce，不启用 `unsafe-inline`，并保留现有安全响应头。
+- [x] 建立 `zh-CN` / `en-US` 类型化消息目录、locale-aware 格式化和稳定 API error code 本地化。
+- [x] 按 URL `lang`、持久化偏好、浏览器语言、`en-US` 的顺序解析 locale，并在登录前后提供无需刷新即可生效的语言选择器。
+- [x] 完成全局导航、登录、状态、工作区、结构化配置、运维恢复、Route Lab 和证书管理的全量双语覆盖。
+- [x] 补齐两种语言下的组件、浏览器、响应式、键盘与可访问性回归，并更新语言选择和回退文档。
 
 **验收条件：**
 
@@ -613,7 +613,7 @@ v0.2.1 验收记录中已经执行的 Docker、缓存和多架构步骤继续作
 
 ## 14. 下一步
 
-- [ ] 修复 [#1 已发布工作区无法只读打开](https://github.com/Kurok1/nginx-uix/issues/1)。
-- [ ] 修复 [#2 CodeMirror 生产 CSP 样式阻止](https://github.com/Kurok1/nginx-uix/issues/2)。
-- [ ] 完成 [#3 简体中文与英文国际化](https://github.com/Kurok1/nginx-uix/issues/3) 及其子 Issue。
+- [x] 修复 [#1 已发布工作区无法只读打开](https://github.com/Kurok1/nginx-uix/issues/1)。
+- [x] 修复 [#2 CodeMirror 生产 CSP 样式阻止](https://github.com/Kurok1/nginx-uix/issues/2)。
+- [x] 完成 [#3 简体中文与英文国际化](https://github.com/Kurok1/nginx-uix/issues/3) 及其子 Issue。
 - [ ] 通过 v1.1.0 全部门禁并发布正式版本。

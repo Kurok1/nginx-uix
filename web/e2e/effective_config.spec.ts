@@ -7,7 +7,7 @@ import { expect, test } from '@playwright/test'
 import {
   apiError,
   appOrigin,
-  assertNoApplicationStorage,
+  assertOnlyLocalePreferenceStorage,
   assertNoAxeViolations,
   authenticatedSession,
   expectSameOriginCookie,
@@ -27,7 +27,7 @@ test('repeated paths remain independently selectable by response-scoped ID', asy
     effectiveConfig: { status: 200, body: repeatedEffectiveConfig },
   })
 
-  await page.goto('/configuration')
+  await page.goto('/configuration?lang=zh-CN')
 
   await expect(page.getByRole('heading', { level: 1, name: '生效配置' })).toBeVisible()
   const navigator = page.getByRole('navigation', { name: '生效配置加载顺序' })
@@ -71,7 +71,7 @@ test('repeated paths remain independently selectable by response-scoped ID', asy
   if (configCall !== undefined) {
     expectSameOriginCookie(configCall)
   }
-  await assertNoApplicationStorage(page)
+  await assertOnlyLocalePreferenceStorage(page)
   await assertNoAxeViolations(page)
   api.assertContract()
 })
@@ -88,7 +88,7 @@ test('failed config refresh keeps selected content and labels it stale', async (
     ],
   })
 
-  await page.goto('/configuration')
+  await page.goto('/configuration?lang=zh-CN')
   const secondOccurrence = page.getByRole('button', {
     name: '第 2 项 /etc/nginx/conf.d/repeated.conf',
   })
@@ -107,7 +107,7 @@ test('failed config refresh keeps selected content and labels it stale', async (
   )
   await expect(viewer).toContainText('first.example.test')
   expect(api.callsFor('effectiveConfig')).toHaveLength(2)
-  await assertNoApplicationStorage(page)
+  await assertOnlyLocalePreferenceStorage(page)
   await assertNoAxeViolations(page)
   api.assertContract()
 })
@@ -118,7 +118,7 @@ test('raw fallback remains usable without presenting unverified file boundaries'
 		effectiveConfig: { status: 200, body: rawEffectiveConfig },
 	})
 
-	await page.goto('/configuration')
+	await page.goto('/configuration?lang=zh-CN')
 
 	await expect(page.getByText('结构未验证', { exact: true })).toBeVisible()
 	await expect(page.getByText('NGINX_UIX_EFFECTIVE_CONFIG_ROOTS', { exact: true })).toBeVisible()
@@ -128,7 +128,7 @@ test('raw fallback remains usable without presenting unverified file boundaries'
 	})
 	await expect(viewer).toContainText('configuration file /etc/nginx/nginx.conf')
 	await expect(page.getByRole('navigation', { name: '生效配置加载顺序' })).toHaveCount(0)
-	await assertNoApplicationStorage(page)
+	await assertOnlyLocalePreferenceStorage(page)
 	await assertNoAxeViolations(page)
 	api.assertContract()
 })

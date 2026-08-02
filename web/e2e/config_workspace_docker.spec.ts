@@ -53,10 +53,14 @@ test('real Docker workspace flow covers persistence, responsive layout and keybo
     await login(page, environment)
     csrfToken = await sessionCSRFToken(page, environment)
     await expect
-      .poll(async () => page.evaluate(() => [localStorage.length, sessionStorage.length]))
-      .toEqual([0, 0])
+      .poll(async () => page.evaluate(() => ({
+        locale: localStorage.getItem('nginx-uix.locale'),
+        localKeys: Object.keys(localStorage),
+        sessionKeys: Object.keys(sessionStorage),
+      })))
+      .toEqual({ locale: 'en-US', localKeys: ['nginx-uix.locale'], sessionKeys: [] })
 
-    await page.goto(urlFor(environment.baseURL, '/config/workspaces'))
+    await page.goto(urlFor(environment.baseURL, '/config/workspaces?lang=en-US'))
     const createResponsePromise = waitForAPIResponse(page, 'POST', '/api/v1/config/workspaces')
     await page.getByRole('button', { name: 'Create workspace' }).click()
     await page.getByLabel('Workspace name').fill(workspaceName)
@@ -70,7 +74,11 @@ test('real Docker workspace flow covers persistence, responsive layout and keybo
     )
 
     await expect(page).toHaveURL(
-      urlFor(environment.baseURL, `/config/workspaces/${encodeURIComponent(workspaceID)}`),
+      urlFor(
+        environment.baseURL,
+        `/config/workspaces/${encodeURIComponent(workspaceID)}?lang=en-US`,
+      ),
+      { timeout: 5_000 },
     )
     await expect(page.getByRole('heading', { level: 1, name: workspaceName })).toBeVisible()
 
@@ -114,7 +122,7 @@ test('real Docker workspace flow covers persistence, responsive layout and keybo
 
     await page.reload()
     await expect(page.getByRole('heading', { level: 1, name: workspaceName })).toBeVisible()
-    await page.goto(urlFor(environment.baseURL, '/config/workspaces'))
+    await page.goto(urlFor(environment.baseURL, '/config/workspaces?lang=en-US'))
     await page.getByRole('link', { name: new RegExp(escapeRegExp(workspaceName)) }).click()
     await expect(page.getByRole('heading', { level: 1, name: workspaceName })).toBeVisible()
     await openFile(page, 'nginx.conf')
@@ -165,7 +173,7 @@ test('real Docker workspace flow covers persistence, responsive layout and keybo
     )
     if (clipboardAvailable) {
       await test.step('copy and verify the preserved local conflict text', async () => {
-        await page.getByRole('button', { name: '复制本地内容 nginx.conf' }).click()
+        await page.getByRole('button', { name: 'Copy local content for nginx.conf' }).click()
         await expect(page.getByText('Local content for nginx.conf copied.')).toBeVisible()
         expect(await page.evaluate(() => navigator.clipboard.readText())).toContain(
           localConflictMarker,
@@ -182,7 +190,7 @@ test('real Docker workspace flow covers persistence, responsive layout and keybo
       )
     }
 
-    await page.getByRole('button', { name: '读取服务器版本 nginx.conf' }).click()
+    await page.getByRole('button', { name: 'Read server version for nginx.conf' }).click()
     await expect(
       page.getByText('This file changed on the server. Your local text has not been overwritten.'),
     ).toHaveCount(0)
@@ -205,20 +213,23 @@ test('real Docker workspace flow covers persistence, responsive layout and keybo
     await confirmNamedDeletion(page, workspaceName)
     expect((await deleteResponsePromise).status()).toBe(204)
     workspaceID = ''
-    await expect(page).toHaveURL(urlFor(environment.baseURL, '/config/workspaces'))
+    await expect(page).toHaveURL(urlFor(environment.baseURL, '/config/workspaces?lang=en-US'))
 
-    const logout = page.getByRole('button', { name: '退出登录' })
+    const logout = page.getByRole('button', { name: 'Sign out' })
+    const language = page.getByRole('combobox', { name: 'Language' })
     const precedingNavigationLink = page
       .getByRole('navigation', { name: 'Global navigation' })
       .getByRole('link', { name: 'Recovery & History', exact: true })
     await precedingNavigationLink.focus()
     await precedingNavigationLink.press('Tab')
+    await expect(language).toBeFocused()
+    await language.press('Tab')
     await expect(logout).toBeFocused()
     await assertVisibleFocus(logout)
     const logoutResponsePromise = waitForAPIResponse(page, 'DELETE', '/api/v1/auth/session')
     await logout.press('Enter')
     expect((await logoutResponsePromise).status()).toBe(204)
-    await expect(page).toHaveURL(urlFor(environment.baseURL, '/login'))
+    await expect(page).toHaveURL(urlFor(environment.baseURL, '/login?lang=en-US'))
     expect(cspConsoleMessages, 'browser console CSP violations').toEqual([])
   } finally {
     if (workspaceID !== '' && csrfToken !== '') {
@@ -299,7 +310,7 @@ async function assertCodeMirrorCSPLayout(
   expect(layout.topDelta).toBeLessThanOrEqual(1)
   expect(layout.nonce).toMatch(/^[0-9a-f]{32}$/u)
   expect(layout.hasNonceStyle).toBe(true)
-  expect(layout.content).toBe(expectedContent.replace(/\n$/u, ''))
+  expect(layout.content).toBe(expectedContent.replaceAll(/\r\n|\r/gu, '\n'))
 }
 
 async function verifyResponsiveAndKeyboardBehavior(
@@ -310,7 +321,7 @@ async function verifyResponsiveAndKeyboardBehavior(
 ): Promise<void> {
   const workspaceURL = urlFor(
     baseURL,
-    `/config/workspaces/${encodeURIComponent(workspaceID)}`,
+    `/config/workspaces/${encodeURIComponent(workspaceID)}?lang=en-US`,
   )
   for (const width of dockerViewportWidths) {
     await test.step(`verify real container workspace at ${width}px`, async () => {
@@ -352,7 +363,7 @@ async function verifyResponsiveAndKeyboardBehavior(
   await expect(reviewDrawer).toBeHidden()
   await expect(reviewTrigger).toBeFocused()
 
-  await page.goto(urlFor(baseURL, '/config/operations'))
+  await page.goto(urlFor(baseURL, '/config/operations?lang=en-US'))
   await expect(page.getByRole('heading', { level: 1, name: 'Recovery & History' })).toBeVisible()
   const overviewTab = page.getByRole('tab', { name: 'Overview' })
   const backupsTab = page.getByRole('tab', { name: 'Backups' })
@@ -534,14 +545,14 @@ async function readPassword(path: string): Promise<string> {
 }
 
 async function login(page: Page, environment: DockerEnvironment): Promise<void> {
-  await page.goto(urlFor(environment.baseURL, '/login'))
-  await page.getByLabel('用户名').fill(environment.username)
-  await page.getByLabel('密码').fill(environment.password)
+  await page.goto(urlFor(environment.baseURL, '/login?lang=en-US'))
+  await page.getByLabel('Username').fill(environment.username)
+  await page.getByLabel('Password').fill(environment.password)
   const responsePromise = waitForAPIResponse(page, 'POST', '/api/v1/auth/session')
-  await page.getByRole('button', { name: '登录' }).click()
+  await page.getByRole('button', { name: 'Sign in' }).click()
   const response = await responsePromise
   expect(response.status()).toBe(200)
-  await expect(page).toHaveURL(urlFor(environment.baseURL, '/'))
+  await expect(page).toHaveURL(urlFor(environment.baseURL, '/?lang=en-US'))
 }
 
 async function sessionCSRFToken(page: Page, environment: DockerEnvironment): Promise<string> {

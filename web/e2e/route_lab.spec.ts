@@ -5,7 +5,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import {
-  assertNoApplicationStorage,
+  assertOnlyLocalePreferenceStorage,
   assertNoAxeViolations,
   installWorkspaceAPIFixture,
   setAuthenticatedCookie,
@@ -77,7 +77,7 @@ test('static prediction, named runtime confirmation, mismatch evidence and safe 
 
   expect(routeLab.callsFor('POST', `/api/v1/config/workspaces/${workspace.workspaceId}/route-analyses`)).toHaveLength(1)
   expect(routeLab.callsFor('POST', `/api/v1/config/workspaces/${workspace.workspaceId}/route-tests`)).toHaveLength(1)
-  await assertNoApplicationStorage(page)
+  await assertOnlyLocalePreferenceStorage(page)
   await assertNoAxeViolations(page)
   routeLab.assertContract()
   workspace.assertContract()
@@ -145,7 +145,7 @@ for (const width of [1068, 833, 640, 320]) {
     await assertNoPageOverflow(page)
     await assertMinimumTargets(page)
     await assertHeadingOrder(page)
-    await assertNoApplicationStorage(page)
+    await assertOnlyLocalePreferenceStorage(page)
     await assertNoAxeViolations(page)
     routeLab.assertContract()
     workspace.assertContract()
@@ -163,7 +163,7 @@ test('Route Lab reflows at 200 percent browser-style content zoom without persis
   })
   await expect(page.getByRole('heading', { level: 1, name: 'Route Lab' })).toBeVisible()
   await assertNoPageOverflow(page)
-  await assertNoApplicationStorage(page)
+  await assertOnlyLocalePreferenceStorage(page)
   routeLab.assertContract()
   workspace.assertContract()
 })

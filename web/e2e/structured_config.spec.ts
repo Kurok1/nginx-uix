@@ -95,12 +95,12 @@ test('compact server view exposes all location matchers, both selectors and acce
   await expect(locationSelector).toBeVisible()
 
   for (const name of [
-    'Exact location /health',
+    'Exact (=) location /health',
     'Prefix location /api',
-    'Priority prefix location /assets/',
-    'Regex location \\.php$',
-    'Case-insensitive regex location \\.(gif|jpg)$',
-    'Named location @fallback',
+    'Priority prefix (^~) location /assets/',
+    'Regular expression (~) location \\.php$',
+    'Case-insensitive regex (~*) location \\.(gif|jpg)$',
+    'Named (@) location @fallback',
   ]) {
     await expect(page.getByRole('treeitem', { name })).toBeVisible()
   }

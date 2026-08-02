@@ -276,6 +276,11 @@ async function logout(): Promise<void> {
   color: var(--color-primary-on-dark);
 }
 
+.global-nav__links a {
+  min-width: var(--component-control-min-size);
+  justify-content: center;
+}
+
 .global-nav__links a.router-link-exact-active,
 .global-nav__mobile-menu a.router-link-exact-active {
   color: var(--color-primary-on-dark);

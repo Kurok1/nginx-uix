@@ -183,12 +183,12 @@ test('named deletion modal traps focus, closes on Escape and restores its trigge
 })
 
 async function openWorkspace(page: Page, fixture: WorkspaceAPIFixture): Promise<void> {
-  await page.goto(`/config/workspaces/${fixture.workspaceId}`)
+  await page.goto(`/config/workspaces/${fixture.workspaceId}?lang=en-US`)
   await expect(
     page.getByRole('heading', { level: 1, name: 'Configuration workspaces' }),
   ).toBeVisible()
   await expect(page.locator('.workspace-layout')).toBeVisible()
-  await expect(page.getByText('尚未执行 Nginx 校验', { exact: true })).toBeVisible()
+  await expect(page.getByText('Nginx validation has not run', { exact: true })).toBeVisible()
 }
 
 async function assertWorkspaceLayout(

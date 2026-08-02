@@ -1,10 +1,16 @@
-# Nginx UIX v1.0.0 用户手册
+# Nginx UIX v1.1.0 用户手册
 
 ## 适用范围
 
-本手册面向通过浏览器管理单节点 HTTP/HTTPS Nginx 的管理员。v1.0.0 不管理集群、Kubernetes、WAF、Nginx Plus、宿主机 Docker 或其他容器中的 Nginx，也不提供任意 Shell。
+本手册面向通过浏览器管理单节点 HTTP/HTTPS Nginx 的管理员。v1.1.0 不管理集群、Kubernetes、WAF、Nginx Plus、宿主机 Docker 或其他容器中的 Nginx，也不提供任意 Shell。
 
 部署、升级和权限由[管理员手册](administrator-guide.md)负责；发生数据损坏或状态无法确认时转到[故障恢复手册](failure-recovery-guide.md)。
+
+## 语言选择
+
+登录页和登录后的全局导航均可在简体中文（`zh-CN`）与英语（`en-US`）之间即时切换。有效的 URL 参数 `?lang=zh-CN` 或 `?lang=en-US` 优先级最高，并会在登录跳转和站内导航中保留；没有有效 URL 参数时依次使用已保存偏好、浏览器语言和 `en-US`。
+
+浏览器只在 `localStorage` 的 `nginx-uix.locale` 中保存非敏感语言偏好，Session 仍只保存在 `HttpOnly` Cookie。配置正文、路径、域名、ID、错误码和外部原始诊断不会被翻译。完整规则见[语言选择与本地化](language-and-localization.md)。
 
 ## 登录与 Dashboard
 

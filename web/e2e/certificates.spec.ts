@@ -5,7 +5,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import {
-  assertNoApplicationStorage,
+  assertOnlyLocalePreferenceStorage,
   assertNoAxeViolations,
   csrfToken,
   setAuthenticatedCookie,
@@ -60,7 +60,7 @@ test('Cloudflare Token uses the authenticated CSRF boundary and never persists i
     query: '',
   })
 
-  await assertNoApplicationStorage(page)
+  await assertOnlyLocalePreferenceStorage(page)
   await assertNoAxeViolations(page)
   certificateAPI.assertContract()
 })
@@ -132,7 +132,7 @@ test('wildcard issuance requires Cloudflare DNS-01, exact review, risk acknowled
     production_risk_confirmation: productionRiskPhrase,
   })
   expect(certificateTaskID).toHaveLength(32)
-  await assertNoApplicationStorage(page)
+  await assertOnlyLocalePreferenceStorage(page)
   certificateAPI.assertContract()
 })
 
@@ -194,7 +194,7 @@ test('certificate screens reflow without horizontal overflow at every documented
     await assertHeadingOrder(page)
   }
 
-  await assertNoApplicationStorage(page)
+  await assertOnlyLocalePreferenceStorage(page)
   await assertNoAxeViolations(page)
   certificateAPI.assertContract()
 })
@@ -214,7 +214,7 @@ test('certificate overview reflows at 200 and 400 percent browser-style content 
     await expect(page.getByRole('heading', { level: 1, name: 'Certificates' })).toBeVisible()
     await assertNoPageOverflow(page)
   }
-  await assertNoApplicationStorage(page)
+  await assertOnlyLocalePreferenceStorage(page)
   certificateAPI.assertContract()
 })
 

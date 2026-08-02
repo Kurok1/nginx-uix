@@ -6,7 +6,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import {
-  assertNoApplicationStorage,
+  assertOnlyLocalePreferenceStorage,
   assertNoAxeViolations,
   setAuthenticatedCookie,
 } from './support/api'
@@ -41,7 +41,11 @@ for (const width of viewports) {
     await overviewTab.press('ArrowRight')
     await expect(backupsTab).toBeFocused()
     await expect(backupsTab).toHaveAttribute('aria-selected', 'true')
-    await expect(page).toHaveURL(/\/config\/operations\?tab=backups$/)
+    await expect(page).toHaveURL((url) =>
+      url.pathname === '/config/operations' &&
+      url.searchParams.get('lang') === 'en-US' &&
+      url.searchParams.get('tab') === 'backups',
+    )
 
     const backupTable = page.locator('[data-backup-table]')
     const backupCards = page.locator('[data-backup-cards]')
@@ -56,7 +60,7 @@ for (const width of viewports) {
     await assertNoPageOverflow(page)
     await assertMinimumTargets(page)
     await assertHeadingOrder(page)
-    await assertNoApplicationStorage(page)
+    await assertOnlyLocalePreferenceStorage(page)
     await assertNoAxeViolations(page)
     api.assertContract()
   })

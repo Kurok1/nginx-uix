@@ -972,19 +972,20 @@ export async function setAuthenticatedCookie(context: BrowserContext): Promise<v
   ])
 }
 
-export async function assertNoApplicationStorage(page: Page): Promise<void> {
+export async function assertOnlyLocalePreferenceStorage(page: Page): Promise<void> {
   const storage = await page.evaluate(async () => ({
-    localStorage: Object.keys(localStorage),
+    localStorage: Object.fromEntries(Object.entries(localStorage)),
     sessionStorage: Object.keys(sessionStorage),
     cacheStorage: await caches.keys(),
     indexedDB: (await indexedDB.databases()).map((database) => database.name ?? ''),
   }))
-  expect(storage).toEqual({
-    localStorage: [],
+  expect(storage).toMatchObject({
     sessionStorage: [],
     cacheStorage: [],
     indexedDB: [],
   })
+  expect(Object.keys(storage.localStorage)).toEqual(['nginx-uix.locale'])
+  expect(['zh-CN', 'en-US']).toContain(storage.localStorage['nginx-uix.locale'])
 }
 
 export async function assertNoAxeViolations(page: Page): Promise<void> {

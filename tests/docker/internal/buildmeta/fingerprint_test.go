@@ -381,7 +381,8 @@ func TestV1GitHubActionsKeepsUnitSmokeAndMultiPlatformBuildGates(t *testing.T) {
 		"SMOKE_PROFILE=basic",
 		`MULTIARCH_OUTPUT_DIR="${RUNNER_TEMP}/nginx-uix-multiarch"`,
 		`"${REPOSITORY_ROOT}/tests/docker/multiarch.sh"`,
-		"name: nginx-uix-1.0.0-${{ github.sha }}",
+		"CANDIDATE_IMAGE: nginx-uix:1.1.0-ci-${{ github.run_id }}-${{ github.run_attempt }}",
+		"name: nginx-uix-1.1.0-${{ github.sha }}",
 		"path: ${{ runner.temp }}/nginx-uix-multiarch/",
 		"if-no-files-found: error",
 		"compression-level: 0",
@@ -457,8 +458,12 @@ func TestV1ReleaseWorkflowPublishesGitHubReleaseAndGHCR(t *testing.T) {
 		`"${IMAGE_REPOSITORY}:${VERSION}"`,
 		`"${IMAGE_REPOSITORY}:latest"`,
 		"SHA256SUMS",
+		`release_notes="docs/release/${GITHUB_REF_NAME}-release-notes.md"`,
+		`test -f "${release_notes}"`,
 		"gh release create",
+		"gh release edit",
 		"gh release upload",
+		`--notes-file "${release_notes}"`,
 	} {
 		if !strings.Contains(workflow, marker) {
 			t.Errorf("release.yml does not preserve release marker %q", marker)
@@ -473,6 +478,7 @@ func TestV1ReleaseWorkflowPublishesGitHubReleaseAndGHCR(t *testing.T) {
 		"grype",
 		"sbom",
 		"docker load --input",
+		"--generate-notes",
 	} {
 		if strings.Contains(strings.ToLower(workflow), strings.ToLower(unwanted)) {
 			t.Errorf("release.yml must not include extended validation marker %q", unwanted)
