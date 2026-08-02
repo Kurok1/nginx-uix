@@ -314,6 +314,7 @@ import { RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 
 import { apiClient, APIRequestError } from '../api/client'
+import { formatAPIRequestError } from '../api/error_message'
 import type {
   StructuredChangePreview,
   StructuredChangeResult,
@@ -800,38 +801,55 @@ function abbreviateETag(etag: string): string {
 
 function errorMessage(error: unknown, fallbackKey: string): string {
   const fallback = t(fallbackKey)
-  if (!(error instanceof APIRequestError) || error.kind !== 'api') return fallback
+  if (!(error instanceof APIRequestError)) return fallback
+  if (error.kind !== 'api') return formatAPIRequestError(error)
+  let message: string
   switch (error.apiError?.code) {
     case 'STRUCTURED_PREVIEW_STALE':
     case 'CONFIG_WORKSPACE_CONFLICT':
-      return t('structured.errors.revision')
+      message = t('structured.errors.revision')
+      break
     case 'STRUCTURED_LIMIT_EXCEEDED':
-      return t('structured.errors.limit')
+      message = t('structured.errors.limit')
+      break
     case 'STRUCTURED_PARSE_FAILED':
-      return t('structured.errors.parse')
+      message = t('structured.errors.parse')
+      break
     case 'STRUCTURED_CONTEXT_AMBIGUOUS':
-      return t('structured.errors.ambiguous')
+      message = t('structured.errors.ambiguous')
+      break
     case 'STRUCTURED_EDIT_CONFLICT':
-      return t('structured.errors.editConflict')
+      message = t('structured.errors.editConflict')
+      break
     case 'UPSTREAM_REFERENCED':
-      return t('structured.errors.referenced')
+      message = t('structured.errors.referenced')
+      break
     case 'UPSTREAM_REFERENCE_INCOMPLETE':
-      return t('structured.errors.referenceIncomplete')
+      message = t('structured.errors.referenceIncomplete')
+      break
     case 'UPSTREAM_DUPLICATE':
-      return t('structured.errors.duplicateUpstream')
+      message = t('structured.errors.duplicateUpstream')
+      break
     case 'LOCATION_DUPLICATE':
-      return t('structured.errors.duplicateLocation')
+      message = t('structured.errors.duplicateLocation')
+      break
     case 'UPSTREAM_INVALID':
     case 'LOCATION_INVALID':
     case 'PROXY_PASS_INVALID':
-      return t('structured.errors.invalid')
+      message = t('structured.errors.invalid')
+      break
     case 'CONFIG_WORKSPACE_STALE':
-      return t('structured.errors.stale')
+      message = t('structured.errors.stale')
+      break
     case 'CONFIG_WORKSPACE_NEEDS_ATTENTION':
-      return t('structured.errors.needsAttention')
+      message = t('structured.errors.needsAttention')
+      break
     default:
-      return fallback
+      return formatAPIRequestError(error)
   }
+  return error.requestID === undefined
+    ? message
+    : t('errors.withRequestId', { message, requestId: error.requestID })
 }
 
 function handleBeforeUnload(event: BeforeUnloadEvent): void {

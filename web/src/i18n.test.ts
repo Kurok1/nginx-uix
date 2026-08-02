@@ -185,4 +185,13 @@ describe('locale-aware formatters', () => {
     expect(chinese).toContain('2026')
     expect(english).not.toBe(chinese)
   })
+
+  it('selects natural English singular and plural duration messages', () => {
+    const english = createAppI18n('en-US').global
+
+    expect(english.t('auth.retryIn', { seconds: 1 }, 1)).toBe('Try again in 1 second')
+    expect(english.t('auth.retryIn', { seconds: 2 }, 2)).toBe('Try again in 2 seconds')
+    expect(english.t('operations.durationDays', { count: 1 }, 1)).toBe('1 day')
+    expect(english.t('operations.durationDays', { count: 2 }, 2)).toBe('2 days')
+  })
 })

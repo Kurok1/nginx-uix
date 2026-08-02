@@ -10,6 +10,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import type {
   AttentionCase,
+  AuditEvent,
   ConfigBackup,
   ConfigRestore,
   NginxRestart,
@@ -45,6 +46,18 @@ const attention: AttentionCase = {
   state: 'open',
   reason_code: 'runtime_unknown',
   opened_at: '2026-07-19T07:00:00Z',
+}
+
+const audit: AuditEvent = {
+  id: 1,
+  occurred_at: '2026-07-19T08:05:00Z',
+  actor_name: 'operator',
+  action: 'config.backup.protect',
+  object_type: 'config_backup',
+  object_id: backup.id,
+  result: 'succeeded',
+  request_id: 'request-audit',
+  details: { protected: true },
 }
 
 const runtime: SystemStatusResponse = {
@@ -135,7 +148,7 @@ function storeFixture(): OperationsStore {
     restoreCursor: '',
     restarts: [],
     restartCursor: '',
-    audit: [],
+    audit: [audit],
     auditCursor: '',
     retention: null,
     activeRestore: null,
@@ -257,6 +270,7 @@ describe('OperationsView', () => {
     await flushPromises()
     expect(router.currentRoute.value.query.tab).toBe('audit')
     expect(store.loadAudit).toHaveBeenCalled()
+    expect(wrapper.get('[data-audit-action]').text()).toBe('config.backup.protect')
     wrapper.unmount()
   })
 })

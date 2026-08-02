@@ -146,6 +146,7 @@ import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { apiClient, APIRequestError } from '../api/client'
+import { formatAPIRequestError } from '../api/error_message'
 import type { EffectiveConfigOccurrence, EffectiveConfigResponse } from '../api/types'
 import ConfigFileList from '../components/ConfigFileList.vue'
 import ReadOnlyCodeViewer from '../components/ReadOnlyCodeViewer.vue'
@@ -197,21 +198,30 @@ function selectOccurrence(id: string): void {
 }
 
 function initialErrorMessage(error: unknown): string {
-  if (!(error instanceof APIRequestError) || error.kind !== 'api') {
+  if (!(error instanceof APIRequestError)) {
     return t('effectiveConfig.unavailableError')
   }
+  if (error.kind !== 'api') return formatAPIRequestError(error)
+  let message: string
   switch (error.apiError?.code) {
     case 'NGINX_CONFIG_INVALID':
-      return t('effectiveConfig.invalidError')
+      message = t('effectiveConfig.invalidError')
+      break
     case 'NGINX_COMMAND_TIMEOUT':
-      return t('effectiveConfig.timeoutError')
+      message = t('effectiveConfig.timeoutError')
+      break
     case 'NGINX_OUTPUT_TOO_LARGE':
-      return t('effectiveConfig.tooLargeError')
+      message = t('effectiveConfig.tooLargeError')
+      break
     case 'AGENT_UNAVAILABLE':
-      return t('effectiveConfig.agentUnavailableError')
+      message = t('effectiveConfig.agentUnavailableError')
+      break
     default:
-      return t('effectiveConfig.unavailableError')
+      return formatAPIRequestError(error)
   }
+  return error.requestID === undefined
+    ? message
+    : t('errors.withRequestId', { message, requestId: error.requestID })
 }
 
 async function refresh(origin: RefreshOrigin): Promise<void> {

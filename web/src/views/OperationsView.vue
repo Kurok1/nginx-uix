@@ -441,7 +441,9 @@
             >
               <td><time :datetime="event.occurred_at">{{ formatTime(event.occurred_at) }}</time></td>
               <td>{{ event.actor_name }}</td>
-              <td>{{ actionLabel(event.action) }}</td>
+              <td data-audit-action>
+                {{ actionLabel(event.action) }}
+              </td>
               <td>{{ enumLabel(event.object_type) }} <code>{{ abbreviate(event.object_id) }}</code></td>
               <td>{{ enumLabel(event.result) }}</td>
               <td>
@@ -933,7 +935,7 @@ function subjectLabel(value: AttentionCase['subject_type']): string {
 }
 
 function actionLabel(value: string): string {
-  return value.split('.').map(enumLabel).join(' · ')
+  return value
 }
 
 function enumLabel(value: string): string {
@@ -1025,9 +1027,15 @@ function formatBytes(value: number): string {
 }
 
 function formatDuration(seconds: number): string {
-  if (seconds % 86400 === 0) return t('operations.durationDays', { count: n(seconds / 86400, 'decimal') })
-  if (seconds % 3600 === 0) return t('operations.durationHours', { count: n(seconds / 3600, 'decimal') })
-  return t('operations.durationSeconds', { count: n(seconds, 'decimal') })
+  if (seconds % 86400 === 0) {
+    const days = seconds / 86400
+    return t('operations.durationDays', { count: n(days, 'decimal') }, days)
+  }
+  if (seconds % 3600 === 0) {
+    const hours = seconds / 3600
+    return t('operations.durationHours', { count: n(hours, 'decimal') }, hours)
+  }
+  return t('operations.durationSeconds', { count: n(seconds, 'decimal') }, seconds)
 }
 
 function safeDetails(details: Readonly<Record<string, string | number | boolean>>): string {

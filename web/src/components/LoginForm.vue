@@ -8,6 +8,7 @@ import { useI18n } from 'vue-i18n'
 import { routerKey } from 'vue-router'
 
 import { APIRequestError } from '../api/client'
+import { formatAPIRequestError } from '../api/error_message'
 import { sessionStore, type SessionStore } from '../session'
 import FormField from './FormField.vue'
 
@@ -75,20 +76,18 @@ async function handleSubmit(): Promise<void> {
   } catch (error: unknown) {
     if (error instanceof APIRequestError && error.apiError?.code === 'invalid_credentials') {
       credentialsInvalid.value = true
-      errorMessage.value = t('errors.api.invalidCredentials')
-      return
     }
     if (
       error instanceof APIRequestError &&
       error.apiError?.code === 'rate_limited' &&
       error.retryAfterSeconds !== undefined
     ) {
-      errorMessage.value = t('auth.tooManyAttempts')
+      errorMessage.value = formatAPIRequestError(error)
       startRetryTimer(error.retryAfterSeconds)
       return
     }
     if (error instanceof APIRequestError) {
-      errorMessage.value = t('auth.unavailable')
+      errorMessage.value = formatAPIRequestError(error)
       return
     }
     throw error
@@ -162,7 +161,7 @@ async function handleSubmit(): Promise<void> {
       class="login-form__retry-status"
       aria-live="off"
     >
-      {{ t('auth.retryAvailableIn', { seconds: retryAfterSeconds }) }}
+      {{ t('auth.retryAvailableIn', { seconds: retryAfterSeconds }, retryAfterSeconds) }}
     </p>
     <button
       type="submit"
@@ -171,7 +170,7 @@ async function handleSubmit(): Promise<void> {
       {{ submitting
         ? t('auth.signingIn')
         : retryAfterSeconds > 0
-          ? t('auth.retryIn', { seconds: retryAfterSeconds })
+          ? t('auth.retryIn', { seconds: retryAfterSeconds }, retryAfterSeconds)
           : t('auth.signIn') }}
     </button>
   </form>

@@ -105,7 +105,7 @@ test('generic login failure is announced without moving password focus', async (
     session: anonymousSession,
     login: {
       status: 503,
-      body: apiError('SERVICE_UNAVAILABLE', 'Authentication service unavailable'),
+      body: apiError('service_unavailable', 'Authentication service unavailable'),
     },
   })
 
@@ -114,7 +114,9 @@ test('generic login failure is announced without moving password focus', async (
   await page.getByLabel('密码').fill('wrong-password')
   await page.getByLabel('密码').press('Enter')
 
-  await expect(page.getByText('登录服务暂时不可用，请稍后重试。')).toBeVisible()
+  await expect(
+    page.getByText('服务暂时不可用，请稍后重试。请求 ID：request-e2e。'),
+  ).toBeVisible()
   await expect(page.getByLabel('密码')).toBeFocused()
   await expect(page.locator('#login-error')).toHaveAttribute('aria-live', 'polite')
   await assertNoAxeViolations(page)
@@ -136,7 +138,9 @@ test('rate-limited login exposes and completes the Retry-After countdown', async
   await page.getByLabel('密码').fill('wrong-password')
   await page.getByRole('button', { name: '登录' }).click()
 
-  await expect(page.getByText('登录尝试过于频繁，请稍后重试。')).toBeVisible()
+  await expect(
+    page.getByText('请求过于频繁，请稍后重试。请求 ID：request-e2e。'),
+  ).toBeVisible()
   await expect(page.getByText('2 秒后可重试。')).toBeVisible()
   await expect(page.getByRole('button', { name: '2 秒后重试' })).toBeDisabled()
   await expect(page.getByLabel('用户名')).toHaveAttribute(

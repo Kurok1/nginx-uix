@@ -39,8 +39,6 @@ export const zhCN = {
     signingIn: '正在登录…',
     retryIn: '{seconds} 秒后重试',
     retryAvailableIn: '{seconds} 秒后可重试。',
-    tooManyAttempts: '登录尝试过于频繁，请稍后重试。',
-    unavailable: '登录服务暂时不可用，请稍后重试。',
   },
   recoveryDraft: {
     title: '未保存的工作区变更',

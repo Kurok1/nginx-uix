@@ -251,6 +251,7 @@ describe('EffectiveConfigView', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain(expected)
+    expect(wrapper.text()).toContain(`请求 ID：request-${code.toLowerCase()}。`)
     expect(wrapper.text()).not.toContain('private upstream')
     expect(wrapper.text()).not.toContain('旧数据')
     expect(wrapper.find('code').exists()).toBe(false)
