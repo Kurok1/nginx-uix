@@ -10,24 +10,24 @@
     <header class="operations-view__header">
       <div>
         <p class="operations-view__eyebrow">
-          Configuration control
+          {{ t('operations.eyebrow') }}
         </p>
-        <h1>Recovery &amp; History</h1>
-        <p>Review durable evidence, recover from verified backups, and run the fixed Nginx restart.</p>
+        <h1>{{ t('operations.title') }}</h1>
+        <p>{{ t('operations.description') }}</p>
       </div>
       <button
         type="button"
         :disabled="state.pending !== ''"
         @click="refreshAll"
       >
-        {{ state.pending === 'overview' ? 'Refreshing…' : 'Refresh evidence' }}
+        {{ state.pending === 'overview' ? t('operations.refreshing') : t('operations.refresh') }}
       </button>
     </header>
 
     <InlineBanner
       v-if="state.error !== ''"
       kind="agent"
-      :message="state.error"
+      :message="operationsErrorMessage"
     />
 
     <OperationsTabs
@@ -42,20 +42,20 @@
       <header>
         <div>
           <h2 id="attention-title">
-            Open attention cases
+            {{ t('operations.attention.title') }}
           </h2>
-          <p>Production mutations remain blocked until current evidence proves a safe resolution.</p>
+          <p>{{ t('operations.attention.description') }}</p>
         </div>
         <StatusBadge
           :tone="state.attention.length === 0 ? 'success' : 'error'"
-          :label="state.attention.length === 0 ? 'No open cases' : `${state.attention.length} open`"
+          :label="state.attention.length === 0 ? t('operations.attention.noCases') : t('operations.attention.openCount', { count: state.attention.length })"
         />
       </header>
       <p v-if="state.phase === 'loading' && state.attention.length === 0">
-        Loading attention evidence…
+        {{ t('operations.attention.loading') }}
       </p>
       <p v-else-if="state.attention.length === 0">
-        No unresolved production or runtime state is recorded.
+        {{ t('operations.attention.empty') }}
       </p>
       <article
         v-for="(attentionCase, index) in state.attention"
@@ -69,20 +69,20 @@
           <div>
             <StatusBadge
               tone="error"
-              label="Needs attention"
+              :label="t('operations.attention.needsAttention')"
             />
             <h3 :id="`attention-title-${attentionCase.id}`">
-              {{ subjectLabel(attentionCase.subject_type) }} consistency cannot be confirmed
+              {{ t('operations.attention.consistency', { subject: subjectLabel(attentionCase.subject_type) }) }}
             </h3>
           </div>
-          <time :datetime="attentionCase.opened_at">Opened {{ formatTime(attentionCase.opened_at) }}</time>
+          <time :datetime="attentionCase.opened_at">{{ t('operations.attention.opened', { time: formatTime(attentionCase.opened_at) }) }}</time>
         </header>
         <dl>
-          <div><dt>Case</dt><dd><code>{{ abbreviate(attentionCase.id) }}</code></dd></div>
-          <div><dt>Subject</dt><dd><code>{{ abbreviate(attentionCase.subject_id) }}</code></dd></div>
-          <div><dt>Safe reason</dt><dd>{{ enumLabel(attentionCase.reason_code) }}</dd></div>
+          <div><dt>{{ t('operations.attention.case') }}</dt><dd><code>{{ abbreviate(attentionCase.id) }}</code></dd></div>
+          <div><dt>{{ t('operations.attention.subject') }}</dt><dd><code>{{ abbreviate(attentionCase.subject_id) }}</code></dd></div>
+          <div><dt>{{ t('operations.attention.safeReason') }}</dt><dd>{{ enumLabel(attentionCase.reason_code) }}</dd></div>
           <div v-if="attentionCase.backup_id !== undefined">
-            <dt>Recovery point</dt><dd><code>{{ abbreviate(attentionCase.backup_id) }}</code></dd>
+            <dt>{{ t('operations.attention.recoveryPoint') }}</dt><dd><code>{{ abbreviate(attentionCase.backup_id) }}</code></dd>
           </div>
         </dl>
         <div class="operations-view__actions">
@@ -92,7 +92,7 @@
             :disabled="state.pending !== ''"
             @click="verifyAttention(attentionCase.id)"
           >
-            Verify current state
+            {{ t('operations.attention.verify') }}
           </button>
           <button
             type="button"
@@ -100,7 +100,7 @@
             :disabled="!restartAvailable"
             @click="openRestart(attentionCase.id)"
           >
-            Restart Nginx for this case
+            {{ t('operations.attention.restart') }}
           </button>
           <button
             v-if="attentionBackup(attentionCase) !== null"
@@ -109,11 +109,11 @@
             :disabled="state.pending !== ''"
             @click="openAttentionRestore(attentionCase)"
           >
-            Restore referenced backup
+            {{ t('operations.attention.restore') }}
           </button>
         </div>
         <p v-if="attentionCase.backup_id !== undefined && attentionBackup(attentionCase) === null">
-          The referenced backup is not present in the currently loaded evidence page.
+          {{ t('operations.attention.missingBackup') }}
         </p>
       </article>
     </section>
@@ -126,9 +126,9 @@
       <header>
         <div>
           <h2 id="runtime-control-title">
-            Runtime control
+            {{ t('operations.runtime.title') }}
           </h2>
-          <p>Fixed Agent operations only; command, PID, signal, path, and timeout input are unavailable.</p>
+          <p>{{ t('operations.runtime.description') }}</p>
         </div>
         <StatusBadge
           :tone="runtimeTone"
@@ -137,27 +137,27 @@
       </header>
       <dl class="operations-view__runtime-grid">
         <div>
-          <dt>Sampled</dt>
-          <dd>{{ state.runtime === null ? 'Unavailable' : formatTime(state.runtime.sampled_at) }}</dd>
+          <dt>{{ t('operations.runtime.sampled') }}</dt>
+          <dd>{{ state.runtime === null ? t('operations.runtime.unavailable') : formatTime(state.runtime.sampled_at) }}</dd>
         </div>
         <div>
-          <dt>Production validation</dt>
+          <dt>{{ t('operations.runtime.productionValidation') }}</dt>
           <dd>{{ validationLabel }}</dd>
         </div>
         <div>
-          <dt>Master</dt>
-          <dd>{{ state.runtime?.master === null || state.runtime === null ? 'Not observed' : `PID ${state.runtime.master.pid}` }}</dd>
+          <dt>{{ t('operations.runtime.master') }}</dt>
+          <dd>{{ state.runtime?.master === null || state.runtime === null ? t('operations.runtime.notObserved') : `PID ${state.runtime.master.pid}` }}</dd>
         </div>
         <div>
-          <dt>Workers</dt>
+          <dt>{{ t('operations.runtime.workers') }}</dt>
           <dd>{{ state.runtime?.workers.length ?? 0 }}</dd>
         </div>
         <div>
-          <dt>Agent</dt>
-          <dd>{{ state.runtime?.components.agent === 'healthy' ? 'Available' : 'Unavailable' }}</dd>
+          <dt>{{ t('operations.runtime.agent') }}</dt>
+          <dd>{{ state.runtime?.components.agent === 'healthy' ? t('operations.runtime.available') : t('operations.runtime.unavailable') }}</dd>
         </div>
         <div>
-          <dt>Latest restart</dt>
+          <dt>{{ t('operations.runtime.latestRestart') }}</dt>
           <dd>{{ latestRestartLabel }}</dd>
         </div>
       </dl>
@@ -168,7 +168,7 @@
           :disabled="!restartAvailable"
           @click="openRestart()"
         >
-          Restart Nginx
+          {{ t('operations.runtime.restart') }}
         </button>
         <span v-if="!restartAvailable">{{ restartUnavailableReason }}</span>
       </div>
@@ -176,19 +176,19 @@
 
     <section
       class="operations-view__summary"
-      aria-label="Backup evidence summary"
+      :aria-label="t('operations.summary.label')"
     >
       <article>
         <strong>{{ state.backups.length }}</strong>
-        <span>Indexed backups shown</span>
+        <span>{{ t('operations.summary.indexed') }}</span>
       </article>
       <article>
         <strong>{{ completeBackupCount }}</strong>
-        <span>Complete recovery points</span>
+        <span>{{ t('operations.summary.complete') }}</span>
       </article>
       <article>
         <strong>{{ protectedBackupCount }}</strong>
-        <span>Protected recovery points</span>
+        <span>{{ t('operations.summary.protected') }}</span>
       </article>
     </section>
 
@@ -201,12 +201,12 @@
       class="operations-view__panel"
     >
       <header>
-        <h2>Current operation</h2>
-        <p>Progress is rebuilt from durable task resources; leaving this page does not cancel a task.</p>
+        <h2>{{ t('operations.overview.title') }}</h2>
+        <p>{{ t('operations.overview.description') }}</p>
       </header>
       <OperationTimeline
         v-if="state.activeRestore !== null"
-        title="Restore progress"
+        :title="t('operations.overview.restoreProgress')"
         :operation-id="state.activeRestore.id"
         :state="state.activeRestore.state"
         :stage="state.activeRestore.stage"
@@ -215,7 +215,7 @@
       />
       <OperationTimeline
         v-else-if="state.activeRestart !== null"
-        title="Restart progress"
+        :title="t('operations.overview.restartProgress')"
         :operation-id="state.activeRestart.id"
         :state="state.activeRestart.state"
         :stage="state.activeRestart.stage"
@@ -223,7 +223,7 @@
         :stream-state="state.stream"
       />
       <p v-else>
-        No restore or restart task is currently tracked in this browser session.
+        {{ t('operations.overview.empty') }}
       </p>
       <section
         v-if="state.verification !== null"
@@ -232,10 +232,10 @@
         aria-labelledby="verification-title"
       >
         <h3 id="verification-title">
-          Latest fixed verification
+          {{ t('operations.overview.verificationTitle') }}
         </h3>
-        <p>{{ state.verification.state === 'succeeded' ? 'Production configuration and runtime health were confirmed.' : 'Current evidence did not resolve the attention case.' }}</p>
-        <p>Verification ID: <code>{{ state.verification.id }}</code></p>
+        <p>{{ state.verification.state === 'succeeded' ? t('operations.overview.verificationSucceeded') : t('operations.overview.verificationFailed') }}</p>
+        <p>{{ t('operations.overview.verificationId') }} <code>{{ state.verification.id }}</code></p>
       </section>
     </section>
 
@@ -264,9 +264,9 @@
         <header>
           <div>
             <h2 id="retention-title">
-              Backup retention
+              {{ t('operations.retention.title') }}
             </h2>
-            <p>Dry-run first. Protected, active, and minimum recovery points are never selected for deletion.</p>
+            <p>{{ t('operations.retention.description') }}</p>
           </div>
           <StatusBadge
             v-if="state.retention !== null"
@@ -281,7 +281,7 @@
             :disabled="state.pending !== ''"
             @click="planRetention"
           >
-            {{ state.retention === null ? 'Create retention dry-run' : 'Create fresh dry-run' }}
+            {{ state.retention === null ? t('operations.retention.create') : t('operations.retention.createFresh') }}
           </button>
           <button
             v-if="state.retention?.state === 'planned'"
@@ -290,22 +290,22 @@
             :disabled="state.pending !== ''"
             @click="openRetentionExecution"
           >
-            Execute this exact plan
+            {{ t('operations.retention.execute') }}
           </button>
         </div>
         <template v-if="state.retention !== null">
           <dl class="operations-view__retention-grid">
-            <div><dt>Run ID</dt><dd><code>{{ state.retention.id }}</code></dd></div>
-            <div><dt>Expires</dt><dd>{{ formatTime(state.retention.expires_at) }}</dd></div>
-            <div><dt>Minimum complete</dt><dd>{{ state.retention.policy.minimum_complete }}</dd></div>
-            <div><dt>Maximum complete</dt><dd>{{ state.retention.policy.maximum_complete }}</dd></div>
-            <div><dt>Maximum bytes</dt><dd>{{ formatBytes(state.retention.policy.maximum_total_bytes) }}</dd></div>
-            <div><dt>Minimum age</dt><dd>{{ formatDuration(state.retention.policy.minimum_age_seconds) }}</dd></div>
-            <div><dt>Protected</dt><dd>{{ state.retention.protected_count }}</dd></div>
-            <div><dt>Planned deletion</dt><dd>{{ state.retention.delete_count }} / {{ formatBytes(state.retention.delete_bytes) }}</dd></div>
+            <div><dt>{{ t('operations.retention.runId') }}</dt><dd><code>{{ state.retention.id }}</code></dd></div>
+            <div><dt>{{ t('operations.retention.expires') }}</dt><dd>{{ formatTime(state.retention.expires_at) }}</dd></div>
+            <div><dt>{{ t('operations.retention.minimumComplete') }}</dt><dd>{{ n(state.retention.policy.minimum_complete, 'decimal') }}</dd></div>
+            <div><dt>{{ t('operations.retention.maximumComplete') }}</dt><dd>{{ n(state.retention.policy.maximum_complete, 'decimal') }}</dd></div>
+            <div><dt>{{ t('operations.retention.maximumBytes') }}</dt><dd>{{ formatBytes(state.retention.policy.maximum_total_bytes) }}</dd></div>
+            <div><dt>{{ t('operations.retention.minimumAge') }}</dt><dd>{{ formatDuration(state.retention.policy.minimum_age_seconds) }}</dd></div>
+            <div><dt>{{ t('operations.retention.protected') }}</dt><dd>{{ n(state.retention.protected_count, 'decimal') }}</dd></div>
+            <div><dt>{{ t('operations.retention.plannedDeletion') }}</dt><dd>{{ n(state.retention.delete_count, 'decimal') }} / {{ formatBytes(state.retention.delete_bytes) }}</dd></div>
           </dl>
           <p class="operations-view__dry-run">
-            {{ state.retention.state === 'planned' ? 'Dry-run only: no backup has been deleted.' : `Persisted result: ${enumLabel(state.retention.state)}.` }}
+            {{ state.retention.state === 'planned' ? t('operations.retention.dryRun') : t('operations.retention.persisted', { result: enumLabel(state.retention.state) }) }}
           </p>
           <ol class="operations-view__retention-items">
             <li
@@ -319,7 +319,7 @@
           </ol>
         </template>
         <p v-else>
-          No retention plan is loaded. Creating a dry-run cannot delete backup content.
+          {{ t('operations.retention.noPlan') }}
         </p>
       </section>
     </section>
@@ -333,8 +333,8 @@
       class="operations-view__panel"
     >
       <header>
-        <h2>Configuration history</h2>
-        <p>Each group preserves the server-provided newest-first order; independently paged resources are not browser-time merged.</p>
+        <h2>{{ t('operations.history.title') }}</h2>
+        <p>{{ t('operations.history.description') }}</p>
       </header>
       <section
         v-for="group in historyGroups"
@@ -346,7 +346,7 @@
           {{ group.label }}
         </h3>
         <p v-if="group.items.length === 0">
-          No {{ group.label.toLowerCase() }} are recorded on this page.
+          {{ t('operations.history.empty', { group: group.label.toLocaleLowerCase(locale) }) }}
         </p>
         <article
           v-for="item in group.items"
@@ -364,9 +364,9 @@
             />
           </header>
           <details>
-            <summary>Review persisted stage evidence</summary>
+            <summary>{{ t('operations.history.reviewEvidence') }}</summary>
             <OperationTimeline
-              :title="`${group.singular} evidence`"
+              :title="t('operations.history.evidence', { kind: group.singular })"
               :operation-id="item.id"
               :state="item.state"
               :stage="item.stage"
@@ -381,7 +381,7 @@
         :disabled="state.pending !== ''"
         @click="loadMoreHistory"
       >
-        {{ state.pending === 'history' ? 'Loading…' : 'Load more history' }}
+        {{ state.pending === 'history' ? t('common.loading') : t('operations.history.loadMore') }}
       </button>
     </section>
 
@@ -394,43 +394,43 @@
       class="operations-view__panel"
     >
       <header>
-        <h2>Audit evidence</h2>
-        <p>Only bounded, server-whitelisted details are rendered; configuration content and raw output are unavailable.</p>
+        <h2>{{ t('operations.audit.title') }}</h2>
+        <p>{{ t('operations.audit.description') }}</p>
       </header>
       <p v-if="state.pending === 'audit' && state.audit.length === 0">
-        Loading audit evidence…
+        {{ t('operations.audit.loading') }}
       </p>
       <p v-else-if="state.audit.length === 0">
-        No audit events are available on this page.
+        {{ t('operations.audit.empty') }}
       </p>
       <div
         v-else
         class="operations-view__audit-table"
       >
         <table>
-          <caption>Bounded configuration recovery and runtime audit events</caption>
+          <caption>{{ t('operations.audit.caption') }}</caption>
           <thead>
             <tr>
               <th scope="col">
-                Time
+                {{ t('operations.audit.time') }}
               </th>
               <th scope="col">
-                Actor
+                {{ t('operations.audit.actor') }}
               </th>
               <th scope="col">
-                Action
+                {{ t('operations.audit.action') }}
               </th>
               <th scope="col">
-                Object
+                {{ t('operations.audit.object') }}
               </th>
               <th scope="col">
-                Result
+                {{ t('operations.audit.result') }}
               </th>
               <th scope="col">
-                Request
+                {{ t('operations.audit.request') }}
               </th>
               <th scope="col">
-                Safe details
+                {{ t('operations.audit.safeDetails') }}
               </th>
             </tr>
           </thead>
@@ -448,10 +448,10 @@
                 <code>{{ abbreviate(event.request_id) }}</code>
                 <button
                   type="button"
-                  :aria-label="`Copy request ID ${event.request_id}`"
+                  :aria-label="t('operations.audit.copyRequestAria', { id: event.request_id })"
                   @click="copyRequestID(event.request_id)"
                 >
-                  Copy
+                  {{ t('common.copy') }}
                 </button>
               </td>
               <td><span class="operations-view__safe-details">{{ safeDetails(event.details) }}</span></td>
@@ -472,17 +472,17 @@
             <span>{{ enumLabel(event.result) }}</span>
           </header>
           <dl>
-            <div><dt>Time</dt><dd>{{ formatTime(event.occurred_at) }}</dd></div>
-            <div><dt>Actor</dt><dd>{{ event.actor_name }}</dd></div>
-            <div><dt>Object</dt><dd>{{ enumLabel(event.object_type) }} <code>{{ abbreviate(event.object_id) }}</code></dd></div>
-            <div><dt>Request</dt><dd><code>{{ event.request_id }}</code></dd></div>
-            <div><dt>Safe details</dt><dd>{{ safeDetails(event.details) }}</dd></div>
+            <div><dt>{{ t('operations.audit.time') }}</dt><dd>{{ formatTime(event.occurred_at) }}</dd></div>
+            <div><dt>{{ t('operations.audit.actor') }}</dt><dd>{{ event.actor_name }}</dd></div>
+            <div><dt>{{ t('operations.audit.object') }}</dt><dd>{{ enumLabel(event.object_type) }} <code>{{ abbreviate(event.object_id) }}</code></dd></div>
+            <div><dt>{{ t('operations.audit.request') }}</dt><dd><code>{{ event.request_id }}</code></dd></div>
+            <div><dt>{{ t('operations.audit.safeDetails') }}</dt><dd>{{ safeDetails(event.details) }}</dd></div>
           </dl>
           <button
             type="button"
             @click="copyRequestID(event.request_id)"
           >
-            Copy request ID
+            {{ t('operations.audit.copyRequest') }}
           </button>
         </article>
       </div>
@@ -492,7 +492,7 @@
         :disabled="state.pending !== ''"
         @click="loadMoreAudit"
       >
-        {{ state.pending === 'audit' ? 'Loading…' : 'Load more audit events' }}
+        {{ state.pending === 'audit' ? t('common.loading') : t('operations.audit.loadMore') }}
       </button>
       <p
         v-if="copyMessage !== ''"
@@ -517,22 +517,22 @@
     >
       <dl class="operations-view__modal-evidence">
         <template v-if="selectedBackup !== null">
-          <div><dt>Backup ID</dt><dd><code>{{ selectedBackup.id }}</code></dd></div>
-          <div><dt>Source</dt><dd>{{ sourceLabel(selectedBackup) }}</dd></div>
-          <div><dt>Verified</dt><dd>{{ selectedBackup.verified_at === undefined ? 'Not verified' : formatTime(selectedBackup.verified_at) }}</dd></div>
-          <div><dt>Production identity</dt><dd><code>{{ abbreviate(selectedBackup.production_digest) }}</code></dd></div>
-          <div><dt>Size</dt><dd>{{ formatBytes(selectedBackup.total_bytes) }}</dd></div>
+          <div><dt>{{ t('operations.modal.backupId') }}</dt><dd><code>{{ selectedBackup.id }}</code></dd></div>
+          <div><dt>{{ t('operations.modal.source') }}</dt><dd>{{ sourceLabel(selectedBackup) }}</dd></div>
+          <div><dt>{{ t('operations.modal.verified') }}</dt><dd>{{ selectedBackup.verified_at === undefined ? t('operations.modal.notVerified') : formatTime(selectedBackup.verified_at) }}</dd></div>
+          <div><dt>{{ t('operations.modal.productionIdentity') }}</dt><dd><code>{{ abbreviate(selectedBackup.production_digest) }}</code></dd></div>
+          <div><dt>{{ t('operations.modal.size') }}</dt><dd>{{ formatBytes(selectedBackup.total_bytes) }}</dd></div>
         </template>
         <template v-else-if="modalKind === 'restart'">
-          <div><dt>Operation</dt><dd>Fixed Agent restart</dd></div>
-          <div><dt>Files</dt><dd>Production configuration is not modified</dd></div>
-          <div><dt>Health proof</dt><dd>New master, workers, validation, and loopback HTTP</dd></div>
+          <div><dt>{{ t('operations.modal.operation') }}</dt><dd>{{ t('operations.modal.fixedRestart') }}</dd></div>
+          <div><dt>{{ t('operations.modal.files') }}</dt><dd>{{ t('operations.modal.filesUnchanged') }}</dd></div>
+          <div><dt>{{ t('operations.modal.healthProof') }}</dt><dd>{{ t('operations.modal.healthProofValue') }}</dd></div>
         </template>
         <template v-else-if="modalKind === 'retention' && state.retention !== null">
-          <div><dt>Run ID</dt><dd><code>{{ state.retention.id }}</code></dd></div>
-          <div><dt>Deletion candidates</dt><dd>{{ state.retention.delete_count }}</dd></div>
-          <div><dt>Planned bytes</dt><dd>{{ formatBytes(state.retention.delete_bytes) }}</dd></div>
-          <div><dt>Expires</dt><dd>{{ formatTime(state.retention.expires_at) }}</dd></div>
+          <div><dt>{{ t('operations.retention.runId') }}</dt><dd><code>{{ state.retention.id }}</code></dd></div>
+          <div><dt>{{ t('operations.modal.deletionCandidates') }}</dt><dd>{{ n(state.retention.delete_count, 'decimal') }}</dd></div>
+          <div><dt>{{ t('operations.modal.plannedBytes') }}</dt><dd>{{ formatBytes(state.retention.delete_bytes) }}</dd></div>
+          <div><dt>{{ t('operations.retention.expires') }}</dt><dd>{{ formatTime(state.retention.expires_at) }}</dd></div>
         </template>
       </dl>
     </OperationConfirmModal>
@@ -541,6 +541,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
 import type {
@@ -559,6 +560,8 @@ import OperationsTabs, { type OperationsTab } from '../components/OperationsTabs
 import StatusBadge, { type StatusTone } from '../components/StatusBadge.vue'
 import { operationsStore, type OperationsStore } from '../operations'
 
+const { d, locale, n, t } = useI18n()
+
 interface Props {
   store?: OperationsStore
 }
@@ -576,7 +579,7 @@ const modalTrigger = ref<HTMLElement | null>(null)
 const modalSubmitting = ref(false)
 const selectedBackup = ref<ConfigBackup | null>(null)
 const selectedAttentionID = ref<string | undefined>()
-const copyMessage = ref('')
+const copyResult = ref<'' | 'copied' | 'failed'>('')
 const validTabs = new Set<OperationsTab>(['overview', 'backups', 'history', 'audit'])
 
 const activeTab = computed<OperationsTab>(() => {
@@ -593,6 +596,29 @@ const completeBackupCount = computed(() =>
 const protectedBackupCount = computed(() =>
   state.backups.filter(({ protected: protectedValue }) => protectedValue).length,
 )
+const copyMessage = computed(() => {
+  if (copyResult.value === 'copied') return t('operations.audit.copied')
+  if (copyResult.value === 'failed') return t('operations.audit.copyFailed')
+  return ''
+})
+const operationsErrorMessage = computed(() => {
+  const labels: Record<string, string> = {
+    session_expired: t('operations.errors.sessionExpired'),
+    overview_failed: t('operations.errors.overview'),
+    backups_failed: t('operations.errors.backups'),
+    history_failed: t('operations.errors.history'),
+    audit_failed: t('operations.errors.audit'),
+    restore_failed: t('operations.errors.restore'),
+    restart_failed: t('operations.errors.restart'),
+    protection_failed: t('operations.errors.protection'),
+    retention_plan_failed: t('operations.errors.retentionPlan'),
+    retention_execute_failed: t('operations.errors.retentionExecute'),
+    verification_failed: t('operations.errors.verification'),
+    progress_failed: t('operations.errors.progress'),
+    retention_progress_failed: t('operations.errors.retentionProgress'),
+  }
+  return labels[state.error] ?? state.error
+})
 const runtimeTone = computed<StatusTone>(() => {
   switch (state.runtime?.components.nginx) {
     case 'running': return 'success'
@@ -602,26 +628,30 @@ const runtimeTone = computed<StatusTone>(() => {
   }
 })
 const runtimeLabel = computed(() =>
-  `Nginx ${state.runtime?.components.nginx ?? 'unknown'}`,
+  t('operations.runtime.label', {
+    state: runtimeStateLabel(state.runtime?.components.nginx ?? 'unknown'),
+  }),
 )
 const validationLabel = computed(() => {
   const validation = state.runtime?.startup_validation
-  if (validation === null || validation === undefined) return 'No evidence'
-  return `${validation.valid ? 'Valid' : 'Invalid'} at ${formatTime(validation.checked_at)}`
+  if (validation === null || validation === undefined) return t('operations.runtime.noEvidence')
+  return t(validation.valid ? 'operations.runtime.validAt' : 'operations.runtime.invalidAt', {
+    time: formatTime(validation.checked_at),
+  })
 })
 const latestRestartLabel = computed(() => {
   const latest = state.restarts[0]
   return latest === undefined
-    ? 'No restart history loaded'
+    ? t('operations.runtime.noRestart')
     : `${enumLabel(latest.state)} · ${formatTime(latest.updated_at)}`
 })
 const restartAvailable = computed(() =>
   state.runtime?.components.agent === 'healthy' && state.pending === '',
 )
 const restartUnavailableReason = computed(() => {
-  if (state.runtime === null) return 'Runtime evidence is unavailable.'
-  if (state.runtime.components.agent !== 'healthy') return 'Configuration Agent evidence is unavailable.'
-  return 'Another request is pending.'
+  if (state.runtime === null) return t('operations.runtime.evidenceUnavailable')
+  if (state.runtime.components.agent !== 'healthy') return t('operations.runtime.agentUnavailable')
+  return t('operations.runtime.requestPending')
 })
 const retentionTone = computed<StatusTone>(() => {
   switch (state.retention?.state) {
@@ -642,32 +672,27 @@ const historyGroups = computed<Array<{
   singular: string
   items: HistoryItem[]
 }>>(() => [
-  { kind: 'release', label: 'Releases', singular: 'Release', items: state.releases },
-  { kind: 'restore', label: 'Restores', singular: 'Restore', items: state.restores },
-  { kind: 'restart', label: 'Restarts', singular: 'Restart', items: state.restarts },
+  { kind: 'release', label: t('operations.history.releases'), singular: t('operations.history.release'), items: state.releases },
+  { kind: 'restore', label: t('operations.history.restores'), singular: t('operations.history.restore'), items: state.restores },
+  { kind: 'restart', label: t('operations.history.restarts'), singular: t('operations.history.restart'), items: state.restarts },
 ])
 const modalTitle = computed(() => {
   switch (modalKind.value) {
-    case 'restart': return 'Restart Nginx?'
-    case 'restore': return `Restore backup “${selectedBackup.value?.id ?? ''}”?`
-    case 'protect': return `Protect backup “${selectedBackup.value?.id ?? ''}”?`
-    case 'unprotect': return `Remove manual protection from “${selectedBackup.value?.id ?? ''}”?`
-    case 'retention': return `Execute retention plan “${state.retention?.id ?? ''}”?`
-    default: return 'Confirm operation'
+    case 'restart': return t('operations.modal.restartTitle')
+    case 'restore': return t('operations.modal.restoreTitle', { id: selectedBackup.value?.id ?? '' })
+    case 'protect': return t('operations.modal.protectTitle', { id: selectedBackup.value?.id ?? '' })
+    case 'unprotect': return t('operations.modal.unprotectTitle', { id: selectedBackup.value?.id ?? '' })
+    case 'retention': return t('operations.modal.retentionTitle', { id: state.retention?.id ?? '' })
+    default: return t('operations.modal.confirmOperation')
   }
 })
 const modalConsequence = computed(() => {
   switch (modalKind.value) {
-    case 'restart':
-      return 'Nginx will briefly stop serving while the fixed supervisor operation replaces the master. Production configuration is validated first and files are not modified.'
-    case 'restore':
-      return 'The Agent will validate the target, create a safety backup, restore production, validate, reload, and confirm runtime health. Closing this dialog after submission does not cancel the task.'
-    case 'protect':
-      return 'The backup remains immutable and retention will keep this recovery point until manual protection is removed.'
-    case 'unprotect':
-      return 'Only manual protection is removed. System, active-task, attention, and minimum-set protection still apply.'
-    case 'retention':
-      return 'Only the exact, unexpired dry-run will execute. Every protected or changed item is skipped or fails closed with persisted evidence.'
+    case 'restart': return t('operations.modal.restartConsequence')
+    case 'restore': return t('operations.modal.restoreConsequence')
+    case 'protect': return t('operations.modal.protectConsequence')
+    case 'unprotect': return t('operations.modal.unprotectConsequence')
+    case 'retention': return t('operations.modal.retentionConsequence')
     default:
       return ''
   }
@@ -683,12 +708,12 @@ const modalConfirmation = computed(() => {
 })
 const modalConfirmLabel = computed(() => {
   switch (modalKind.value) {
-    case 'restart': return 'Restart Nginx'
-    case 'restore': return 'Start verified restore'
-    case 'protect': return 'Protect backup'
-    case 'unprotect': return 'Remove manual protection'
-    case 'retention': return 'Execute retention plan'
-    default: return 'Confirm'
+    case 'restart': return t('operations.modal.restart')
+    case 'restore': return t('operations.modal.restore')
+    case 'protect': return t('operations.modal.protect')
+    case 'unprotect': return t('operations.modal.unprotect')
+    case 'retention': return t('operations.modal.retention')
+    default: return t('operations.modal.confirm')
   }
 })
 const modalRequiresReason = computed(() =>
@@ -867,9 +892,9 @@ async function loadMoreAudit(): Promise<void> {
 async function copyRequestID(value: string): Promise<void> {
   try {
     await navigator.clipboard.writeText(value)
-    copyMessage.value = 'Request ID copied.'
+    copyResult.value = 'copied'
   } catch {
-    copyMessage.value = 'Request ID could not be copied. Select the visible value instead.'
+    copyResult.value = 'failed'
   }
 }
 
@@ -885,16 +910,26 @@ function operationTone(value: string): StatusTone {
   }
 }
 
+function runtimeStateLabel(value: 'degraded' | 'running' | 'stopped' | 'unknown'): string {
+  const labels = {
+    running: t('operations.runtime.states.running'),
+    degraded: t('operations.runtime.states.degraded'),
+    stopped: t('operations.runtime.states.stopped'),
+    unknown: t('operations.runtime.states.unknown'),
+  }
+  return labels[value]
+}
+
 function retentionItemLabel(value: RetentionItemState): string {
   switch (value) {
-    case 'skipped_protected': return 'Skipped — protected'
-    case 'needs_attention': return 'Needs attention'
+    case 'skipped_protected': return t('operations.retention.skippedProtected')
+    case 'needs_attention': return t('operations.retention.needsAttention')
     default: return enumLabel(value)
   }
 }
 
 function subjectLabel(value: AttentionCase['subject_type']): string {
-  return value.charAt(0).toUpperCase() + value.slice(1)
+  return enumLabel(value)
 }
 
 function actionLabel(value: string): string {
@@ -902,8 +937,72 @@ function actionLabel(value: string): string {
 }
 
 function enumLabel(value: string): string {
+  const labels: Record<string, string> = {
+    unknown: t('operations.enums.unknown'),
+    running: t('operations.enums.running'),
+    degraded: t('operations.enums.degraded'),
+    stopped: t('operations.enums.stopped'),
+    healthy: t('operations.enums.healthy'),
+    unavailable: t('operations.enums.unavailable'),
+    valid: t('operations.enums.valid'),
+    invalid: t('operations.enums.invalid'),
+    queued: t('operations.enums.queued'),
+    rolling_back: t('operations.enums.rollingBack'),
+    failed: t('operations.enums.failed'),
+    needs_attention: t('operations.enums.needsAttention'),
+    succeeded: t('operations.enums.succeeded'),
+    rolled_back: t('operations.enums.rolledBack'),
+    cancelled: t('operations.enums.cancelled'),
+    planned: t('operations.enums.planned'),
+    executing: t('operations.enums.executing'),
+    expired: t('operations.enums.expired'),
+    kept: t('operations.enums.kept'),
+    deleting: t('operations.enums.deleting'),
+    deleted: t('operations.enums.deleted'),
+    skipped_protected: t('operations.enums.skippedProtected'),
+    open: t('operations.enums.open'),
+    resolved: t('operations.enums.resolved'),
+    workspace: t('operations.enums.workspace'),
+    release: t('operations.enums.release'),
+    restore: t('operations.enums.restore'),
+    restart: t('operations.enums.restart'),
+    verification: t('operations.enums.verification'),
+    maximum_complete: t('operations.enums.maximumComplete'),
+    minimum_complete: t('operations.enums.minimumComplete'),
+    maximum_total_bytes: t('operations.enums.maximumTotalBytes'),
+    minimum_age: t('operations.enums.minimumAge'),
+    manual_protection: t('operations.enums.manualProtection'),
+    runtime_unknown: t('operations.enums.runtimeUnknown'),
+    production_changed: t('operations.enums.productionChanged'),
+    success: t('operations.enums.success'),
+    warning: t('operations.enums.warning'),
+    pending: t('operations.enums.pending'),
+    config: t('operations.enums.config'),
+    backup: t('operations.enums.backup'),
+    attention: t('operations.enums.attention'),
+    retention: t('operations.enums.retention'),
+    publish_check: t('operations.enums.publishCheck'),
+    structured: t('operations.enums.structured'),
+    file: t('operations.enums.file'),
+    groups: t('operations.enums.groups'),
+    create: t('operations.enums.create'),
+    update: t('operations.enums.update'),
+    delete: t('operations.enums.delete'),
+    protect: t('operations.enums.protect'),
+    unprotect: t('operations.enums.unprotect'),
+    start: t('operations.enums.start'),
+    stage: t('operations.enums.stage'),
+    result: t('operations.enums.result'),
+    plan: t('operations.enums.plan'),
+    verify: t('operations.enums.verify'),
+    resolve: t('operations.enums.resolve'),
+  }
+  const known = labels[value]
+  if (known !== undefined) return known
   const words = value.replaceAll('_', ' ')
-  return words.charAt(0).toUpperCase() + words.slice(1)
+  return locale.value === 'en-US'
+    ? words.charAt(0).toUpperCase() + words.slice(1)
+    : value
 }
 
 function abbreviate(value: string): string {
@@ -911,31 +1010,29 @@ function abbreviate(value: string): string {
 }
 
 function sourceLabel(backup: ConfigBackup): string {
-  return `${enumLabel(backup.origin_type)} ${abbreviate(backup.origin_id)}`
+  const key = backup.origin_type === 'release' ? 'backups.releaseSource' : 'backups.restoreSource'
+  return t(key, { id: abbreviate(backup.origin_id) })
 }
 
 function formatTime(value: string): string {
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(new Date(value))
+  return d(new Date(value), 'short')
 }
 
 function formatBytes(value: number): string {
-  if (value < 1024) return `${value} B`
-  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KiB`
-  return `${(value / (1024 * 1024)).toFixed(1)} MiB`
+  if (value < 1024) return `${n(value, 'decimal')} B`
+  if (value < 1024 * 1024) return `${n(value / 1024, 'decimal')} KiB`
+  return `${n(value / (1024 * 1024), 'decimal')} MiB`
 }
 
 function formatDuration(seconds: number): string {
-  if (seconds % 86400 === 0) return `${seconds / 86400} day(s)`
-  if (seconds % 3600 === 0) return `${seconds / 3600} hour(s)`
-  return `${seconds} seconds`
+  if (seconds % 86400 === 0) return t('operations.durationDays', { count: n(seconds / 86400, 'decimal') })
+  if (seconds % 3600 === 0) return t('operations.durationHours', { count: n(seconds / 3600, 'decimal') })
+  return t('operations.durationSeconds', { count: n(seconds, 'decimal') })
 }
 
 function safeDetails(details: Readonly<Record<string, string | number | boolean>>): string {
   const entries = Object.entries(details)
-  if (entries.length === 0) return 'No public details'
+  if (entries.length === 0) return t('operations.audit.noDetails')
   return entries.map(([key, value]) => `${enumLabel(key)}: ${String(value)}`).join(' · ')
 }
 </script>

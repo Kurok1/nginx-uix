@@ -12,7 +12,7 @@
         <h3 :id="titleId">
           {{ title }}
         </h3>
-        <p>Operation ID: <code>{{ operationId }}</code></p>
+        <p>{{ t('operations.timeline.operationId') }} <code>{{ operationId }}</code></p>
       </div>
       <span data-stream-state>{{ streamLabel }}</span>
     </header>
@@ -21,7 +21,7 @@
       aria-live="polite"
       aria-atomic="true"
     >
-      Current stage: {{ stageLabel(stage) }}
+      {{ t('operations.timeline.currentStage', { stage: stageLabel(stage) }) }}
     </p>
     <ol>
       <li
@@ -54,8 +54,11 @@
 
 <script setup lang="ts">
 import { computed, useId } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import type { ReleaseStageResult } from '../api/types'
+
+const { d, t } = useI18n()
 
 export interface OperationStageEvidence {
   sequence: number
@@ -83,40 +86,77 @@ const terminalStates = new Set([
 const terminal = computed(() => terminalStates.has(props.state))
 const streamLabel = computed(() => {
   switch (props.streamState) {
-    case 'live': return 'Live progress connected'
-    case 'connecting': return 'Connecting to progress…'
-    case 'reconnecting': return 'Reconnecting to progress…'
-    default: return 'Persisted progress'
+    case 'live': return t('release.stream.live')
+    case 'connecting': return t('release.stream.connecting')
+    case 'reconnecting': return t('release.stream.reconnecting')
+    default: return t('release.stream.persisted')
   }
 })
 const terminalTitle = computed(() => {
   switch (props.state) {
-    case 'succeeded': return 'Operation succeeded'
-    case 'rolled_back': return 'Safety backup restored'
-    case 'needs_attention': return 'Administrator attention required'
-    case 'cancelled': return 'Operation cancelled'
-    case 'expired': return 'Plan expired'
-    default: return 'Operation failed'
+    case 'succeeded': return t('operations.timeline.operationSucceeded')
+    case 'rolled_back': return t('operations.timeline.backupRestored')
+    case 'needs_attention': return t('operations.timeline.attentionRequired')
+    case 'cancelled': return t('operations.timeline.cancelled')
+    case 'expired': return t('operations.timeline.planExpired')
+    default: return t('operations.timeline.operationFailed')
   }
 })
 const terminalMessage = computed(() => {
   switch (props.state) {
-    case 'succeeded': return 'The persisted operation evidence confirms a healthy terminal result.'
-    case 'rolled_back': return 'The requested change failed; the safety backup was restored and confirmed healthy.'
-    case 'needs_attention': return 'Production or runtime state cannot be uniquely confirmed. Ordinary production changes remain blocked.'
-    case 'cancelled': return 'No successful terminal result was recorded.'
-    case 'expired': return 'Create a fresh dry-run before executing retention.'
-    default: return 'The operation ended without a successful result.'
+    case 'succeeded': return t('operations.timeline.succeededMessage')
+    case 'rolled_back': return t('operations.timeline.rolledBackMessage')
+    case 'needs_attention': return t('operations.timeline.needsAttentionMessage')
+    case 'cancelled': return t('operations.timeline.cancelledMessage')
+    case 'expired': return t('operations.timeline.expiredMessage')
+    default: return t('operations.timeline.failedMessage')
   }
 })
 
 function stageLabel(value: string): string {
-  const words = value.replaceAll('_', ' ')
-  return words.charAt(0).toUpperCase() + words.slice(1)
+  const labels: Record<string, string> = {
+    queued: t('release.stages.queued'),
+    rechecking: t('release.stages.rechecking'),
+    backup_creating: t('release.stages.backupCreating'),
+    backup_verified: t('release.stages.backupVerified'),
+    candidate_validated: t('release.stages.candidateValidated'),
+    files_applying: t('release.stages.filesApplying'),
+    files_applied: t('release.stages.filesApplied'),
+    production_validated: t('release.stages.productionValidated'),
+    reload_requested: t('release.stages.reloadRequested'),
+    runtime_confirmed: t('release.stages.runtimeConfirmed'),
+    committed: t('release.stages.committed'),
+    rollback_applying: t('release.stages.rollbackApplying'),
+    rollback_files_restored: t('release.stages.rollbackFilesRestored'),
+    rollback_validated: t('release.stages.rollbackValidated'),
+    rollback_reload_requested: t('release.stages.rollbackReloadRequested'),
+    rolled_back: t('release.stages.rolledBack'),
+    failed: t('release.stages.failed'),
+    needs_attention: t('release.stages.needsAttention'),
+    target_verifying: t('operations.timeline.stages.targetVerifying'),
+    target_validated: t('operations.timeline.stages.targetValidated'),
+    safety_backup_creating: t('operations.timeline.stages.safetyBackupCreating'),
+    safety_backup_verified: t('operations.timeline.stages.safetyBackupVerified'),
+    files_restoring: t('operations.timeline.stages.filesRestoring'),
+    files_restored: t('operations.timeline.stages.filesRestored'),
+    production_validating: t('operations.timeline.stages.productionValidating'),
+    runtime_sampling: t('operations.timeline.stages.runtimeSampling'),
+    restart_requested: t('operations.timeline.stages.restartRequested'),
+    runtime_confirming: t('operations.timeline.stages.runtimeConfirming'),
+    succeeded: t('operations.timeline.stages.succeeded'),
+  }
+  return labels[value] ?? value
 }
 
 function resultLabel(value: ReleaseStageResult): string {
-  return value.charAt(0).toUpperCase() + value.slice(1)
+  const labels: Record<ReleaseStageResult, string> = {
+    pending: t('release.results.pending'),
+    running: t('release.results.running'),
+    success: t('release.results.success'),
+    failed: t('release.results.failed'),
+    warning: t('release.results.warning'),
+  }
+  return labels[value]
 }
 
 function resultIcon(value: ReleaseStageResult): string {
@@ -130,10 +170,7 @@ function resultIcon(value: ReleaseStageResult): string {
 }
 
 function formatTime(value: string): string {
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'medium',
-  }).format(new Date(value))
+  return d(new Date(value), 'short')
 }
 </script>
 

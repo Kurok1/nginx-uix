@@ -89,8 +89,24 @@ export interface OperationsState {
   activeRestart: NginxRestart | null
   verification: RuntimeVerification | null
   pending: string
-  error: string
+  error: OperationsErrorCode
 }
+
+export type OperationsErrorCode =
+  | ''
+  | 'session_expired'
+  | 'overview_failed'
+  | 'backups_failed'
+  | 'history_failed'
+  | 'audit_failed'
+  | 'restore_failed'
+  | 'restart_failed'
+  | 'protection_failed'
+  | 'retention_plan_failed'
+  | 'retention_execute_failed'
+  | 'verification_failed'
+  | 'progress_failed'
+  | 'retention_progress_failed'
 
 export interface OperationsStore {
   readonly state: OperationsState
@@ -141,7 +157,7 @@ export function createOperationsStore(
   const removeExpiryListener = sessions.onExpired(() => {
     closeStream()
     stopRetentionPolling()
-    state.error = 'Session expired while tracking the operation. Sign in to resume.'
+    state.error = 'session_expired'
   })
 
   function csrfToken(): string {
@@ -168,7 +184,7 @@ export function createOperationsStore(
       state.attentionCursor = cases.next_cursor ?? ''
       state.phase = 'ready'
     } catch (error: unknown) {
-      handleError(error, 'Runtime and attention evidence could not be loaded.')
+      handleError(error, 'overview_failed')
       state.phase = 'ready'
       throw error
     } finally {
@@ -189,7 +205,7 @@ export function createOperationsStore(
       state.backups = append ? [...state.backups, ...page.items] : page.items
       state.backupsCursor = page.next_cursor ?? ''
     } catch (error: unknown) {
-      handleError(error, 'Backup evidence could not be loaded.')
+      handleError(error, 'backups_failed')
       throw error
     } finally {
       state.pending = ''
@@ -219,7 +235,7 @@ export function createOperationsStore(
       state.restarts = append ? [...state.restarts, ...restarts.items] : restarts.items
       state.restartCursor = restarts.next_cursor ?? ''
     } catch (error: unknown) {
-      handleError(error, 'Operation history could not be loaded.')
+      handleError(error, 'history_failed')
       throw error
     } finally {
       state.pending = ''
@@ -237,7 +253,7 @@ export function createOperationsStore(
       state.audit = append ? [...state.audit, ...page.items] : page.items
       state.auditCursor = page.next_cursor ?? ''
     } catch (error: unknown) {
-      handleError(error, 'Audit evidence could not be loaded.')
+      handleError(error, 'audit_failed')
       throw error
     } finally {
       state.pending = ''
@@ -266,7 +282,7 @@ export function createOperationsStore(
       connect('restore', restore.id)
       return restore
     } catch (error: unknown) {
-      handleError(error, 'The restore task could not be queued.')
+      handleError(error, 'restore_failed')
       throw error
     } finally {
       state.pending = ''
@@ -294,7 +310,7 @@ export function createOperationsStore(
       connect('restart', restart.id)
       return restart
     } catch (error: unknown) {
-      handleError(error, 'The fixed restart task could not be queued.')
+      handleError(error, 'restart_failed')
       throw error
     } finally {
       state.pending = ''
@@ -322,7 +338,7 @@ export function createOperationsStore(
       replaceBackup(updated)
       return updated
     } catch (error: unknown) {
-      handleError(error, 'Backup protection could not be changed.')
+      handleError(error, 'protection_failed')
       throw error
     } finally {
       state.pending = ''
@@ -337,7 +353,7 @@ export function createOperationsStore(
       state.retention = run
       return run
     } catch (error: unknown) {
-      handleError(error, 'A retention dry-run could not be created.')
+      handleError(error, 'retention_plan_failed')
       throw error
     } finally {
       state.pending = ''
@@ -357,7 +373,7 @@ export function createOperationsStore(
       scheduleRetentionRefresh()
       return run
     } catch (error: unknown) {
-      handleError(error, 'The retention plan could not be started.')
+      handleError(error, 'retention_execute_failed')
       throw error
     } finally {
       state.pending = ''
@@ -373,7 +389,7 @@ export function createOperationsStore(
       await loadOverview()
       return verification
     } catch (error: unknown) {
-      handleError(error, 'Current runtime health could not resolve this attention case.')
+      handleError(error, 'verification_failed')
       throw error
     } finally {
       state.pending = ''
@@ -391,7 +407,7 @@ export function createOperationsStore(
         if (isTerminalRestart(state.activeRestart)) finishTrackedTask()
       }
     })().catch((error: unknown) => {
-      handleError(error, 'Operation progress could not be refreshed.')
+      handleError(error, 'progress_failed')
       throw error
     }).finally(() => {
       refreshPromise = null
@@ -455,7 +471,7 @@ export function createOperationsStore(
       if (run.state === 'executing') scheduleRetentionRefresh()
       else void loadBackups()
     } catch (error: unknown) {
-      handleError(error, 'Retention progress could not be refreshed.')
+      handleError(error, 'retention_progress_failed')
     }
   }
 
@@ -476,7 +492,7 @@ export function createOperationsStore(
     if (index >= 0) state.backups[index] = backup
   }
 
-  function handleError(error: unknown, message: string): void {
+  function handleError(error: unknown, message: OperationsErrorCode): void {
     if (!sessions.handleAPIError(error)) state.error = message
   }
 

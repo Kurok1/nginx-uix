@@ -161,6 +161,17 @@ function clientFixture(): OperationsClient & {
 }
 
 describe('operations store', () => {
+  it('keeps failures as locale-independent error codes', async () => {
+    const client = clientFixture()
+    client.listBackups = async () => {
+      throw new Error('network failed')
+    }
+    const store = createOperationsStore(client, sessionFixture(), () => new FakeStream())
+
+    await expect(store.loadBackups()).rejects.toThrow('network failed')
+    expect(store.state.error).toBe('backups_failed')
+  })
+
   it('loads blocking evidence and follows a restore SSE task independently of the request', async () => {
     const client = clientFixture()
     const stream = new FakeStream()

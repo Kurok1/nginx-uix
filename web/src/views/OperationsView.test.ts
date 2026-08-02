@@ -17,6 +17,7 @@ import type {
   SystemStatusResponse,
 } from '../api/types'
 import type { OperationsState, OperationsStore } from '../operations'
+import { appI18n } from '../i18n'
 import OperationsView from './OperationsView.vue'
 
 const backup: ConfigBackup = {
@@ -186,6 +187,19 @@ async function mountView(store: OperationsStore, path = '/config/operations') {
 }
 
 describe('OperationsView', () => {
+  it('renders recovery controls in Simplified Chinese', async () => {
+    appI18n.global.locale.value = 'zh-CN'
+    const { wrapper } = await mountView(storeFixture())
+
+    expect(wrapper.get('h1').text()).toBe('恢复与历史')
+    expect(wrapper.text()).toContain('刷新证据')
+    expect(wrapper.get('[role="tab"][aria-selected="true"]').text()).toBe('概览')
+    expect(wrapper.get('[data-attention-case]').text()).toContain('需要处理')
+    expect(wrapper.get('[data-runtime-control]').text()).toContain('Nginx 运行中')
+    expect(wrapper.text()).toContain('不可变备份')
+    wrapper.unmount()
+  })
+
   it('keeps attention evidence first and queues only a named fixed restart', async () => {
     const store = storeFixture()
     const { wrapper } = await mountView(store)
