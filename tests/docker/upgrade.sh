@@ -711,8 +711,8 @@ main() {
   create_volume "${RESTORED_DATA_VOLUME}"
 
   ensure_test_image "${IMAGE}" "${BUILD_IMAGE}" "${PLATFORM}" ||
-    fail 'v1.0 release image identity could not be ensured'
-  pass 'v1.0 image has the exact deterministic source and native platform identity'
+    fail "v${PROJECT_VERSION} release image identity could not be ensured"
+  pass "v${PROJECT_VERSION} image has the exact deterministic source and native platform identity"
   ensure_source_image
   prepare_source_config_compatibility
 
@@ -747,20 +747,20 @@ main() {
   assert_database_state "${SOURCE_DATABASE}"
   pass "v${SOURCE_VERSION} fixture contains durable domain data and exact certificate-vault bytes"
 
-  log "opening the two v${SOURCE_VERSION} persistent roots directly with v1.0.0"
+  log "opening the two v${SOURCE_VERSION} persistent roots directly with v${PROJECT_VERSION}"
   start_application "${IMAGE}" "${SOURCE_CONFIG_VOLUME}" "${SOURCE_DATA_VOLUME}"
   assert_domain_api direct-upgrade
   assert_certificate_fixture "${SOURCE_DATA_VOLUME}"
   stop_application direct-upgrade
   volume_manifest "${SOURCE_CONFIG_VOLUME}" "${WORK_DIR}/v1-upgraded-config.manifest"
   cmp -s "${WORK_DIR}/source-config.manifest" "${WORK_DIR}/v1-upgraded-config.manifest" ||
-    fail "direct v${SOURCE_VERSION} to v1.0 upgrade changed Nginx configuration bytes or metadata"
+    fail "direct v${SOURCE_VERSION} to v${PROJECT_VERSION} upgrade changed Nginx configuration bytes or metadata"
   copy_container_data v1-upgraded-data
   V1_DATABASE=${COPIED_DATABASE}
   assert_database_state "${V1_DATABASE}"
-  pass "direct v${SOURCE_VERSION} to v1.0.0 upgrade preserved both roots and all seeded open/terminal state"
+  pass "direct v${SOURCE_VERSION} to v${PROJECT_VERSION} upgrade preserved both roots and all seeded open/terminal state"
 
-  log 'copying a stopped v1.0.0 cold backup of both roots into two new empty volumes'
+  log "copying a stopped v${PROJECT_VERSION} cold backup of both roots into two new empty volumes"
   volume_manifest "${SOURCE_CONFIG_VOLUME}" "${WORK_DIR}/cold-source-config.manifest"
   volume_manifest "${SOURCE_DATA_VOLUME}" "${WORK_DIR}/cold-source-data.manifest"
   copy_volume "${SOURCE_CONFIG_VOLUME}" "${RESTORED_CONFIG_VOLUME}"
@@ -786,20 +786,21 @@ main() {
   assert_certificate_fixture "${RESTORED_DATA_VOLUME}"
   pass 'stopped cold copy preserved every file digest, owner/mode, entry type and symlink in both roots'
 
-  log 'starting v1.0.0 only from the new cold-restored volumes'
+  log "starting v${PROJECT_VERSION} only from the new cold-restored volumes"
   start_application "${IMAGE}" "${RESTORED_CONFIG_VOLUME}" "${RESTORED_DATA_VOLUME}"
   assert_domain_api cold-restore
   assert_certificate_fixture "${RESTORED_DATA_VOLUME}"
   stop_application cold-restore
   volume_manifest "${RESTORED_CONFIG_VOLUME}" "${WORK_DIR}/cold-restored-config-after-start.manifest"
   cmp -s "${WORK_DIR}/cold-source-config.manifest" "${WORK_DIR}/cold-restored-config-after-start.manifest" ||
-    fail 'restored v1.0 runtime changed the Nginx configuration truth'
+    fail "restored v${PROJECT_VERSION} runtime changed the Nginx configuration truth"
   copy_container_data cold-restored-data
   COLD_DATABASE=${COPIED_DATABASE}
   assert_database_state "${COLD_DATABASE}"
   pass 'new cold-restored volumes preserve SQLite, config, certs, backups, histories, session and open workspace'
 
-  printf '\nDocker v%s upgrade and v1.0 cold-backup recovery acceptance: PASS\n' "${SOURCE_VERSION}"
+  printf '\nDocker v%s to v%s upgrade and cold-backup recovery acceptance: PASS\n' \
+    "${SOURCE_VERSION}" "${PROJECT_VERSION}"
   printf 'source_version=%s source_commit=%s release_id=%s backup_id=%s open_workspace_id=%s group_id=%s\n' \
     "${SOURCE_VERSION}" "${source_commit}" "${RELEASE_ID}" "${BACKUP_ID}" \
     "${OPEN_WORKSPACE_ID}" "${GROUP_ID}"

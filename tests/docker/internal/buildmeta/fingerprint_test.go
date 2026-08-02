@@ -146,10 +146,14 @@ func TestV1UpgradeHarnessPinsDirectAndLongChainBaselines(t *testing.T) {
 		`git show "${SOURCE_REF}:VERSION"`,
 		`[ "${source_version}" = "${SOURCE_VERSION}" ]`,
 		`[ "${source_commit}" = "${EXPECTED_SOURCE_COMMIT}" ]`,
+		`v${PROJECT_VERSION}`,
 	} {
 		if !strings.Contains(upgrade, marker) {
 			t.Errorf("upgrade.sh does not pin source baseline marker %q", marker)
 		}
+	}
+	if strings.Contains(upgrade, "v1.0.0") {
+		t.Error("upgrade.sh must identify the current release from PROJECT_VERSION instead of v1.0.0")
 	}
 
 	matrixPayload, err := os.ReadFile(filepath.Join(root, "tests/docker/upgrade_compatibility.sh"))
