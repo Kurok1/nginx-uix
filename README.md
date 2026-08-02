@@ -2,7 +2,7 @@
 
 Nginx UIX 是面向单节点 HTTP/HTTPS Nginx 的 Web 管理界面，后端使用 Go，前端使用 Vue 3 + TypeScript，持久化使用 SQLite。官方部署方式是一体化 Docker 镜像，镜像内同时包含 Nginx UIX 和受管 Nginx。
 
-当前版本为 `1.1.0`，已经正式发布：
+当前源码版本为 `1.1.0`。正式发布工作流完成后可使用：
 
 - [GitHub Release v1.1.0](https://github.com/Kurok1/nginx-uix/releases/tag/v1.1.0)
 - `ghcr.io/kurok1/nginx-uix:1.1.0`
@@ -69,7 +69,7 @@ GitHub Actions 会把这六个文件保存为可下载的构建 artifact。
 
 ## 正式发布
 
-v1.1.0 已由 [release.yml](.github/workflows/release.yml) 发布。可直接拉取正式多架构镜像：
+`v1.1.0` tag 由 [release.yml](.github/workflows/release.yml) 发布。工作流完成后可拉取正式多架构镜像：
 
 ```sh
 docker pull ghcr.io/kurok1/nginx-uix:1.1.0

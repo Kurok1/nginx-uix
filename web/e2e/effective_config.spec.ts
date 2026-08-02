@@ -37,6 +37,7 @@ const localeCases = [
     displayMode: '展示模式：',
     rawOutput: '原始输出',
     rawRegion: '原始 Nginx 输出 nginx -T 标准输出',
+    writeAction: /保存|发布|上传|写入/u,
   },
   {
     locale: 'en-US',
@@ -57,6 +58,7 @@ const localeCases = [
     displayMode: 'Display mode:',
     rawOutput: 'Raw output',
     rawRegion: 'Raw Nginx output nginx -T standard output',
+    writeAction: /save|publish|upload|write/iu,
   },
 ] as const
 
@@ -102,7 +104,7 @@ for (const copy of localeCases) {
     )
     await expect(viewer).toContainText('second.example.test')
     await expect(page.locator('textarea, [contenteditable="true"]')).toHaveCount(0)
-    await expect(page.getByRole('button', { name: /保存|发布|上传|写入/i })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: copy.writeAction })).toHaveCount(0)
     await expect(page.locator('#effective-config-refresh-feedback')).toHaveAttribute(
       'aria-live',
       'polite',
