@@ -258,6 +258,7 @@ export async function installWorkspaceAPIFixture(
   options: { seedWorkspace?: boolean } = {},
 ): Promise<WorkspaceAPIFixture> {
   const workspaceId = '0123456789abcdef0123456789abcdef'
+  const publishedReleaseId = '22222222222222222222222222222222'
   const groupId = 'fedcba9876543210fedcba9876543210'
   const baseFiles = new Map<string, string>([
     [
@@ -298,6 +299,7 @@ export async function installWorkspaceAPIFixture(
       name: workspaceName,
       state: workspaceState,
       ...(workspaceState === 'ready' ? {} : { state_reason_code: `fixture_${workspaceState}` }),
+      ...(workspaceState === 'published' ? { last_release_id: publishedReleaseId } : {}),
       production_digest: revisionDigest(100),
       base_digest: revisionDigest(101),
       draft_etag: draftETag(),

@@ -37,6 +37,8 @@ describe('ConfigEditor', () => {
     })
 
     expect(wrapper.findAll('[role="tab"]')).toHaveLength(2)
+    expect(wrapper.get('[role="tablist"]').findAll('[aria-label^="Close "]')).toHaveLength(0)
+    expect(wrapper.find('button[aria-label="Close conf.d/site.conf"]').exists()).toBe(true)
     expect(wrapper.get('[role="tab"][aria-selected="true"]').text()).toContain('site.conf')
     expect(wrapper.text()).toContain('Unsaved changes')
     const editors = wrapper.findAllComponents(CodeEditor)

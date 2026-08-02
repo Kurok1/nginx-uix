@@ -17,16 +17,16 @@
     <template v-else>
       <div
         class="config-editor__tabs"
-        role="tablist"
-        :aria-label="t('workspace.editor.openFiles')"
       >
         <div
-          v-for="document in documents"
-          :key="document.path"
-          class="config-editor__tab"
+          class="config-editor__tab-list"
+          role="tablist"
+          :aria-label="t('workspace.editor.openFiles')"
         >
           <button
+            v-for="document in documents"
             :id="tabId(document.path)"
+            :key="document.path"
             type="button"
             role="tab"
             :aria-controls="panelId(document.path)"
@@ -38,14 +38,16 @@
             {{ basename(document.path) }}
             <span v-if="document.dirty">— {{ t('workspace.editor.unsaved') }}</span>
           </button>
-          <button
-            type="button"
-            :aria-label="t('workspace.editor.closeFile', { path: document.path })"
-            @click="emit('close', document.path)"
-          >
-            <span aria-hidden="true">×</span>
-          </button>
         </div>
+        <button
+          v-if="selectedDocument !== undefined"
+          type="button"
+          class="config-editor__close-selected"
+          :aria-label="t('workspace.editor.closeFile', { path: selectedDocument.path })"
+          @click="emit('close', selectedDocument.path)"
+        >
+          <span aria-hidden="true">×</span>
+        </button>
       </div>
 
       <div
@@ -209,7 +211,7 @@ function panelId(path: string): string {
 }
 
 .config-editor__tabs,
-.config-editor__tab,
+.config-editor__tab-list,
 .config-editor__panel header,
 .config-editor__actions {
   display: flex;
@@ -218,12 +220,13 @@ function panelId(path: string): string {
 }
 
 .config-editor__tabs {
-  overflow-x: auto;
   gap: var(--spacing-xs);
 }
 
-.config-editor__tab {
-  flex: none;
+.config-editor__tab-list {
+  flex: 1;
+  gap: var(--spacing-xs);
+  overflow-x: auto;
 }
 
 .config-editor button {
@@ -236,12 +239,10 @@ function panelId(path: string): string {
   cursor: pointer;
 }
 
-.config-editor__tab button:first-child {
-  border-radius: var(--rounded-pill) var(--rounded-none) var(--rounded-none) var(--rounded-pill);
-}
-
-.config-editor__tab button:last-child {
-  border-radius: var(--rounded-none) var(--rounded-pill) var(--rounded-pill) var(--rounded-none);
+.config-editor__tab-list button,
+.config-editor__close-selected {
+  flex: none;
+  border-radius: var(--rounded-pill);
 }
 
 .config-editor button[aria-selected='true'] {

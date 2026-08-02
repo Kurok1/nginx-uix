@@ -102,6 +102,7 @@
         <button
           type="button"
           :aria-label="t('workspace.deleteWorkspace', { name: workspace.name })"
+          :disabled="workspace.state === 'published'"
           @click="emit('request-delete', workspace)"
         >
           {{ t('common.delete') }}
@@ -145,7 +146,13 @@ function cancelCreate(): void {
 }
 
 function stateIcon(state: WorkspaceState): string {
-  return state === 'ready' ? '✓' : state === 'stale' ? '△!' : '◇!'
+  switch (state) {
+    case 'preparing': return '◌'
+    case 'ready':
+    case 'published': return '✓'
+    case 'stale': return '△!'
+    case 'needs_attention': return '◇!'
+  }
 }
 
 function stateLabel(state: WorkspaceState): string {

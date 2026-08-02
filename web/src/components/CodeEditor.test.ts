@@ -117,6 +117,7 @@ describe('CodeEditor', () => {
     await wrapper.setProps({ readOnly: true })
     expect(wrapper.vm.editorViewForTest()).toBe(view)
     expect(view.state.readOnly).toBe(true)
+    expect(content.attributes('tabindex')).toBe('0')
 
     await wrapper.setProps({ readOnly: false, ariaLabel: 'site.conf editor' })
     expect(view.state.readOnly).toBe(false)
