@@ -357,7 +357,7 @@ paths:
     get:
       operationId: getConfigWorkspaceFiles
       summary: Get the configuration tree or one explicit managed file
-      description: Without path returns the complete bounded tree; with path returns only that managed text file. Unknown or repeated query parameters are rejected.
+      description: Without path returns the complete bounded tree; with path returns only that managed text file. Ready workspaces expose the current draft, while published workspaces expose the immutable historical draft associated with last_release_id. Unknown or repeated query parameters are rejected.
       security:
         - sessionCookie: []
       parameters:
@@ -394,6 +394,8 @@ paths:
         "401":
           $ref: "#/components/responses/ConfigAPIError"
         "404":
+          $ref: "#/components/responses/ConfigAPIError"
+        "409":
           $ref: "#/components/responses/ConfigAPIError"
         "413":
           $ref: "#/components/responses/ConfigAPIError"

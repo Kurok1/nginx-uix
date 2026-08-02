@@ -335,8 +335,11 @@ func summariesOnlyDiffResultAtSize(t *testing.T, target int) DiffResult {
 
 func setReviewWorkspaceState(t *testing.T, fixture *serviceFixture, id WorkspaceID, state WorkspaceState) {
 	t.Helper()
-	reason := "PRODUCTION_CHANGED"
-	if state == StateNeedsAttention {
+	reason := ""
+	switch state {
+	case StateStale:
+		reason = "PRODUCTION_CHANGED"
+	case StateNeedsAttention:
 		reason = reasonRecoveryInvalid
 	}
 	fixture.repository.forceState(id, state, reason)

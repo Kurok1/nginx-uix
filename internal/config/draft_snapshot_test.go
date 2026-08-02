@@ -65,6 +65,16 @@ func TestDraftSnapshotRejectsDraftTampering(t *testing.T) {
 	}
 }
 
+func TestDraftSnapshotRemainsReadyOnly(t *testing.T) {
+	fixture := newServiceFixture(t)
+	workspace := fixture.mustCreate(t)
+	setReviewWorkspaceState(t, fixture, workspace.ID, StatePublished)
+
+	if _, err := fixture.service.DraftSnapshot(context.Background(), workspace.ID); !errors.Is(err, ErrConflict) {
+		t.Fatalf("DraftSnapshot(published) error = %v, want ErrConflict", err)
+	}
+}
+
 func mustEntry(t *testing.T, entries []Entry, path RelativePath) Entry {
 	t.Helper()
 	for _, entry := range entries {

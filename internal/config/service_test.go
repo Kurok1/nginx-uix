@@ -648,6 +648,9 @@ func (r *memoryWorkspaceRepository) forceState(id WorkspaceID, state WorkspaceSt
 	workspace := r.workspaces[id]
 	workspace.State = state
 	workspace.StateReasonCode = reason
+	if state == StatePublished {
+		workspace.LastReleaseID = ReleaseID("11111111111111111111111111111111")
+	}
 	workspace.Revision++
 	r.workspaces[id] = workspace
 }

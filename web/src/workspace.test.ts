@@ -360,6 +360,30 @@ describe('in-memory configuration workspace store', () => {
     expect(client.getConfigTree).toHaveBeenCalledWith(workspaceID, expect.any(AbortSignal))
   })
 
+  it('opens a published workspace and keeps its historical draft available for reading', async () => {
+    const client = workspaceClientStub()
+    const published = workspaceFixture({
+      state: 'published',
+      last_release_id: otherWorkspaceID,
+    })
+    client.getWorkspace.mockResolvedValueOnce(published)
+    const store = createWorkspaceStore(client, sessionStoreStub())
+
+    await store.openWorkspace(workspaceID)
+    await store.openFile('conf.d/site.conf')
+
+    expect(store.state.phase).toBe('ready')
+    expect(store.state.active).toEqual(published)
+    expect(store.state.tree).toEqual(treeFixture().entries)
+    expect(store.document('conf.d/site.conf')?.serverContent).toBe('server { listen 80; }\n')
+    expect(client.getConfigTree).toHaveBeenCalledWith(workspaceID, expect.any(AbortSignal))
+    expect(client.getConfigFile).toHaveBeenCalledWith(
+      workspaceID,
+      'conf.d/site.conf',
+      expect.any(AbortSignal),
+    )
+  })
+
   it('keeps multiple open tabs and refuses to close a dirty tab without explicit discard', async () => {
     const client = workspaceClientStub()
     const store = createWorkspaceStore(client, sessionStoreStub())

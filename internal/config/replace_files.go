@@ -58,7 +58,7 @@ func (s *Service) ReplaceFiles(
 		returnErr = errors.Join(returnErr, wrapServiceError("release replaced workspace files lock", lock.Close()))
 	}()
 
-	workspace, manifest, baseManifest, ensureBase, err := s.verifiedWorkspaceUnderLock(ctx, id, root, true)
+	workspace, manifest, baseManifest, ensureBase, err := s.verifiedWorkspaceUnderLock(ctx, id, root, workspaceAccessMutation)
 	if err != nil {
 		return ReplaceFilesResult{}, fmt.Errorf("replace workspace files: %w", err)
 	}
