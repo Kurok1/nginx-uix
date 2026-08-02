@@ -199,6 +199,26 @@ describe('ConfigTree', () => {
     expect(wrapper.emitted('select')).toBeUndefined()
   })
 
+  it('announces a one-member logical group with natural singular grammar', async () => {
+    const group = groupFixture()[0]
+    expect(group).toBeDefined()
+    const wrapper = mount(ConfigTree, {
+      props: {
+        nodes: treeFixture(),
+        groups: group === undefined
+          ? []
+          : [{ ...group, members: ['conf.d/site.conf'], missing: [] }],
+        selectedPath: null,
+      },
+    })
+
+    await wrapper.get('button[aria-label="Show logical groups"]').trigger('click')
+
+    expect(wrapper.get('[data-group-id="group-1"]').attributes('aria-label')).toBe(
+      'Frontend sites, 1 member',
+    )
+  })
+
   it('keeps every tree/action target 44px and contains no API, persistence or forbidden CSS', () => {
     expect(treeSource).toContain('min-height: var(--component-control-min-size)')
     expect(treeSource).toContain('min-width: var(--component-control-min-size)')

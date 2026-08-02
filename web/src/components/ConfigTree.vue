@@ -360,7 +360,13 @@ function rowAccessibleName(row: TreeRow): string {
 
 function rowStatus(row: TreeRow): string {
   if (row.missing) return t('workspace.tree.missing')
-  if (row.group !== undefined) return t('workspace.tree.members', { count: row.group.members.length })
+  if (row.group !== undefined) {
+    return t(
+      'workspace.tree.members',
+      { count: row.group.members.length },
+      row.group.members.length,
+    )
+  }
   const reason = row.node?.status_reason_code
   const labels: Partial<Record<ConfigTreeNode['status_reason_code'], string>> = {
     directory: t('workspace.tree.directory'),

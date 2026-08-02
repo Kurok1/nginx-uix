@@ -19,6 +19,7 @@
         class="config-editor__tabs"
       >
         <div
+          ref="tablist"
           class="config-editor__tab-list"
           role="tablist"
           :aria-label="t('workspace.editor.openFiles')"
@@ -34,6 +35,7 @@
             :tabindex="document.path === selectedPath ? 0 : -1"
             :aria-label="t('workspace.editor.selectFile', { path: document.path })"
             @click="emit('select', document.path)"
+            @keydown="handleTabKeydown($event, document.path)"
           >
             {{ basename(document.path) }}
             <span v-if="document.dirty">— {{ t('workspace.editor.unsaved') }}</span>
@@ -107,7 +109,7 @@
 <script setup lang="ts">
 import type { EditorView } from '@codemirror/view'
 import { openSearchPanel } from '@codemirror/search'
-import { computed, useId } from 'vue'
+import { computed, ref, useId } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import type { OpenDocument } from '../workspace'
@@ -135,6 +137,7 @@ const instanceId = useId()
 const { t } = useI18n()
 const saveReasonId = useId()
 const editors = new Map<string, CodeEditorExpose>()
+const tablist = ref<HTMLElement | null>(null)
 const selectedDocument = computed(() =>
   props.documents.find(({ path }) => path === props.selectedPath),
 )
@@ -165,6 +168,37 @@ function openFind(path: string): void {
   if (editor !== undefined) {
     openSearchPanel(editor.editorViewForTest())
   }
+}
+
+function handleTabKeydown(event: KeyboardEvent, currentPath: string): void {
+  const index = props.documents.findIndex(({ path }) => path === currentPath)
+  if (index < 0 || props.documents.length === 0) return
+
+  let next: number
+  switch (event.key) {
+    case 'ArrowRight':
+    case 'ArrowDown':
+      next = (index + 1) % props.documents.length
+      break
+    case 'ArrowLeft':
+    case 'ArrowUp':
+      next = (index - 1 + props.documents.length) % props.documents.length
+      break
+    case 'Home':
+      next = 0
+      break
+    case 'End':
+      next = props.documents.length - 1
+      break
+    default:
+      return
+  }
+
+  event.preventDefault()
+  const selected = props.documents[next]
+  if (selected === undefined) return
+  emit('select', selected.path)
+  tablist.value?.querySelectorAll<HTMLButtonElement>('[role="tab"]').item(next).focus()
 }
 
 function emitDocumentUpdate(document: OpenDocument, content: string): void {

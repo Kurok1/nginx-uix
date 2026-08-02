@@ -30,7 +30,7 @@
       </div>
       <div>
         <dt>{{ t('workspace.draft') }}</dt>
-        <dd>{{ t('workspace.draftChanges', { count: draftChangeCount }) }}</dd>
+        <dd>{{ t('workspace.draftChanges', { count: draftChangeCount }, draftChangeCount) }}</dd>
       </div>
       <div>
         <dt>{{ t('workspace.safetyBoundary') }}</dt>

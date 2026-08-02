@@ -77,6 +77,7 @@ describe('WorkspaceHeader', () => {
 		})
 		expect(wrapper.text()).toContain('Published')
 		expect(wrapper.text()).toContain('22222222222222222222222222222222')
+		expect(wrapper.findAll('dd')[2]?.text()).toBe('1 draft change')
 		expect(wrapper.text()).toContain('Publication validation and runtime confirmation completed')
 	})
 
